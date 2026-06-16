@@ -46,6 +46,12 @@ Three further gaps surfaced while fixing this (issue #8, research/07):
 This list *is* the strict baseline; there is no relaxed variant in v1. It is pinned in
 `PolicyEnforcer.requiredRestrictions` and independently re-asserted by a test witness.
 
+> **Amended by ADR-022 (2026-06-16):** the baseline is no longer a fixed "exactly 17". ADR-022
+> adds the always-on **profile-escape block** (`DISALLOW_ADD_MANAGED_PROFILE` always;
+> `DISALLOW_ADD_PRIVATE_PROFILE` on API 35+), so `requiredRestrictions` is now API-aware (18 on
+> API ≤ 34, 19 on API ≥ 35). The verify-or-throw contract (D2) is unchanged; only the *contents*
+> of the required set grew. The witness test is split by `@Config(sdk=...)` accordingly.
+
 **D2 — Verify-or-throw, never return partial.** `applyDayOneRestrictions()` applies the full
 set, then `verifyOrThrow()` reads each restriction back via `UserManager.hasUserRestriction`
 and throws `RestrictionEnforcementException(missing)` if any required restriction is not set.

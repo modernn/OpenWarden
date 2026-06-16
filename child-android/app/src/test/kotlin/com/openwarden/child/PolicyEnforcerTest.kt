@@ -81,15 +81,59 @@ class PolicyEnforcerTest {
     private fun enforcerReading(setKeys: Set<String>): PolicyEnforcer =
         PolicyEnforcer(context, isRestrictionSet = { it in setKeys })
 
+    // Profile-escape block (ADR-022). Both pinned literally so this witness stays independent of
+    // the production source (and dodges the @Deprecated symbol on DISALLOW_ADD_MANAGED_PROFILE).
+    private val managedProfileKey = "no_add_managed_profile"
+    private val privateProfileKey = "no_add_private_profile"
+
+    /** The full required set on a pre-15 device: the canonical 17 + the always-on managed block. */
+    private val api34Required = canonical17 + managedProfileKey
+
     // ---------------------------------------------------------------------
-    // Static baseline composition — unconditional
+    // Static baseline composition — API-aware (ADR-020 baseline + ADR-022 profile block)
+    //
+    // Driven through the pure, sdk-parameterized `requiredRestrictionsForSdk(int)` so the API-35
+    // branch is provable here even though this repo's Robolectric tops out below API 35 (a
+    // @Config(sdk=[35]) would throw UnknownSdk). The String constants are compile-time inlined,
+    // so the function needs no live Android runtime.
     // ---------------------------------------------------------------------
 
     @Test
-    fun `requiredRestrictions is exactly the canonical 17`() {
-        val actual = PolicyEnforcer(context).requiredRestrictions
-        assertEquals(17, actual.size, "Day-One baseline must be exactly 17 restrictions (DEFENSES row 2)")
-        assertEquals(canonical17, actual.toSet(), "Day-One baseline must equal the canonical DEFENSES row-2 set")
+    fun `requiredRestrictionsForSdk on API 34 is the 17 baseline plus the managed-profile escape block`() {
+        val actual = PolicyEnforcer.requiredRestrictionsForSdk(34)
+        assertEquals(
+            api34Required,
+            actual.toSet(),
+            "Pre-15 baseline must be the canonical 17 plus DISALLOW_ADD_MANAGED_PROFILE",
+        )
+        assertEquals(18, actual.size, "Pre-15 baseline is 17 + managed-profile block")
+        assertFalse(
+            privateProfileKey in actual,
+            "DISALLOW_ADD_PRIVATE_PROFILE must NOT be required below API 35 — applying an unknown " +
+                "key would never verify set and would trip the fail-closed lock (brick a pre-15 device)",
+        )
+    }
+
+    @Test
+    fun `requiredRestrictionsForSdk on API 35 also blocks the private-space escape`() {
+        val actual = PolicyEnforcer.requiredRestrictionsForSdk(35)
+        assertEquals(
+            canonical17 + managedProfileKey + privateProfileKey,
+            actual.toSet(),
+            "On API 35 the baseline must add both the managed- and private-profile escape blocks",
+        )
+        assertEquals(19, actual.size, "API 35 baseline is 17 + managed + private profile blocks")
+        assertTrue(managedProfileKey in actual, "managed-profile block must be present on API 35 too")
+        assertTrue(privateProfileKey in actual, "private-space block must be present on API 35")
+    }
+
+    @Test
+    fun `the live requiredRestrictions matches the sdk-parameterized composition`() {
+        // The instance property must equal the pure function for the running OS level — no drift.
+        assertEquals(
+            PolicyEnforcer.requiredRestrictionsForSdk(android.os.Build.VERSION.SDK_INT).toSet(),
+            PolicyEnforcer(context).requiredRestrictions.toSet(),
+        )
     }
 
     @Test
@@ -122,7 +166,8 @@ class PolicyEnforcerTest {
 
     @Test
     fun `verifyOrThrow does not throw when every restriction is set`() {
-        enforcerReading(canonical17).verifyOrThrow()
+        // Under @Config(sdk=[34]) the required set is the canonical 17 + the managed-profile block.
+        enforcerReading(api34Required).verifyOrThrow()
     }
 
     @Test
@@ -130,7 +175,7 @@ class PolicyEnforcerTest {
         // Inject a partial state: everything set EXCEPT factory reset + VPN.
         val missing = setOf(UserManager.DISALLOW_FACTORY_RESET, UserManager.DISALLOW_CONFIG_VPN)
         val ex = assertFailsWith<RestrictionEnforcementException> {
-            enforcerReading(canonical17 - missing).verifyOrThrow()
+            enforcerReading(api34Required - missing).verifyOrThrow()
         }
         assertEquals(missing, ex.missing.toSet(), "Exception must name exactly the missing restrictions")
     }
@@ -139,7 +184,7 @@ class PolicyEnforcerTest {
     fun `missingRestrictions reports the complement of what is set`() {
         val present = setOf(UserManager.DISALLOW_FACTORY_RESET, UserManager.DISALLOW_SAFE_BOOT)
         val missing = enforcerReading(present).missingRestrictions().toSet()
-        assertEquals(canonical17 - present, missing)
+        assertEquals(api34Required - present, missing)
     }
 
     // ---------------------------------------------------------------------
@@ -152,7 +197,7 @@ class PolicyEnforcerTest {
         assertTrue(!dpm.isDeviceOwnerApp(context.packageName), "Precondition: app must not be Device Owner")
 
         assertFailsWith<IllegalArgumentException>("must refuse to enforce when not Device Owner") {
-            PolicyEnforcer(context) { true }.applyDayOneRestrictions()
+            PolicyEnforcer(context, isRestrictionSet = { true }).applyDayOneRestrictions()
         }
         // @After restores Device Owner.
     }
@@ -160,7 +205,7 @@ class PolicyEnforcerTest {
     @Test
     fun `applyDayOneRestrictions returns cleanly only when all restrictions verify set`() {
         // Reader reports everything set -> apply succeeds, verify passes, no throw.
-        PolicyEnforcer(context) { true }.applyDayOneRestrictions()
+        PolicyEnforcer(context, isRestrictionSet = { true }).applyDayOneRestrictions()
     }
 
     @Test
@@ -169,9 +214,14 @@ class PolicyEnforcerTest {
         // 17, the readback reports NONE stuck. The enforcer must NOT return in a partial state —
         // it must throw rather than silently log-and-continue (the old fail-OPEN bug).
         val ex = assertFailsWith<RestrictionEnforcementException>("must fail closed on partial apply") {
-            PolicyEnforcer(context) { false }.applyDayOneRestrictions()
+            PolicyEnforcer(context, isRestrictionSet = { false }).applyDayOneRestrictions()
         }
-        assertEquals(canonical17, ex.missing.toSet(), "All restrictions reported missing must surface in the exception")
+        // @Config(sdk=[34]) → the required set is the canonical 17 + the managed-profile block (ADR-022).
+        assertEquals(
+            api34Required,
+            ex.missing.toSet(),
+            "All restrictions reported missing must surface in the exception",
+        )
     }
 
     @Test
@@ -234,5 +284,111 @@ class PolicyEnforcerTest {
         assumeTrue("Robolectric shadow round-trips FactoryResetProtectionPolicy", policy != null)
         assertEquals(accounts, policy!!.factoryResetProtectionAccounts)
         assertTrue(policy.isFactoryResetProtectionEnabled, "FRP must be enabled after binding accounts")
+    }
+
+    // ---------------------------------------------------------------------
+    // applyAllowlist — deny-by-default launch, fail-closed (ADR-022 / issue #12)
+    //
+    // Driven through the injected seams (installedApps + isLaunchBlocked + alwaysExempt) so the
+    // verify path is deterministic and does not depend on whether the Robolectric shadow tracks
+    // setPackagesSuspended / setApplicationHidden. Instrumented deny coverage rides on the
+    // connectedAndroidTest harness (#30); the fail-closed contract is proven here.
+    // ---------------------------------------------------------------------
+
+    /** Enforcer whose installed set, launch-blocked readback, and exempt set are test-controlled. */
+    private fun allowlistEnforcer(
+        installed: List<InstalledApp>,
+        launchBlocked: Set<String>,
+        exempt: Set<String> = emptySet(),
+    ): PolicyEnforcer = PolicyEnforcer(
+        context,
+        installedApps = { installed },
+        isLaunchBlocked = { it in launchBlocked },
+        alwaysExempt = exempt,
+    )
+
+    @Test
+    fun `applyAllowlist suspends every non-allowlisted user app`() {
+        val installed = listOf(
+            InstalledApp("com.school", isSystem = false),
+            InstalledApp("com.game", isSystem = false),
+            InstalledApp("com.chat", isSystem = false),
+        )
+        // Simulate suspension sticking for the two deny targets (verify readback sees them blocked).
+        val result = allowlistEnforcer(installed, launchBlocked = setOf("com.game", "com.chat"))
+            .applyAllowlist(setOf("com.school"))
+
+        assertEquals(
+            setOf("com.game", "com.chat"),
+            result.blocked.toSet(),
+            "Every installed user app not on the allowlist must be a deny target",
+        )
+        assertFalse("com.school" in result.blocked, "Allowlisted app must not be suspended")
+    }
+
+    @Test
+    fun `applyAllowlist fails closed when a non-allowlisted user app stays launchable`() {
+        val installed = listOf(InstalledApp("com.evil.clone", isSystem = false))
+        // launchBlocked is EMPTY: the app resisted both suspend and hide -> still launchable.
+        val ex = assertFailsWith<AllowlistEnforcementException>("must fail closed on an un-contained deny app") {
+            allowlistEnforcer(installed, launchBlocked = emptySet()).applyAllowlist(emptySet())
+        }
+        assertEquals(
+            listOf("com.evil.clone"),
+            ex.stillLaunchable,
+            "The exception must name exactly the app that stayed launchable",
+        )
+    }
+
+    @Test
+    fun `applyAllowlist never suspends system apps`() {
+        // A system app that is NOT on the allowlist and reads back NOT launch-blocked must still
+        // not throw — system apps are exempt, so they are never deny targets in the first place.
+        val installed = listOf(InstalledApp("com.android.systemui", isSystem = true))
+        val result = allowlistEnforcer(installed, launchBlocked = emptySet()).applyAllowlist(emptySet())
+        assertTrue(result.blocked.isEmpty(), "System apps must never be deny targets")
+        assertTrue("com.android.systemui" in result.exempt, "System apps must be reported exempt")
+    }
+
+    @Test
+    fun `applyAllowlist never suspends self or the active launcher`() {
+        val installed = listOf(
+            InstalledApp(context.packageName, isSystem = false), // self
+            InstalledApp("com.android.launcher", isSystem = false), // active launcher (alwaysExempt)
+            InstalledApp("com.game", isSystem = false), // a real deny target
+        )
+        val result = allowlistEnforcer(
+            installed,
+            launchBlocked = setOf("com.game"),
+            exempt = setOf("com.android.launcher"),
+        ).applyAllowlist(emptySet())
+
+        assertEquals(setOf("com.game"), result.blocked.toSet(), "Only the non-exempt user app is a deny target")
+        assertFalse(context.packageName in result.blocked, "Must never suspend self")
+        assertFalse("com.android.launcher" in result.blocked, "Must never suspend the active launcher")
+    }
+
+    @Test
+    fun `applyAllowlist empty allowlist denies all user apps - deny-by-default`() {
+        val installed = listOf(
+            InstalledApp("com.game", isSystem = false),
+            InstalledApp("com.chat", isSystem = false),
+        )
+        val result = allowlistEnforcer(installed, launchBlocked = setOf("com.game", "com.chat"))
+            .applyAllowlist(emptySet())
+        assertEquals(
+            setOf("com.game", "com.chat"),
+            result.blocked.toSet(),
+            "An empty allowlist (missing/corrupt bundle) must suspend every user app",
+        )
+    }
+
+    @Test
+    fun `applyAllowlist throws when app is NOT device owner`() {
+        Shadows.shadowOf(dpm).setDeviceOwner(null)
+        assertFailsWith<IllegalArgumentException>("must refuse to enforce the allowlist when not Device Owner") {
+            allowlistEnforcer(emptyList(), launchBlocked = emptySet()).applyAllowlist(setOf("com.school"))
+        }
+        // @After restores Device Owner.
     }
 }
