@@ -105,6 +105,19 @@ export function proposeKbUpdate(repoRoot: string, input: ProposeInput): ProposeR
   idx.entries.push(newIndexEntry);
   idx.generated = today;
 
+  // F1: do not disturb the contributor's working state. Require a clean tree, and
+  // restore the original branch on the way out — never strand them on kb-update/*.
+  const dirty = (git(repoRoot, ["status", "--porcelain"]).stdout || "").trim();
+  if (dirty) {
+    return {
+      ok: false,
+      message:
+        "working tree has uncommitted changes; commit or stash them before proposing a KB " +
+        "update (propose_kb_update must not disturb your in-progress work).",
+    };
+  }
+  const original = (git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout || "").trim();
+
   const branch = `kb-update/${id}`;
   const co = git(repoRoot, ["checkout", "-b", branch]);
   if (co.status !== 0) {
@@ -135,14 +148,21 @@ export function proposeKbUpdate(repoRoot: string, input: ProposeInput): ProposeR
     return { ok: false, message: `commit failed (signing/DCO?): ${commit.stderr}`, branch };
   }
 
+  // After a successful commit the tree is clean, so returning to the original branch
+  // is safe. restore() guarantees we never leave the contributor on kb-update/*.
+  const restore = () => {
+    if (original && original !== branch) git(repoRoot, ["checkout", original]);
+  };
+
   // Push + open PR via the contributor's own gh.
   const push = git(repoRoot, ["push", "-u", "origin", branch]);
   if (push.status !== 0) {
+    restore();
     return {
       ok: false,
       message:
         `committed to ${branch} but push failed: ${push.stderr.trim()}. ` +
-        `Push manually and open a PR labeled kb-update.`,
+        `Push it manually and open a PR labeled kb-update (your branch was restored).`,
       branch,
     };
   }
@@ -161,8 +181,14 @@ export function proposeKbUpdate(repoRoot: string, input: ProposeInput): ProposeR
     ],
     repoRoot
   );
+  restore();
   if (!pr.ok) {
     return { ok: false, message: `branch pushed but PR open failed: ${pr.stderr}`, branch };
   }
-  return { ok: true, message: "opened kb-update PR", branch, prUrl: pr.stdout.trim() };
+  return {
+    ok: true,
+    message: "opened kb-update PR (restored your original branch)",
+    branch,
+    prUrl: pr.stdout.trim(),
+  };
 }
