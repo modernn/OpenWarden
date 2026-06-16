@@ -1,0 +1,84 @@
+name: 🙋 Contributor application
+description: Apply to be an approved OpenWarden contributor (required for KB and code auto-merge tiers).
+title: "[contributor] @<your-handle>"
+labels: ["contributor-application"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        OpenWarden is open-source, no-subscription, **local-only** parental control. Contributing is
+        open to everyone — you can open PRs today without applying. This application is only for being
+        added to `.github/contributors.allow`, which unlocks the lighter-touch review tiers (KB and
+        small `agent-ready` code changes). Crypto/proto/policy/CI changes always need a maintainer,
+        approved or not.
+
+        Please read [`CONTRIBUTING.md`](https://github.com/modernn/OpenWarden/blob/main/CONTRIBUTING.md)
+        and [`AGENTS.md`](https://github.com/modernn/OpenWarden/blob/main/AGENTS.md) first.
+  - type: input
+    id: handle
+    attributes:
+      label: GitHub handle
+      description: Your handle (the one that will appear in contributors.allow). Should match the issue author.
+      placeholder: "@octocat"
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why do you want to contribute?
+      description: A sentence or two. What draws you to a no-surveillance parental-control tool?
+    validations:
+      required: true
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: Which areas do you want to work in?
+      description: Pick the scopes you're requesting. These map to columns in contributors.allow.
+      options:
+        - label: "code — implement agent-ready feature/bug issues (child-android / parent-kmp)"
+        - label: "kb — propose knowledgebase entries"
+        - label: "translations / i18n"
+        - label: "crypto-review — read-only review of crypto/protocol (never autonomous implementation)"
+  - type: checkboxes
+    id: non-negotiables
+    attributes:
+      label: The non-negotiables (required agreement)
+      description: A PR that violates any of these will not merge. You must agree to all.
+      options:
+        - label: "I will NOT add any subscription, SaaS, telemetry, analytics, or phone-home. Ever."
+          required: true
+        - label: "I will NOT add content monitoring (reading/sending messages, photos, audio)."
+          required: true
+        - label: "I will keep every error path FAIL-CLOSED (defaults to more restriction, never less)."
+          required: true
+        - label: "I will keep every monitored category visible on the kid-transparency screen."
+          required: true
+        - label: "I will NOT commit secrets (keys, tokens, BIP39 phrases) to the repo. Ever."
+          required: true
+  - type: checkboxes
+    id: dco
+    attributes:
+      label: Developer Certificate of Origin + signing (required)
+      options:
+        - label: "I agree to the Developer Certificate of Origin (https://developercertificate.org/) and will sign off every commit (git commit -s)."
+          required: true
+        - label: "I will sign my commits (git commit -S) and never use --no-verify."
+          required: true
+        - label: "I will use conventional commit messages (feat:/fix:/docs:/chore:/test:)."
+          required: true
+  - type: input
+    id: prior-oss
+    attributes:
+      label: Prior open-source work (links)
+      description: Links to merged PRs, repos, or profiles. Helps maintainers gauge scope.
+      placeholder: "https://github.com/... , https://gitlab.com/..."
+    validations:
+      required: false
+  - type: input
+    id: proof-of-work
+    attributes:
+      label: Proof of work — a merged good-first-issue / agent-ready PR in this repo
+      description: Link the OpenWarden PR you've already landed. Required for the code/kb auto-merge tiers (you can apply before it merges, but approval waits on it).
+      placeholder: "https://github.com/modernn/OpenWarden/pull/NN"
+    validations:
+      required: false

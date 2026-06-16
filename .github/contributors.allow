@@ -1,0 +1,23 @@
+# OpenWarden approved-contributor registry
+# -----------------------------------------
+# This file is the human-maintained allowlist that the registry-gate workflow reads to
+# decide whether a PR author may use the lighter-touch (auto-merge) review tiers. Being
+# absent from this list does NOT block contribution — anyone can open a PR; it just means
+# every change gets full maintainer review. Crypto/proto/policy/CI changes ALWAYS require a
+# maintainer regardless of what's here (CODEOWNERS is the hard gate).
+#
+# Format (whitespace-separated columns; '#' starts a comment):
+#
+#   <github-handle>   <scopes>   # approved <YYYY-MM-DD>, ref #<application-issue>
+#
+#   handle  = GitHub login, no leading '@'
+#   scopes  = comma-separated, no spaces, from: kb, code, translations, review
+#             (kb         = may propose/auto-merge KB-only changes)
+#             (code       = may auto-merge small agent-ready code changes once checks pass)
+#             (translations = i18n/string changes)
+#             (review     = trusted read-only reviewer, incl. crypto-review)
+#
+# Approval is a maintainer action: add a row here in a PR, reference the contributor's
+# application issue, and have a maintainer (CODEOWNERS owns this file) merge it.
+
+modernn  kb,code,review  # maintainer
