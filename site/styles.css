@@ -42,7 +42,7 @@
   --paper-3:      oklch(0.915 0.021 74);
   --ink:          oklch(0.255 0.022 55);
   --ink-2:        oklch(0.425 0.027 52);
-  --ink-3:        oklch(0.535 0.030 55);
+  --ink-3:        oklch(0.495 0.032 56);
   --clay:         oklch(0.585 0.142 47);
   --clay-deep:    oklch(0.495 0.135 44);
   --clay-tint:    oklch(0.930 0.038 62);
@@ -408,6 +408,12 @@ em { font-style: italic; }
   margin-top: var(--space-s); font-size: var(--step--1); color: var(--ink-3);
   text-align: center; font-family: var(--font-mono); letter-spacing: -0.01em;
 }
+.diagram text { font-family: var(--font-mono); }
+.card-title {
+  font-family: var(--font-display); font-weight: 600; font-size: var(--step-2);
+  line-height: 1.12; letter-spacing: -0.012em; color: var(--ink);
+  margin-bottom: var(--space-xs);
+}
 
 /* ---- Reasons / why list ------------------------------------------------ */
 .reasons { display: grid; gap: 0; margin-top: var(--space-m); }
@@ -622,4 +628,79 @@ em { font-style: italic; }
 @media (prefers-contrast: more) {
   :root { --ink-2: var(--ink); --ink-3: var(--ink-2); --line: var(--line-strong); }
   .nav__link, .footer__col a { text-decoration: underline; }
+}
+
+/* =========================================================================
+   Build / contribute pages
+   ========================================================================= */
+
+/* Pipeline flow (read as a sequence, not a card grid) */
+.flow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.55rem;
+  margin-top: var(--space-l);
+}
+.flow__node {
+  font-family: var(--font-mono); font-size: var(--step--1); font-weight: 500;
+  background: var(--paper); border: 1px solid var(--line-strong); border-radius: var(--r-pill);
+  padding: 0.45rem 0.85rem; color: var(--ink); white-space: nowrap;
+}
+.flow__node--accent { background: var(--clay-tint); border-color: var(--clay-tint-2); color: var(--clay-deep); }
+.flow__node--pine { background: var(--pine-tint); border-color: oklch(0.86 0.04 165); color: var(--pine-deep); }
+.flow__arrow { color: var(--ink-3); font-weight: 600; }
+.flow__loop { color: var(--clay-deep); font-weight: 600; font-family: var(--font-mono); }
+
+/* Skill / role cards with a mono command chip */
+.skill-grid {
+  display: grid; gap: var(--space-m);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  margin-top: var(--space-l);
+}
+.skill {
+  border: 1px solid var(--line); border-radius: var(--r-2);
+  padding: var(--space-m); background: var(--paper);
+  display: flex; flex-direction: column; gap: 0.45rem;
+}
+.skill h3 { font-size: var(--step-0); font-family: var(--font-display); letter-spacing: -0.01em; }
+.skill p { font-size: var(--step--1); color: var(--ink-2); margin: 0; }
+.skill code {
+  align-self: flex-start; margin-top: auto;
+  font-family: var(--font-mono); font-size: 0.78rem; color: var(--clay-deep);
+  background: var(--clay-tint); border: 1px solid var(--clay-tint-2);
+  border-radius: var(--r-1); padding: 0.2rem 0.5rem;
+}
+
+/* Two-engine "driver / critic" split */
+.duo {
+  display: grid; gap: var(--space-l);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  margin-top: var(--space-l);
+}
+.duo__card {
+  border: 1px solid var(--line); border-radius: var(--r-3);
+  padding: clamp(1.3rem, 1rem + 1.4vw, 2rem); background: var(--paper);
+}
+.duo__role {
+  font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--clay-deep);
+}
+.duo__card h3 { font-size: var(--step-2); margin: 0.3rem 0 var(--space-xs); }
+.duo__card p { color: var(--ink-2); }
+
+/* Compact requirement / quick-rule list */
+.req {
+  display: grid; gap: 0; margin-top: var(--space-l);
+  border-top: 1px solid var(--line);
+}
+.req li {
+  display: grid; grid-template-columns: auto 1fr; gap: var(--space-m);
+  align-items: baseline; padding: var(--space-m) 0; border-bottom: 1px solid var(--line);
+}
+.req .req__k {
+  font-family: var(--font-display); font-weight: 600; font-size: var(--step-0);
+  color: var(--ink);
+}
+.req .req__v { color: var(--ink-2); }
+.req .req__v code, .req__v .mono { color: var(--clay-deep); }
+@media (max-width: 600px) {
+  .req li { grid-template-columns: 1fr; gap: 0.2rem; }
 }

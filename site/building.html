@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How OpenWarden gets built · OpenWarden</title>
+  <meta name="description" content="How OpenWarden manages contributions and work: a feature-tier system, build/maintain cost labels, the 5-year test, ADRs, BDFL-to-council governance, and a dual-LLM dev loop where Claude Code drives and Codex critiques, with humans owning every merge." />
+  <meta name="theme-color" content="#f4ecdc" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="canonical" href="https://open-warden.com/building" />
+  <meta property="og:title" content="How OpenWarden gets built" />
+  <meta property="og:description" content="Tiers, cost labels, the 5-year test, ADRs, BDFL-to-council governance, and a dual-LLM dev loop (Claude drives, Codex critiques) where humans own every merge." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://open-warden.com/building" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- ===== Icon sprite ================================================== -->
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-eye-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c5.5 0 9.5 5 10 7a13.2 13.2 0 0 1-2 2.7"/><path d="M6.6 6.6C3.9 8.2 2.3 10.6 2 12c.5 2 4.5 7 10 7 1.6 0 3-.4 4.3-1"/><path d="m9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></g></symbol>
+    <symbol id="icon-doc" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></g></symbol>
+    <symbol id="icon-handshake" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1.4 1.4 0 0 0 2-2"/><path d="m13 15 2.5 2.5a1.4 1.4 0 0 0 2-2L13 11l-1.5 1a2 2 0 0 1-2.5 0L7 10.5l-4 4"/><path d="M14 6.5 12 8 9.5 6.5a2 2 0 0 0-2.4.3L3 11"/><path d="m14 6.5 3.5-1 3.5 4.5"/><path d="m3 11-1-1"/></g></symbol>
+    <symbol id="icon-cpu" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></g></symbol>
+    <symbol id="icon-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 1-5.2 5.2L5 16v3h3l4.5-4.5a4 4 0 0 1 5.2-5.2l-2.7 2.7-2.3-2.3 2.7-2.7Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></g></symbol>
+    <symbol id="icon-github" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m6 6-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <!-- ===== Header ======================================================= -->
+  <header class="site-header" id="top">
+    <div class="wrap nav">
+      <a class="brand" href="index.html" aria-label="OpenWarden home">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="25" height="25" rx="8" fill="none" stroke="var(--clay)" stroke-width="2.2"/>
+          <path d="M9 18.5 16 10l7 8.5" fill="none" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="21.5" r="1.7" fill="var(--clay)"/>
+        </svg>
+        OpenWarden
+      </a>
+      <button class="nav__toggle" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu">
+        <svg aria-hidden="true"><use href="#icon-menu"/></svg>
+      </button>
+      <nav class="nav__links" id="nav-links" aria-label="Primary">
+        <a class="nav__link" href="index.html#never">What it never sees</a>
+        <a class="nav__link" href="index.html#how">How it works</a>
+        <a class="nav__link" href="index.html#roadmap">Roadmap</a>
+        <a class="nav__link" href="building.html" aria-current="page">How we build</a>
+        <a class="nav__link" href="ethics.html">Ethics</a>
+        <a class="btn btn--primary btn--sm" href="get-started.html">Start contributing</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ===== Hero ======================================================= -->
+    <section class="page-hero">
+      <div class="wrap wrap--narrow">
+        <p style="margin-bottom: var(--space-m)">
+          <a class="textlink" href="index.html"><svg aria-hidden="true" style="transform:none"><use href="#icon-arrow-left"/></svg> Back to overview</a>
+        </p>
+        <span class="eyebrow">How we build</span>
+        <h1>Built in the open, by humans and machines, to last.</h1>
+        <p class="lede">OpenWarden is a two-person, grant-funded project with no revenue. That single fact shapes everything: which work gets chosen, how scope stays small, and how AI coding engines accelerate the build without ever being trusted to merge it. Here is the whole machine.</p>
+      </div>
+    </section>
+
+    <!-- ===== Work tracking: tiers ======================================= -->
+    <section class="section--tight">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Every issue gets a tier</span>
+          <h2>Work is tracked by what it costs to keep alive.</h2>
+          <p class="lede">Every issue and PR is labeled at triage with a feature tier and two cost estimates. The labels decide whether a thing gets built, and when.</p>
+        </div>
+        <div class="roadmap">
+          <div class="phase reveal">
+            <div class="phase__meta"><span class="phase__ver">Tier 0</span><span class="status status--now">Must ship in v1</span></div>
+            <div>
+              <p class="phase__lede"><strong>Foundational.</strong> If it doesn't ship, OpenWarden doesn't ship.</p>
+              <ul class="phase__items"><li>Device Owner DPC</li><li>Signed policy bundles</li><li>Recovery phrase</li><li>Allowlist + time windows</li><li>Audit log</li></ul>
+            </div>
+          </div>
+          <div class="phase reveal" data-delay="1">
+            <div class="phase__meta"><span class="phase__ver">Tier 1</span><span class="status status--next">v1 if time, else v2</span></div>
+            <div>
+              <p class="phase__lede"><strong>High-leverage.</strong> Materially improves safety or UX, but the product is viable without it.</p>
+              <ul class="phase__items"><li>DNS content filter</li><li>Install-approval</li><li>Babysitter role</li><li>Reproducible builds</li></ul>
+            </div>
+          </div>
+          <div class="phase reveal" data-delay="2">
+            <div class="phase__meta"><span class="phase__ver">Tier 2</span><span class="status status--later">v3+, never before</span></div>
+            <div>
+              <p class="phase__lede"><strong>Nice-to-have.</strong> Real value, real cost. Not started until Tier 0 + 1 ship and hold under one critical bug per month for three straight months.</p>
+              <ul class="phase__items"><li>On-device AI classifiers</li><li>Time-bank</li><li>Geofencing</li><li>Multi-language UI</li></ul>
+            </div>
+          </div>
+          <div class="phase reveal" data-delay="3">
+            <div class="phase__meta"><span class="phase__ver">Tier 3</span><span class="status status--later">Never</span></div>
+            <div>
+              <p class="phase__lede"><strong>Out of scope.</strong> Proposed many times; the answer is no.</p>
+              <ul class="phase__items"><li>SaaS / web dashboard</li><li>Plugin marketplace</li><li>Telemetry</li><li>Content monitoring</li></ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="split" style="margin-top: var(--space-xl)">
+          <div class="reason reveal" style="border:0;padding:0">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-tool"/></svg></div>
+            <div>
+              <h3>Build cost: S / M / L</h3>
+              <p>Engineering time to ship. <span class="kbd-term">S</span> under a week, <span class="kbd-term">M</span> one to four weeks, <span class="kbd-term">L</span> over four weeks.</p>
+            </div>
+          </div>
+          <div class="reason reveal" data-delay="1" style="border:0;padding:0">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-search"/></svg></div>
+            <div>
+              <h3>Maintain cost: S / M / L</h3>
+              <p>Hours per quarter to keep it working. <span class="kbd-term">S</span> under 4h, <span class="kbd-term">M</span> 4&ndash;16h, <span class="kbd-term">L</span> over 16h. Anything <strong>Maintain&nbsp;L</strong> is deferred or refused. We don't take on permanent rent.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== The 5-year test ============================================ -->
+    <section class="section band--alt">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Saying no is the job</span>
+          <h2>Every feature has a five-year maintenance bill.</h2>
+          <p class="lede">There is no revenue to pay that bill, so scope creep, not a bypassed lock, is the project's single biggest threat. One question gates everything new.</p>
+        </div>
+        <p class="callout-strong reveal">
+          If we ship this in v1.x, can we still maintain it in <span class="accent">v6.0</span> with a two-person team funded by grants? If the answer is no, it does not ship in core.
+        </p>
+        <p class="lede" style="margin-top: var(--space-l)">When the answer is no, the reply is one of six copy-paste templates, so every contributor gets the same honest decline:</p>
+        <ul class="phase__items reveal" style="margin-top: var(--space-m)">
+          <li>Out of scope (Tier&nbsp;3)</li><li>Defer (Tier&nbsp;2)</li><li>Threat-model concern</li>
+          <li>Paid-service dependency</li><li>Telemetry / analytics</li><li>Tone or fit</li>
+        </ul>
+        <p class="hero__note reveal" style="margin-top: var(--space-m)">Every &ldquo;no&rdquo; thanks the contributor first, links to the exact rule, and never disparages the idea. A fork under Apache&nbsp;2.0 is always a welcome answer.</p>
+      </div>
+    </section>
+
+    <!-- ===== Decisions ================================================== -->
+    <section class="section--tight">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">How direction changes</span>
+          <h2>Big calls are written down.</h2>
+        </div>
+        <div class="split">
+          <div class="reason reveal" style="border:0;padding:0">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-doc"/></svg></div>
+            <div>
+              <h3>Architecture Decision Records</h3>
+              <p>One numbered Markdown file per decision in <span class="kbd-term">docs/adr/</span>: context, options, decision, consequences. Proposed by PR with a five-business-day comment window. Twelve are accepted so far, including <em>one device tier</em>, <em>privacy via a no-server architecture</em>, and <em>Kotlin Multiplatform, not Flutter</em>.</p>
+            </div>
+          </div>
+          <div class="reason reveal" data-delay="1" style="border:0;padding:0">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-handshake"/></svg></div>
+            <div>
+              <h3>Governance that grows up</h3>
+              <p>It starts as a BDFL: the maintainer owns the roadmap, the threat model, and the release keys through v1. Once five active maintainers exist it becomes a small steering council running on lazy approval, two approvals with a 72-hour SLA. Conduct follows Contributor&nbsp;Covenant&nbsp;2.1.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Humans + machines ========================================== -->
+    <section class="section band--clay" id="ai">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Humans and machines</span>
+          <h2>AI writes a lot of the code. Humans own every merge.</h2>
+          <p class="lede">The dev loop is dual-LLM: Claude Code drives, Codex critiques. It accelerates scaffolding, refactors, and tests, but it is explicitly <em>not</em> &ldquo;vibe-coding a security app.&rdquo; Crypto, provisioning, and the device controller always get human review.</p>
+        </div>
+        <div class="duo">
+          <div class="duo__card reveal">
+            <span class="duo__role">Driver</span>
+            <h3>Claude Code</h3>
+            <p>Reads the relevant spec section, writes failing tests first (test-vector-driven for crypto), implements the smallest diff to green, runs the conformance check, and drafts the PR. Crypto, <span class="kbd-term">:proto</span>, and provisioning work enters Plan mode before a single edit.</p>
+          </div>
+          <div class="duo__card reveal" data-delay="1">
+            <span class="duo__role">Critic</span>
+            <h3>Codex CLI</h3>
+            <p>An independent second opinion, pulled in via the <span class="kbd-term">codex:rescue</span> skill or a direct shell call. Used for high-stakes crypto and UX, or automatically after three failed attempts on the same problem.</p>
+          </div>
+        </div>
+
+        <h3 style="margin-top: var(--space-xl); font-size: var(--step-1)">The loop, every time</h3>
+        <div class="flow reveal" role="list" aria-label="The development loop">
+          <span class="flow__node" role="listitem">Read spec</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node flow__node--accent" role="listitem">Tests first</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node" role="listitem">Confirm red</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node" role="listitem">Implement</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node flow__node--pine" role="listitem">Confirm green</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node" role="listitem">/verify</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node" role="listitem">Open PR</span><span class="flow__arrow" aria-hidden="true">&rarr;</span>
+          <span class="flow__node" role="listitem">Human review</span>
+          <span class="flow__loop" aria-hidden="true">&#8635;</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Skills ===================================================== -->
+    <section class="section--tight">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Six skills do the heavy lifting</span>
+          <h2>Repeatable jobs, one command each.</h2>
+          <p class="lede">The skills are the shared interface. Any coding engine drives the same commands against the same specs and test vectors.</p>
+        </div>
+        <div class="skill-grid">
+          <div class="skill reveal"><h3>Bootstrap</h3><p>First-time setup: JDK&nbsp;21, Android SDK + emulator, ktlint, optional Codex CLI. Idempotent.</p><code>/bootstrap-repo</code></div>
+          <div class="skill reveal" data-delay="1"><h3>Unit tests</h3><p>Fast JVM tests for crypto, protocol, and policy logic.</p><code>/test-openwarden-unit</code></div>
+          <div class="skill reveal" data-delay="2"><h3>End-to-end</h3><p>Boots an emulator, provisions Device Owner, asserts <span class="mono">/health</span>, tears down. ~15&nbsp;min.</p><code>/test-openwarden-e2e-emulator</code></div>
+          <div class="skill reveal"><h3>Provision</h3><p>Sets up a running emulator as Device Owner for manual debugging.</p><code>/provision-openwarden-emulator</code></div>
+          <div class="skill reveal" data-delay="1"><h3>Verify spec</h3><p>Runs the test-vector corpus against the code and reports PROTOCOL / CRYPTO / PROVISIONING conformance.</p><code>/verify-openwarden-spec</code></div>
+          <div class="skill reveal" data-delay="2"><h3>Second opinion</h3><p>Spawns the <span class="mono">codex:rescue</span> subagent for an independent review.</p><code>/codex-second-opinion</code></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Guardrails ================================================= -->
+    <section class="section band--alt">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">What the machine can't do</span>
+          <h2>The autonomy is bounded on purpose.</h2>
+          <p class="lede">Speed is welcome; trust is earned. These limits are enforced in config and hooks, not by good intentions.</p>
+        </div>
+        <div class="trust-card trust-card--never reveal" style="margin-top: var(--space-l)">
+          <ul class="tlist tlist--never">
+            <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label">No AI push to <span class="mono">main</span><span class="sub">CODEOWNERS routes crypto, provisioning, <span class="mono">:proto</span>, and test-vectors to mandatory human review.</span></span></li>
+            <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label">No unsafe commands<span class="sub">Settings deny <span class="mono">git push --force</span>, <span class="mono">--no-verify</span>, anything matching <span class="mono">BIP39</span> / <span class="mono">MNEMONIC</span>, and <span class="mono">rm -rf /</span>.</span></span></li>
+            <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label">No skipping tests<span class="sub">A Stop hook runs the suite before a turn can end. Tests are required for crypto, protocol, features, and bug fixes.</span></span></li>
+            <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label">No runaway loops<span class="sub">Escalate to Codex after three failed iterations; trip at five edits to one file; per-task cost caps.</span></span></li>
+            <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label">No silent merges<span class="sub">Opening or merging a PR is gated to ask. Every commit is human-signed with a DCO sign-off.</span></span></li>
+          </ul>
+        </div>
+        <p class="hero__note reveal" style="margin-top: var(--space-l)">
+          Engine-agnostic by design: the contract is the spec docs, the skills, and a pinned model config, not a vendor. Claude Code is the harness; Codex plugs in through the <span class="kbd-term">codex:rescue</span> skill or a shell script; any engine is judged against the same conformance checks.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== CTA ======================================================== -->
+    <section class="section band--bark">
+      <div class="wrap contribute__grid">
+        <div>
+          <span class="eyebrow">Ready?</span>
+          <h2>Pick up a good first issue.</h2>
+          <p style="margin-top: var(--space-s); max-width: 34rem">At least five <span class="mono">good-first-issue</span> tickets are kept open at all times, each labeled with honest build and maintain cost so you can pick something real.</p>
+          <div class="btnrow" style="margin-top: var(--space-l)">
+            <a class="btn btn--on-bark" href="get-started.html">Start contributing <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg></a>
+            <a class="btn btn--ghost-on-bark" href="https://github.com/modernn/OpenWarden">
+              <svg aria-hidden="true"><use href="#icon-github"/></svg> Star the repo
+            </a>
+          </div>
+        </div>
+        <div class="contrib-list">
+          <div class="contrib reveal">
+            <div class="contrib__icon"><svg aria-hidden="true"><use href="#icon-doc"/></svg></div>
+            <div><h3>Read the rules</h3><p><span class="mono">CONTRIBUTING.md</span>, <span class="mono">GOVERNANCE.md</span>, and <span class="mono">SIMPLIFY.md</span> are short and link from every &ldquo;no.&rdquo;</p></div>
+          </div>
+          <div class="contrib reveal" data-delay="1">
+            <div class="contrib__icon"><svg aria-hidden="true"><use href="#icon-cpu"/></svg></div>
+            <div><h3>Bring your own engine</h3><p>Claude Code, Codex, or another, judged against the same tests and conformance vectors.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Footer ======================================================= -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer__top">
+        <div class="footer__brand">
+          <a class="brand" href="index.html">
+            <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="25" height="25" rx="8" fill="none" stroke="var(--clay-on-bark)" stroke-width="2.2"/>
+              <path d="M9 18.5 16 10l7 8.5" fill="none" stroke="var(--paper-on-bark)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="16" cy="21.5" r="1.7" fill="var(--clay-on-bark)"/>
+            </svg>
+            OpenWarden
+          </a>
+          <p class="footer__pledge">Open-source, local-only parental control for Android. No subscription, no server, no content monitoring. Your family's data stays on your family's devices.</p>
+        </div>
+        <div class="footer__col">
+          <h4>Project</h4>
+          <ul>
+            <li><a href="https://github.com/modernn/OpenWarden">GitHub</a></li>
+            <li><a href="index.html">Overview</a></li>
+            <li><a href="index.html#roadmap">Roadmap</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/LICENSE">License (Apache 2.0)</a></li>
+          </ul>
+        </div>
+        <div class="footer__col">
+          <h4>Build</h4>
+          <ul>
+            <li><a href="building.html" aria-current="page">How we build</a></li>
+            <li><a href="get-started.html">Get started</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/CONTRIBUTING.md">Contributing</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/GOVERNANCE.md">Governance</a></li>
+          </ul>
+        </div>
+        <div class="footer__col">
+          <h4>Trust</h4>
+          <ul>
+            <li><a href="ethics.html">Ethics</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/DEFENSES.md">Threat model</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/CRYPTO.md">Cryptography</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <p class="footer__anti">OpenWarden is anti-stalkerware. The kid always sees what is monitored. If you are in an unsafe home: call or text 988 (US), Childhelp 1-800-422-4453, or contact the Coalition Against Stalkerware.</p>
+        <span>© 2026 OpenWarden · Apache 2.0 · No trackers, no cookies, no analytics on this site.</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
