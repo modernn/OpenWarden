@@ -72,7 +72,8 @@ For a maintainer turning the roadmap into the vetted backlog (issues #3–#33 mo
 - Read [`docs/ROADMAP.md`](../../../docs/ROADMAP.md). For each small, non-sensitive item,
   draft an issue using [`.github/ISSUE_TEMPLATE/agent-task.yml`](../../../.github/ISSUE_TEMPLATE/agent-task.yml):
   label `agent-ready` + the right `area:*` (`area:child-android`/`area:parent-kmp`/
-  `area:proto`/`area:dns`/`area:infra`) on the `v1` milestone.
+  `area:dns`/`area:infra`) on the `v1` milestone. **Never label `area:proto`, crypto,
+  policy-enforcement, or provisioning `agent-ready`** — those are always `agent-blocked`.
 - Anything touching crypto / `proto` / provisioning / policy-enforcement → label
   `agent-blocked` and leave it human-only (see `kb/design-memory/agent-ready-vs-blocked.md`).
 - Confirm each `gh issue create ...` with the maintainer before running it.
@@ -84,8 +85,9 @@ For a maintainer turning the roadmap into the vetted backlog (issues #3–#33 mo
   area (policy bundle sign/verify, JCS, policy logic); finish with
   `/test-openwarden-unit`. (Tests REQUIRED for crypto/protocol/policy.)
 - **Implement a feature** → `gh issue list --label "enhancement,good first issue,agent-ready"`;
-  pick one. **Check `docs/adr/` + the doc tier**: if it's v2/v3 frozen-design, STOP —
-  it needs an ADR first; surface that. For crypto/protocol, offer `/codex-second-opinion`.
+  pick one — but **never an `agent-blocked` or `area:proto`/crypto/policy-enforcement issue**
+  (hand those to a human). **Check `docs/adr/` + the doc tier**: if it's v2/v3 frozen-design,
+  STOP — it needs an ADR first; surface that. For crypto/protocol, offer `/codex-second-opinion`.
 - **Fix a bug** → `gh issue list --label bug`; reproduce; write a **regression test**
   first; then fix; `/test-openwarden-unit`.
 - **Improve docs** → edit under `docs/`; match `docs/SIMPLIFY.md` tone; for spec docs

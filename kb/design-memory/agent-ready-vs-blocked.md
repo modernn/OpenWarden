@@ -19,8 +19,9 @@ safety hinge is a single gating rule, expressed with GitHub labels + CODEOWNERS.
 An autonomous agent may **implement** an issue only when it is **all** of:
 - open and on the `v1` milestone,
 - labeled `agent-ready`,
-- labeled a role area it owns: `area:child-android`, `area:parent-kmp`, `area:proto`,
-  `area:dns`, or `area:infra`,
+- labeled a role area it owns: `area:child-android`, `area:parent-kmp`, `area:dns`, or
+  `area:infra`. **`area:proto` is never agent-implementable** — proto is the wire-format /
+  crypto surface and is always `agent-blocked` (human + ADR + tests),
 - NOT labeled `agent-blocked` and NOT already `claimed`.
 
 An issue is **`agent-blocked` (human-only)** when it touches any sensitive surface:
