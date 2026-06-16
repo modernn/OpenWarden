@@ -1,0 +1,40 @@
+## Android
+child-android/.gradle/
+child-android/build/
+child-android/**/build/
+child-android/local.properties
+child-android/captures/
+child-android/.idea/
+*.iml
+*.apk
+*.aab
+*.keystore
+*.jks
+
+## Flutter
+parent-flutter/.dart_tool/
+parent-flutter/.flutter-plugins
+parent-flutter/.flutter-plugins-dependencies
+parent-flutter/.packages
+parent-flutter/build/
+parent-flutter/ios/Pods/
+parent-flutter/android/.gradle/
+parent-flutter/.idea/
+parent-flutter/macos/Pods/
+parent-flutter/windows/build/
+
+## Secrets — these MUST never be committed
+**/parent_root.key
+**/parent_root.mnemonic
+**/child_pubkey.pin
+*.pem
+secrets/
+
+## OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Editor
+.vscode/
+*.swp

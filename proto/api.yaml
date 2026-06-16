@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: OpenWarden Child API
+  version: 1.0.0
+  description: |
+    HTTP API exposed by the child DPC. Bound to the Tailscale interface only.
+    Every request requires HMAC-SHA256 auth (Authorization: OpenWarden <hex>) over the
+    canonicalized body + Unix timestamp. Timestamps within 60s window only.
+
+servers:
+  - url: http://{child_tailscale_ip}:{port}
+    variables:
+      child_tailscale_ip: {default: "100.64.0.0"}
+      port: {default: "7180"}
+
+paths:
+  /state:
+    get:
+      summary: Current child state
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: {type: string}
+                  policy_version: {type: string}
+                  policy_expires_at: {type: string, format: date-time}
+                  battery_pct: {type: integer}
+                  charging: {type: boolean}
+                  current_app: {type: string, nullable: true}
+                  is_locked: {type: boolean}
+
+  /policy:
+    post:
+      summary: Apply new signed policy bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyBundle'
+      responses:
+        '200':
+          description: Applied
+        '400':
+          description: Signature invalid or bundle expired
+        '401':
+          description: HMAC failed
+
+  /usage:
+    get:
+      summary: App usage stats
+      parameters:
+        - in: query
+          name: since
+          schema: {type: string, format: date-time}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  range_start: {type: string, format: date-time}
+                  range_end: {type: string, format: date-time}
+                  per_app:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        pkg: {type: string}
+                        ms: {type: integer}
+                        launches: {type: integer}
+
+  /location:
+    get:
+      summary: One-shot fused location
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lat: {type: number}
+                  lon: {type: number}
+                  accuracy_m: {type: number}
+                  at: {type: string, format: date-time}
+
+  /lock:
+    post:
+      summary: Lock device now
+      responses: {'200': {description: Locked}}
+
+  /unlock-request:
+    post:
+      summary: Child-initiated 'ask dad' request
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string}
+                pkg: {type: string, nullable: true}
+                duration_min: {type: integer, nullable: true}
+      responses: {'200': {description: Queued}}
+
+  /events:
+    get:
+      summary: Event log (last 30d)
+      responses:
+        '200':
+          description: OK
+
+components:
+  schemas:
+    PolicyBundle:
+      type: object
+      required: [v, issued_at, expires_at, nonce, policy, sig]
+      properties:
+        v: {type: integer, enum: [1]}
+        issued_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        nonce: {type: string}
+        policy:
+          type: object
+          properties:
+            allowlist:
+              type: array
+              items: {type: string}
+            windows:
+              type: array
+              items:
+                type: object
+                properties:
+                  pkg: {type: string}
+                  allow_cron: {type: string}
+            restrictions:
+              type: array
+              items: {type: string}
+            private_dns:
+              type: string
+              nullable: true
+            frp_account:
+              type: string
+              nullable: true
+        sig:
+          type: string
+          description: Ed25519 signature (hex) over RFC 8785 JCS of all fields except 'sig'
