@@ -24,6 +24,11 @@ These are also enforced by review (CODEOWNERS) and CI, not just trust.
 
 ## Ways to contribute
 
+Contributing with an AI agent (Claude Code / Codex)? The near-autopilot flow — role-scoped
+agents, a shared knowledgebase, an optional local MCP server, and approval tiers — is
+documented in **[`docs/CONTRIBUTOR_AUTOPILOT.md`](docs/CONTRIBUTOR_AUTOPILOT.md)**. It's
+additive and optional; everything below still works without it.
+
 Run `/openwarden` (Claude Code) or pick a path here:
 
 - **Run it locally** → [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
