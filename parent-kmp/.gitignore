@@ -1,0 +1,20 @@
+# Gradle / build
+.gradle/
+build/
+**/build/
+local.properties
+
+# Kotlin / Native / KMP
+*.klib
+kotlin-js-store/
+
+# iOS / Xcode artifacts (built on macOS later)
+*.xcframework/
+iosApp/build/
+iosApp/Pods/
+*.xcuserstate
+xcuserdata/
+
+# Misc
+.DS_Store
+*.hprof
