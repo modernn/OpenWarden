@@ -16,8 +16,16 @@ class AdminReceiver : DeviceAdminReceiver() {
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         Log.i(TAG, "Provisioning complete — Device Owner role active")
         // First-boot policy: lock down the obvious stuff before anything else can happen.
-        PolicyEnforcer(context).applyDayOneRestrictions()
-        PolicyService.start(context)
+        // applyDayOneRestrictions() is fail-closed: on a verify gap it locks the device and
+        // throws (ADR-020). Catch it so the FGS watchdog still starts and keeps re-asserting;
+        // the device is already locked by the enforcer, so swallowing here does not fail open.
+        try {
+            PolicyEnforcer(context).applyDayOneRestrictions()
+        } catch (e: Exception) {
+            Log.e(TAG, "Day-one restriction apply failed at provisioning (device locked, watchdog will retry): ${e.message}")
+        } finally {
+            PolicyService.start(context)
+        }
     }
 
     override fun onDisabled(context: Context, intent: Intent) {
