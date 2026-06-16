@@ -93,7 +93,11 @@ parallelizable tasks, and **dispatches** role subagents (each in its own
 worktree) onto the agent-ready ones — keeping agent-blocked work human-gated. It
 runs on the **main thread**, not as a subagent, precisely because it must spawn
 subagents (a subagent cannot). It is read-and-recommend by default; any roadmap
-re-scope it proposes goes through the pivot mechanism above.
+re-scope it proposes goes through the pivot mechanism above. The same
+survey→decide logic also powers bare **`/openwarden start`** (no issue#): it
+auto-picks the single highest-leverage `agent-ready` issue on the active
+milestone (bedrock-first) and just begins it — the zero-thought entrypoint, where
+tech-lead mode is the fan-out-across-many variant.
 
 ## Consequences
 

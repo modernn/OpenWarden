@@ -36,14 +36,26 @@ docs). A progress ledger keeps your place. It is stored **uncommitted** in the g
 dir (`$(git rev-parse --git-common-dir)/openwarden/progress.json`) — never committed, and
 **shared across all worktrees**, keyed by worktree+branch+issue. Use the MCP tools, or the
 CLI fallback `node .claude/mcp-server/dist/progress.js <cmd>` if the server isn't running:
-- **`/openwarden start <issue#>`** → `progress_start` — begin/resume a session in this
-  worktree; **warns if the worktree doesn't match the issue's `area:*`**.
+- **`/openwarden start`** (NO issue#) → **auto-start: just begin the right work.** Run the
+  tech-lead decision (Step 1c steps 1–2): survey live milestones + open issues + the current
+  `docs/ROADMAP.md` rung + KB, then pick the **single highest-leverage** issue that is *all*
+  of: `agent-ready`, on the **active milestone** (current rung — `v0.1` now), labeled a role
+  `area:*`, NOT `agent-blocked`, NOT already `claimed`. Choose **bedrock-first** (most
+  downstream unblocked — e.g. `#7 AdminReceiver` gates all of child-android). Then proceed
+  exactly as `start <that#>`: `claim_work`, worktree + branch, route to the matching role
+  agent, implement **with tests** (Step 3). If two-or-more candidates tie, surface a one-line
+  shortlist via **AskUserQuestion**; otherwise just go. **Never** auto-start `agent-blocked`
+  work — if the rung has only blocked work left, say so and hand to a human.
+- **`/openwarden start <issue#>`** → `progress_start` — begin/resume a session on a specific
+  issue in this worktree; **warns if the worktree doesn't match the issue's `area:*`**.
 - **`/openwarden stop`** → `progress_stop` — checkpoint: captures uncommitted + unpushed git
   state and your step/done/next so you can walk away mid-task.
 - **`/openwarden resume`** → `progress_resume` — restore this worktree's session (+ its
   uncommitted/unpushed state); with no session here, shows a dashboard across all worktrees.
 
-**Run `resume` first** when continuing prior work.
+**Run `resume` first** when continuing prior work. Bare **`start`** is the zero-thought
+entrypoint: it decides *and* begins. Want fan-out across several issues at once instead of one?
+Use **tech-lead mode** (Step 1c).
 
 ## Step 1 — ask what they want to do
 Use **AskUserQuestion** with these options:
