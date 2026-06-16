@@ -1,0 +1,96 @@
+# ============================================================================
+# DRAFT — needs maintainer review before enabling.
+# ============================================================================
+# Scans pull requests that touch kb/** for content hazards before they can land:
+#   - prompt-injection markers (KB is retrieved as DATA; an entry must never read
+#     like an instruction to an agent),
+#   - secrets (keys, tokens, BIP39-looking phrases),
+#   - non-markdown / non-JSON files smuggled into kb/,
+#   - oversize files.
+#
+# SECURITY (mandatory, do not relax):
+#   - Trigger is `pull_request` (NEVER `pull_request_target`).
+#   - Top-level permissions: contents: read only.
+#   - The scanner only READS PR file contents as data; it never executes them.
+#   - actions pinned to full commit SHAs.
+#
+# TODO(maintainer): review the marker/secret regexes and size limits, then remove the
+# `&& false` DRAFT guard and make this a required check on kb/** PRs.
+# ============================================================================
+name: kb-content-gate (DRAFT)
+
+on:
+  pull_request:
+    paths:
+      - "kb/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kb-content-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: scan kb changes
+    runs-on: ubuntu-latest
+    # DRAFT GUARD: remove `&& false` only after maintainer review.
+    if: ${{ true && false }}
+    steps:
+      - name: Checkout PR head (as data only)
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Scan changed kb files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" || true
+          mapfile -t FILES < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'kb/**' || true)
+
+          fail=0
+          MAX_BYTES=32768   # 32 KiB per entry; KB entries are "one idea per file"
+
+          for f in "${FILES[@]}"; do
+            [ -f "$f" ] || continue
+
+            # 1) only markdown + the index json belong in kb/
+            case "$f" in
+              kb/index.json) : ;;
+              kb/README.md)  : ;;
+              *.md) : ;;
+              *) echo "::error file=$f::non-markdown file in kb/ (only *.md + kb/index.json allowed)"; fail=1 ;;
+            esac
+
+            # 2) size bound
+            bytes=$(wc -c < "$f")
+            if [ "$bytes" -gt "$MAX_BYTES" ]; then
+              echo "::error file=$f::oversize ($bytes > $MAX_BYTES bytes); split into one-idea-per-file"; fail=1
+            fi
+
+            # 3) prompt-injection markers (KB is DATA, never instructions)
+            if grep -iEn 'ignore (all|previous|prior) instructions|disregard (the )?(above|system)|you are now|new instructions:|system prompt|<\/?(system|assistant)>|exfiltrat|curl .*\| *(ba)?sh|rm -rf /' "$f" >/dev/null; then
+              echo "::error file=$f::possible prompt-injection / dangerous-instruction marker in a KB entry"; fail=1
+            fi
+
+            # 4) secret-shaped content
+            if grep -iEn 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}' "$f" >/dev/null; then
+              echo "::error file=$f::possible secret/credential in a KB entry"; fail=1
+            fi
+
+            # 5) BIP39-looking 24-word phrase (very rough heuristic; flag for human)
+            if grep -iEn '([a-z]{3,8} ){23}[a-z]{3,8}' "$f" >/dev/null; then
+              echo "::warning file=$f::long all-lowercase word run — verify it is not a BIP39 recovery phrase"
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "kb-content-gate found blocking issues."
+            exit 1
+          fi
+          echo "kb-content-gate: clean."

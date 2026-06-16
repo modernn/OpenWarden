@@ -1,0 +1,105 @@
+# ============================================================================
+# DRAFT — needs maintainer review before enabling.
+# ============================================================================
+# This workflow decides whether a PR is eligible for the lighter-touch (auto-merge)
+# tier. It does NOT replace CODEOWNERS or branch protection — it only *enables*
+# auto-merge when ALL of these hold:
+#   1. PR author is listed in .github/contributors.allow with a matching scope, AND
+#   2. the diff is KB-only OR a small agent-ready change (no sensitive paths), AND
+#   3. all required checks pass.
+# Crypto/proto/policy/CI/governance changes are NEVER auto-merged here.
+#
+# SECURITY (mandatory, do not relax):
+#   - Trigger is `pull_request` (NEVER `pull_request_target`) so untrusted PR code
+#     cannot run with write tokens / repo secrets.
+#   - Top-level permissions are minimal (contents: read). The auto-merge job
+#     requests only the narrow scopes it needs.
+#   - Every action is pinned to a full commit SHA (with a # vX.Y.Z comment).
+#   - The allowlist is read from the BASE repo checkout, not from PR-controlled input.
+#
+# TODO(maintainer): review tier logic + path rules, then (a) flip `if: false` guards,
+# (b) enable "Allow auto-merge" in repo settings, (c) ensure branch protection requires
+# the relevant checks. Until then this is inert.
+# ============================================================================
+name: registry-gate (DRAFT)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: registry-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    name: evaluate eligibility (advisory)
+    runs-on: ubuntu-latest
+    # DRAFT GUARD: remove `&& false` only after maintainer review.
+    if: ${{ github.event.pull_request.draft == false && false }}
+    permissions:
+      contents: read
+      pull-requests: write   # to label / comment eligibility
+    steps:
+      - name: Checkout base (trusted) ref
+        # actions/checkout v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # Check out the BASE repo (not the PR head) so the allowlist + scripts are trusted.
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Compute changed files (read-only)
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Fetch only what we need to diff; head is untrusted DATA, never executed.
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA" || true
+          CHANGED="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" || true)"
+          echo "changed<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED"     >> "$GITHUB_OUTPUT"
+          echo "EOF"          >> "$GITHUB_OUTPUT"
+
+      - name: Decide eligibility
+        # actions/github-script v7.0.1
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const fs = require('fs');
+            const author = context.payload.pull_request.user.login.toLowerCase();
+            const changed = `${{ steps.diff.outputs.changed }}`.split('\n').map(s => s.trim()).filter(Boolean);
+
+            // --- read the trusted allowlist from the base checkout ---
+            const allow = fs.readFileSync('.github/contributors.allow', 'utf8');
+            const row = allow.split('\n')
+              .map(l => l.replace(/#.*$/, '').trim())
+              .filter(Boolean)
+              .map(l => l.split(/\s+/))
+              .find(cols => (cols[0] || '').toLowerCase() === author);
+            const scopes = row ? (row[1] || '').split(',').map(s => s.trim()) : [];
+
+            // --- sensitive paths that can NEVER auto-merge ---
+            const SENSITIVE = [
+              /^proto\//, /crypto\//, /BundleVerifier\.kt$/, /PolicyEnforcer\.kt$/,
+              /PolicyService\.kt$/, /^\.github\//, /^\.claude\//, /^CODEOWNERS$/,
+              /^AGENTS\.md$/, /^CLAUDE\.md$/, /^SECURITY\.md$/,
+            ];
+            const touchesSensitive = changed.some(f => SENSITIVE.some(re => re.test(f)));
+            const kbOnly = changed.length > 0 && changed.every(f => f.startsWith('kb/'));
+
+            const eligible =
+              scopes.length > 0 &&
+              !touchesSensitive &&
+              (kbOnly ? scopes.includes('kb') : scopes.includes('code'));
+
+            core.notice(`author=${author} scopes=[${scopes}] kbOnly=${kbOnly} sensitive=${touchesSensitive} eligible=${eligible}`);
+
+            // DRAFT: only annotate. Actual `gh pr merge --auto` is left for the maintainer
+            // to wire up once the tier is reviewed and branch protection requires checks.
+            // TODO(maintainer): on eligible===true and required checks green, enable auto-merge.

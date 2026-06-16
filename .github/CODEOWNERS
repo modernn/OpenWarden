@@ -26,3 +26,8 @@
 /CLAUDE.md                          @modernn
 /SECURITY.md                        @modernn
 /CODEOWNERS                         @modernn
+
+# Contributor-autopilot surfaces — KB, approval registry, agent/skill config
+/kb/**                              @modernn
+/.github/contributors.allow         @modernn
+/.claude/**                         @modernn
