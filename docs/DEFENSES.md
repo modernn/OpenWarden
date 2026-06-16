@@ -106,6 +106,37 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 
 ---
 
+## Lock-screen / QuickSettings / camera / ambient-leak surfaces (#21-28)
+
+These defenses close the web-leak and privacy-leak surfaces exposed on the Pixel lock
+screen and ambient UI. They are implemented in `LockScreenLockdown.kt`
+(`child-android/app/src/main/kotlin/com/openwarden/child/`). Items marked
+**Config/playbook** have no DPM API and must be handled by the parent at setup time.
+Integration into the enforcement sequence is tracked in issue #8.
+
+| # | Surface | Attack | Mitigation | Mechanism |
+|---|---|---|---|---|
+| 21 | Lock-screen camera shortcut | Tap camera icon on keyguard → Camera app → Lens icon → image web-search, no unlock required | Disable via `KEYGUARD_DISABLE_SECURE_CAMERA` | `LockScreenLockdown.apply()` / `disableCameraOnKeyguardOnly()` |
+| 22 | Lock-screen widgets | Widgets (calendar, weather, notification summaries) expose schedule / message data without unlock | Disable via `KEYGUARD_DISABLE_WIDGETS_ALL` | `LockScreenLockdown.apply()` |
+| 23 | Smart Lock / trust agents | On-body detection, trusted-Bluetooth, or trusted-place keeps the lock screen bypassed indefinitely | Disable via `KEYGUARD_DISABLE_TRUST_AGENTS` | `LockScreenLockdown.apply()` |
+| 24 | Notification content on lock screen | Message previews, OTP codes, and chat names visible to a casual observer without PIN | Disable via `KEYGUARD_DISABLE_SECURE_NOTIFICATIONS` | `LockScreenLockdown.apply()` |
+| 25 | Quick Settings tiles on lock screen | QS tiles (Hotspot, Airplane, Cast, Screen Record) actionable without unlock on some Pixel builds | Remove sensitive tiles via Settings → Display → Quick Settings (parent playbook); no DPM API for per-tile removal | **Config/playbook** |
+| 26 | Picture-in-Picture overlay persistence | App minimised to PiP (e.g. YouTube) floats over every screen including bedtime lock; kid can continue watching | Disable PiP permission per-app: Settings → Apps → [app] → Advanced → Picture-in-picture → Don't allow | **Config/playbook** |
+| 27 | Google Assistant from lock screen | "Hey Google" or Assistant gesture from keyguard can answer questions, read notifications, or open URLs without unlock | Disable Assistant: Settings → Apps → Default apps → Digital assistant → set to None; no DPM API for ambient Assistant disable | **Config/playbook** |
+| 28 | Quick Tap (Pixel back-tap gesture) | Double-tap rear of device triggers configured action (screenshot, Assistant, app launch) from lock screen without unlock | Disable: Settings → System → Gestures → Quick Tap → toggle off; no DPM API | **Config/playbook** |
+
+**Note on `KEYGUARD_DISABLE_FEATURES_ALL`:** This catch-all constant is intentionally NOT
+used. It disables undocumented flags and can suppress the PIN/pattern prompt itself.
+`LockScreenLockdown` uses the four explicit flags above — each mapped to a specific
+attack surface — and no others.
+
+**Note on global camera disable:** `DevicePolicyManager.setCameraDisabled(admin, true)`
+globally disables the camera for all apps (not just the keyguard shortcut). This is
+a heavier parent-configurable policy, tracked separately from the keyguard flag.
+`disableCameraOnKeyguardOnly()` uses only `KEYGUARD_DISABLE_SECURE_CAMERA`.
+
+---
+
 ## Encryption-to-parent-device design (the user's vision, technical answer)
 
 Combination of 3 patterns from defenses report:
