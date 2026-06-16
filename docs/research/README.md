@@ -19,6 +19,7 @@ If something here contradicts a canon doc, the canon doc wins. ADRs in [`../adr/
 | [04-redteam-kids.md](04-redteam-kids.md) | Red team: kid behavioral / social-engineering attacks | ~1950 |
 | [05-redteam-deeper.md](05-redteam-deeper.md) | Red team: deeper bypass research (P9 Play Services Help, accessibility class, etc.) | ~5700 |
 | [06-defenses-raw.md](06-defenses-raw.md) | Defense engineering: StrongBox patterns, AVB attestation, sealed-box envelope | ~3500 |
+| [07-redteam-design-review.md](07-redteam-design-review.md) | Red team (2026-06-16): adversarial review of the v1 *spec* — gaps, bypasses, and doc/ADR contradictions found before any code. AI-generated, human-verify before acting. | ~2600 |
 
 ## How these became canon docs
 
