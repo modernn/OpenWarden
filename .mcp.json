@@ -1,0 +1,10 @@
+{
+  "$comment": "OPTIONAL local MCP servers for OpenWarden contributors. Runs entirely on your own machine and your own gh auth — no SaaS, no shared token, no telemetry. The repo builds and contributes fine WITHOUT this; agents can just Read kb/. First run: (cd .claude/mcp-server && npm install && npm run build).",
+  "mcpServers": {
+    "openwarden-kb": {
+      "command": "bash",
+      "args": [".claude/mcp-server/start.sh"],
+      "env": {}
+    }
+  }
+}

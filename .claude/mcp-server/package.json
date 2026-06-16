@@ -1,0 +1,27 @@
+{
+  "name": "@openwarden/kb-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local stdio MCP server for the OpenWarden contributor autopilot: shared KB access plus gh-backed issue claiming. Runs entirely on the contributor's own machine and gh auth — no SaaS, no shared service account, no telemetry.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/server.js",
+  "bin": {
+    "openwarden-kb-mcp": "dist/server.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "node --loader ts-node/esm src/server.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
