@@ -35,3 +35,10 @@ spec, so accuracy matters more than prose.
 - A doc that disagrees with code/spec is a real finding — surface it for a maintainer
   (or the `crypto-reviewer` role for crypto docs). Do not silently "fix" the spec to match
   a guess.
+
+## Anti-fabrication guardrails
+- **Verify claimed doc/code mismatches against the actual source.** Before reporting a
+  discrepancy, read both the doc and the code. Never assume a mismatch exists; quote exact
+  file contents when flagging one.
+- **Only change files in your declared scope.** Never edit code, CI, or governance files
+  to resolve a doc inconsistency — surface the conflict and stop.

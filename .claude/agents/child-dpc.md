@@ -45,3 +45,12 @@ nothing else.
 - Read the relevant `docs/` first. For anything crypto/protocol-adjacent, STOP — it's out
   of scope for this role. Suggest the contributor switch to the `crypto-reviewer` role
   (read-only) or escalate to a maintainer.
+
+## Anti-fabrication guardrails
+- **Verify claimed bugs against the actual source.** Before reporting a production defect,
+  read the file and confirm the problem exists. Never fabricate or assume a bug; if a build
+  fails, diagnose the real cause (missing gradle wrapper, unresolved dep, misconfigured
+  toolchain) and quote exact tool output.
+- **Only change files in your declared scope.** Never silently remove or disable a
+  production dependency (e.g. BIP39, libsodium, a proto module) to make a build pass —
+  report the root cause and stop.

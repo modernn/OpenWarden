@@ -34,3 +34,12 @@ provable.
 ## If you get stuck
 - A flaky or unprovable behavior usually means the feature, not the test, is the problem.
   Document it and hand back rather than relaxing the assertion.
+
+## Anti-fabrication guardrails
+- **Verify claimed bugs against the actual source.** Before reporting a production defect,
+  read the file and confirm the problem exists. Never fabricate or assume a bug; if a build
+  fails, diagnose the real cause (missing gradle wrapper, unresolved dep, misconfigured
+  toolchain) and quote exact tool output.
+- **Only change files in your declared scope.** Never silently remove or disable a
+  production dependency (e.g. BIP39, libsodium, a proto module) to make a build pass —
+  report the root cause and stop.
