@@ -40,6 +40,19 @@ enum class MonitoredCategory(
     ),
 
     /**
+     * Installed-app inventory (QUERY_ALL_PACKAGES permission).
+     * PolicyEnforcer calls pm.getInstalledPackages(0) to build the allowlist that
+     * decides which apps the child is permitted to open. The full list of installed
+     * package names is read and evaluated; this is a distinct signal from APP_USAGE
+     * screen-time and must be disclosed separately.
+     */
+    INSTALLED_APPS(
+        title = "Which apps are on your phone",
+        plainLanguage = "Your parent can see the list of apps installed on your phone, " +
+            "so they can choose which ones you're allowed to open.",
+    ),
+
+    /**
      * Screen time total (derived from PACKAGE_USAGE_STATS).
      * Aggregate minutes per day, plus per-app totals.
      */
@@ -54,6 +67,10 @@ enum class MonitoredCategory(
      * Only sent as an alert when a policy condition is triggered (e.g. unexpected
      * departure from school during school hours, or missed curfew). Not streamed
      * continuously.
+     *
+     * FIXME(location-impl): keep this plain-language copy in sync with the ACTUAL
+     * location-trigger policy when location is implemented (PolicyService). If location
+     * ever becomes continuous, this copy must change.
      */
     LOCATION(
         title = "Where you are, sometimes",

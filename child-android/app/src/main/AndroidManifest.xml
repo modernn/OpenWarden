@@ -33,7 +33,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Kid Transparency screen — reachable from MainActivity and any "Why am I blocked?" link -->
+        <!-- Kid Transparency screen — in-process launch only (exported="false").
+             Launched from MainActivity. Cannot be reached via cross-process deep-link
+             or external Intent; do not claim otherwise in comments or docs. -->
         <activity
             android:name=".TransparencyActivity"
             android:exported="false"
