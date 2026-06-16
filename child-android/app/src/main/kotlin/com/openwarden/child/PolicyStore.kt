@@ -72,6 +72,15 @@ class PolicyStore(private val context: Context) {
         }
     }
 
+    /**
+     * Legacy ingest path. SUPERSEDED by [PolicyAdmission.admit], which implements the
+     * ADR-017 replay floor (`policy_seq` monotonic + jump bound), audience binding,
+     * JCS integer bound, genesis gate, and two-phase commit. This method's `issued_at`
+     * string comparison is NOT the ADR-017 replay floor and MUST NOT be used as one.
+     * Retained only so it still compiles for any out-of-tree caller; the `/policy`
+     * route now routes through [PolicyAdmission]. Do not add new callers.
+     */
+    @Deprecated("Use PolicyAdmission.admit (ADR-017 replay floor + audience + two-phase commit)")
     fun ingest(bundle: SignedBundle): IngestResult {
         val pubkey = parentPubkey() ?: return IngestResult.NoParentPinned
         if (!BundleVerifier.verify(bundle, pubkey)) return IngestResult.BadSignature
@@ -114,14 +123,29 @@ class PolicyStore(private val context: Context) {
 @Serializable
 data class SignedBundle(
     val v: Int,
+    // ADR-017 §6 audience binding: the addressed child's pinned id (Ed25519-pubkey-derived
+    // stable id). MANDATORY signed field. The child rejects MALFORMED any bundle whose
+    // child_device_id != its own, BEFORE signature verification. Defaulted empty only so
+    // legacy stored bundles (pre-ADR-017) still parse; an empty id can never match a real
+    // child id, so it fails audience binding fail-closed.
+    val child_device_id: String = "",
+    // ADR-017: device-global monotonic replay floor counter. MANDATORY signed field.
+    // u53-bounded integer 0..2^53-1 (JCS-safe). policy_seq=0 is reserved and never a live
+    // policy. Defaulted 0 only so legacy stored bundles still parse; 0 is never admissible
+    // through PolicyAdmission, so the default is fail-closed.
+    val policy_seq: Long = 0L,
     val issued_at: String,    // ISO-8601
     val expires_at: String,
     val nonce: String,
     val policy: PolicyDoc,
-    val sig: String           // hex Ed25519 over canonicalized {v, issued_at, expires_at, nonce, policy}
+    // hex Ed25519 over canonicalized bundle minus "sig" (now includes child_device_id +
+    // policy_seq). Tolerant of absence (default "") for verify-over-raw-bytes / storage-layer
+    // tests; an empty sig can never verify, so it stays fail-closed.
+    val sig: String = "",
 ) {
     fun isExpired(): Boolean {
-        // TODO(v1): proper instant parsing
+        // TODO(v1): proper instant parsing — tracked with the integer-ms not_before/not_after
+        // freshness migration (ADR-017 part 5), out of scope for this PR (#5/#10).
         return false
     }
 }

@@ -39,12 +39,31 @@ class ApiServer(private val context: Context) {
                 }
                 post("/policy") {
                     val bundle = call.receive<SignedBundle>()
-                    val result = PolicyStore(this@ApiServer.context).ingest(bundle)
-                    if (result == PolicyStore.IngestResult.Applied) {
-                        PolicyEnforcer(this@ApiServer.context).applyAllowlist(bundle.policy.allowlist.toSet())
-                        call.respond(HttpStatusCode.OK, mapOf("status" to "applied"))
-                    } else {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to result.name))
+                    val ctx = this@ApiServer.context
+                    val store = PolicyStore(ctx)
+                    val floorStore = ReplayFloorStore(ctx)
+                    // ADR-017 admission pipeline: JC1 -> audience -> signature -> genesis/floor
+                    // -> monotonic/jump, then two-phase commit (stage -> apply+fsync -> advance
+                    // floor -> ack). Floor advances LAST. The parent key is pinned out-of-band at
+                    // pairing (PolicyStore.pinParentPubkey), so the wire uses the pinned-key path;
+                    // bundle-carried genesis TOFU (decide(genesis=true)) is implemented + tested in
+                    // PolicyAdmission but is not reachable here because v1 bundles carry no pubkey.
+                    val result = PolicyAdmission.admit(
+                        bundle = bundle,
+                        store = floorStore,
+                        applier = DefaultPolicyApplier(ctx),
+                        pinParentKey = { store.pinParentPubkey(it) },
+                        pinnedParentPubkey = store.parentPubkey(),
+                    )
+                    when (result) {
+                        is PolicyAdmission.Result.Applied ->
+                            call.respond(HttpStatusCode.OK, mapOf("status" to "applied", "policy_seq" to result.policySeq))
+                        is PolicyAdmission.Result.Rejected ->
+                            // Fail-closed: the previous (or strict baseline) policy stays in force.
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to if (result.malformed) "MALFORMED" else "REJECTED", "reason" to result.reason),
+                            )
                     }
                 }
                 post("/lock") {
