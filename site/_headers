@@ -15,7 +15,7 @@
   Cache-Control: public, max-age=31536000, immutable
 
 /styles.css
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, no-cache
 
 /main.js
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, no-cache
