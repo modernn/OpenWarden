@@ -53,5 +53,34 @@
   },
   "env": {
     "OPENWARDEN_TEST_MODE": "1"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/doc-freshness-stop.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking doc-freshness"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/doc-contradiction-check.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking code/doc consistency"
+          }
+        ]
+      }
+    ]
   }
 }
