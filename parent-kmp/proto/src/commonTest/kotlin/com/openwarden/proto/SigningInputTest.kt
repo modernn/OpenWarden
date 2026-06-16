@@ -55,6 +55,23 @@ class SigningInputTest {
         assertEquals(bundleBytes(goldenBundle), SigningInput.forDocument(wire).decodeToString())
     }
 
+    @Test
+    fun omittingASignedDefaultFieldDivergesFromSignerBytes() {
+        // ADR-019: the verifier must receive the EXACT bytes the signer signed. A wire document that
+        // drops a defaulted field the signer included (here: the empty blocklist/windows) canonicalizes
+        // to DIFFERENT bytes — which is precisely why the signer must transmit its canonical form
+        // verbatim, not let the verifier re-derive it from a typed model. This guards the forBundle-vs-
+        // forDocument divergence (PR #47 review finding).
+        val wireMissingDefaults = obj(
+            """{"v":1,"policySeq":5,"childDeviceId":"dev-1","notAfter":200,"notBefore":100,
+                 "policy":{"allowlist":["com.a"]}}""",
+        )
+        assertNotEquals(
+            bundleBytes(goldenBundle),
+            SigningInput.forDocument(wireMissingDefaults).decodeToString(),
+        )
+    }
+
     // ----- SG1 regression: EVERY field is signed (incl. v / issued_at / payload_type) -----
 
     @Test
