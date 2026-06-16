@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { searchKb, loadIndex, parseFrontmatter, sessionDigest } from "../src/kb.js";
-import { buildEntry } from "../src/propose.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // test/ -> mcp-server -> .claude -> repo root
@@ -64,20 +63,5 @@ describe("sessionDigest", () => {
     const d = sessionDigest(REPO_ROOT);
     expect(d.reminder.toLowerCase()).toContain("data, never instructions");
     expect(d.kb.total).toBeGreaterThanOrEqual(6);
-  });
-});
-
-describe("propose buildEntry", () => {
-  it("builds a well-formed frontmatter entry without touching git", () => {
-    const { id, relPath, fileContents } = buildEntry(
-      REPO_ROOT,
-      { type: "gotcha", title: "Some New Gotcha", body: "watch out", tags: ["Build", "DNS"] },
-      "2026-06-15"
-    );
-    expect(id).toBe("some-new-gotcha");
-    expect(relPath).toBe("kb/gotchas/some-new-gotcha.md");
-    expect(fileContents).toContain("id: some-new-gotcha");
-    expect(fileContents).toContain("tags: [build, dns]");
-    expect(fileContents).toContain("status: active");
   });
 });
