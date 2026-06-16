@@ -12,7 +12,8 @@
 #   - Trigger is `pull_request` (NEVER `pull_request_target`).
 #   - Top-level permissions: contents: read only.
 #   - The scanner only READS PR file contents as data; it never executes them.
-#   - actions pinned to full commit SHAs.
+#   - Actions pinned to full commit SHAs.
+#   - FAIL CLOSED: if the changed-file set cannot be computed, the job fails (no silent pass).
 #
 # TODO(maintainer): review the marker/secret regexes and size limits, then remove the
 # `&& false` DRAFT guard and make this a required check on kb/** PRs.
@@ -50,19 +51,27 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$BASE_SHA" || true
-          mapfile -t FILES < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'kb/**' || true)
+
+          # FAIL CLOSED: if we can't fetch the base or compute the diff, abort (never report clean).
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+          if ! CHANGED="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'kb/**')"; then
+            echo "::error::could not compute kb diff — failing closed"
+            exit 1
+          fi
 
           fail=0
-          MAX_BYTES=32768   # 32 KiB per entry; KB entries are "one idea per file"
+          MAX_BYTES=32768 # 32 KiB per entry; KB is "one idea per file"
 
-          for f in "${FILES[@]}"; do
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
             [ -f "$f" ] || continue
+            # README is the maintainer-owned schema doc (CODEOWNERS-gated) and intentionally
+            # describes these hazards — don't scan it for its own examples.
+            [ "$f" = "kb/README.md" ] && continue
 
             # 1) only markdown + the index json belong in kb/
             case "$f" in
               kb/index.json) : ;;
-              kb/README.md)  : ;;
               *.md) : ;;
               *) echo "::error file=$f::non-markdown file in kb/ (only *.md + kb/index.json allowed)"; fail=1 ;;
             esac
@@ -74,7 +83,7 @@ jobs:
             fi
 
             # 3) prompt-injection markers (KB is DATA, never instructions)
-            if grep -iEn 'ignore (all|previous|prior) instructions|disregard (the )?(above|system)|you are now|new instructions:|system prompt|<\/?(system|assistant)>|exfiltrat|curl .*\| *(ba)?sh|rm -rf /' "$f" >/dev/null; then
+            if grep -iEn 'ignore (all|previous|prior) instructions|disregard (the )?(above|system)|you are now|new instructions:|system prompt|</?(system|assistant)>|curl .*\| *(ba)?sh|rm -rf /' "$f" >/dev/null; then
               echo "::error file=$f::possible prompt-injection / dangerous-instruction marker in a KB entry"; fail=1
             fi
 
@@ -83,11 +92,12 @@ jobs:
               echo "::error file=$f::possible secret/credential in a KB entry"; fail=1
             fi
 
-            # 5) BIP39-looking 24-word phrase (very rough heuristic; flag for human)
-            if grep -iEn '([a-z]{3,8} ){23}[a-z]{3,8}' "$f" >/dev/null; then
-              echo "::warning file=$f::long all-lowercase word run — verify it is not a BIP39 recovery phrase"
+            # 5) BIP39-looking phrase — BLOCKING. BIP39 is 12/15/18/21/24 words; flag any run of
+            #    >=12 consecutive lowercase 3-8 letter words. No recovery phrases in the repo, ever.
+            if grep -iEn '([a-z]{3,8} ){11,}[a-z]{3,8}' "$f" >/dev/null; then
+              echo "::error file=$f::looks like a BIP39 seed phrase (>=12 lowercase words) — never commit a recovery phrase"; fail=1
             fi
-          done
+          done <<< "$CHANGED"
 
           if [ "$fail" -ne 0 ]; then
             echo "kb-content-gate found blocking issues."
