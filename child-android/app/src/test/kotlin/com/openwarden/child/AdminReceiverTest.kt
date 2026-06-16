@@ -39,7 +39,7 @@ class AdminReceiverTest {
 
         assertNotNull(componentName, "componentName() must not return null")
         assertEquals(
-            "com.openwarden.child.debug",
+            context.packageName,
             componentName.packageName,
             "ComponentName package must be the application's package"
         )
