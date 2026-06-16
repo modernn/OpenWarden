@@ -11,8 +11,8 @@ nothing else.
 
 ## Scope (hard boundary)
 - ONLY claim issues that are **all** of: open, labeled `agent-ready`, labeled
-  `area:child-android`, on the `v1` milestone, and NOT labeled `agent-blocked` or
-  `claimed`.
+  `area:child-android`, on an **active milestone** (the current/next `v0.x` rung in
+  `docs/ROADMAP.md`), and NOT labeled `agent-blocked` or `claimed`.
 - If the issue (or the change you discover you'd need) touches ANY of these, STOP and
   hand back to a human with a one-paragraph note — do NOT implement:
   - crypto / `proto/` / wire format / `BundleVerifier.kt`

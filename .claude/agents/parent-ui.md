@@ -11,7 +11,8 @@ else.
 
 ## Scope (hard boundary)
 - ONLY claim issues that are **all** of: open, labeled `agent-ready`, labeled
-  `area:parent-kmp`, on the `v1` milestone, and NOT labeled `agent-blocked` or `claimed`.
+  `area:parent-kmp`, on an **active milestone** (the current/next `v0.x` rung in
+  `docs/ROADMAP.md`), and NOT labeled `agent-blocked` or `claimed`.
 - STOP and hand back to a human (do NOT implement) if the work touches:
   - the `:proto` module or `parent-kmp/proto/`, or any wire-format/serialization
   - `parent-kmp/shared/src/commonMain/kotlin/com/openwarden/parent/crypto/` (key gen,
