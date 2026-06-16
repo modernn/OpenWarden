@@ -142,7 +142,7 @@ Real case: homework app legitimately needs a host that the strict preset blocks.
 In the OpenWarden parent app, the DNS Filter screen shows:
 
 - Current provider name and filtering level, plain language ("Cloudflare Family — strict").
-- Preset toggle: Strict / Moderate / Custom / Off.
+- Preset toggle: Strict / Moderate / Custom / Minimum floor. (No "Off" — "no DNS filtering at all" is not a reachable state, ADR-016.)
 - Custom inputs:
   - NextDNS — "your config URL" with paste-and-validate.
   - Pi-hole / AdGuard Home — hostname field plus a "Test connection" button that resolves a known-good host through DoT and confirms a sub-second response.

@@ -38,6 +38,14 @@ class DefaultPolicyApplier(private val context: Context) : PolicyAdmission.Appli
         // Throws on DPM failure (not Device Owner, etc.) => admit() catches => fail-closed,
         // floor not advanced. Allowlist enforcement is the live policy apply.
         PolicyEnforcer(context).applyAllowlist(bundle.policy.allowlist.toSet())
+
+        // Re-pin the DNS floor for this bundle's chosen resolver (ADR-016: "reassert on every
+        // bundle apply"). Best-effort here: a transient DoT-serving failure must NOT block policy
+        // admission — DnsFloor is fail-closed by construction (it never sets OFF; an unlisted host
+        // maps to the default filtering host) and the watchdog re-pins within INTERVAL_MS, so a
+        // miss here leaves the *previous* filtering floor in place, never an unfiltered one.
+        runCatching { DnsFloor(context).applyFloor(bundle.policy.private_dns) }
+            .onFailure { Log.w(TAG, "DNS floor re-pin at apply failed (watchdog will retry): ${it.message}") }
     }
 
     override fun ack(policySeq: Long) {

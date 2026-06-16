@@ -24,11 +24,14 @@ import android.util.Log
  *   Injectable so the fail-closed verify path is testable without depending on the Robolectric
  *   shadow round-tripping `setGlobalPrivateDnsModeSpecifiedHost`.
  * @param readHost readback seam for the current Private DNS host — defaults to the real DPM.
+ * @param readPrivateDnsLocked readback seam for whether `DISALLOW_CONFIG_PRIVATE_DNS` is set —
+ *   defaults to the DO-authoritative `dpm.getUserRestrictions(admin)`.
  */
 class DnsFloor(
     private val context: Context,
     private val readMode: () -> Int = defaultModeReader(context),
     private val readHost: () -> String? = defaultHostReader(context),
+    private val readPrivateDnsLocked: () -> Boolean = defaultLockReader(context),
 ) {
 
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
@@ -52,7 +55,9 @@ class DnsFloor(
         }
         val host = resolveFilteringHost(requestedHost)
 
-        // Lock the toggle so the child cannot edit or clear Private DNS (ADR-016).
+        // Lock the toggle so the child cannot edit or clear Private DNS (ADR-016). Don't skip the
+        // pin if this throws, but the lock IS part of the fail-closed verify below — a swallowed
+        // lock failure cannot pass verifyOrThrow.
         runCatching { dpm.addUserRestriction(admin, UserManager.DISALLOW_CONFIG_PRIVATE_DNS) }
             .onFailure { Log.e(TAG, "lock DISALLOW_CONFIG_PRIVATE_DNS failed: ${it.message}") }
 
@@ -68,13 +73,19 @@ class DnsFloor(
 
     /**
      * Throws [DnsFloorException] unless Private DNS is verifiably `PROVIDER_HOSTNAME` pinned to
-     * [expectedHost]. Pure check (via the readback seams) — deterministically testable.
+     * [expectedHost] **and** the `DISALLOW_CONFIG_PRIVATE_DNS` toggle-lock is set. The lock is
+     * part of the fail-closed contract: a pinned-but-unlocked floor lets the child change DNS in
+     * Settings until the next watchdog tick. Pure check (via the readback seams) — testable.
      */
     fun verifyOrThrow(expectedHost: String) {
         val mode = readMode()
-        val host = readHost()
-        if (mode != DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME || host != expectedHost) {
-            throw DnsFloorException(mode, host, expectedHost)
+        val host = readHost()?.lowercase()
+        val locked = readPrivateDnsLocked()
+        if (mode != DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME ||
+            host != expectedHost ||
+            !locked
+        ) {
+            throw DnsFloorException(mode, host, expectedHost, locked)
         }
     }
 
@@ -86,14 +97,20 @@ class DnsFloor(
 
         /**
          * Curated **public filtering** DoT resolvers — the only choosable floor hosts (v1).
-         * Each blocks malware and/or adult content; "no filtering" is deliberately not a member.
-         * (NextDNS per-account hosts and parent self-hosted resolvers are a tracked follow-up —
-         * they cannot be statically validated as filtering.)
+         * Each blocks **both malware and adult content** (the floor must preserve *adult*
+         * filtering on any outage, ADR-016). Malware-only resolvers (e.g. Quad9 `dns.quad9.net`)
+         * are deliberately excluded — failing over to them would leave adult content unfiltered
+         * behind a "filtering" label. "No filtering" is deliberately not a member.
+         *
+         * v1 narrows the choosable set to these curated hosts; a non-empty `private_dns` that is
+         * not a member is silently mapped to [DEFAULT_FILTERING_HOST] ([resolveFilteringHost]) —
+         * fail-closed but a real narrowing vs ADR-016's wider list. NextDNS per-account hosts and
+         * parent self-hosted resolvers (which cannot be statically validated as adult-filtering)
+         * and a parent-visible "your resolver was overridden" signal are a tracked follow-up.
          */
         val FILTERING_RESOLVERS: Set<String> = setOf(
-            DEFAULT_FILTERING_HOST,                  // Cloudflare for Families
-            "dns.quad9.net",                         // Quad9 — malware-blocking
-            "family-filter-dns.cleanbrowsing.org",   // CleanBrowsing — family filter
+            DEFAULT_FILTERING_HOST,                  // Cloudflare for Families — malware + adult
+            "family-filter-dns.cleanbrowsing.org",   // CleanBrowsing Family — malware + adult
         )
 
         /**
@@ -116,6 +133,12 @@ class DnsFloor(
             val admin = AdminReceiver.componentName(context)
             return { dpm.getGlobalPrivateDnsHost(admin) }
         }
+
+        private fun defaultLockReader(context: Context): () -> Boolean {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val admin = AdminReceiver.componentName(context)
+            return { dpm.getUserRestrictions(admin).getBoolean(UserManager.DISALLOW_CONFIG_PRIVATE_DNS, false) }
+        }
     }
 }
 
@@ -123,7 +146,12 @@ class DnsFloor(
  * Thrown when the DNS floor cannot be verified pinned to the expected filtering host — carries
  * the observed mode + host so the failure is diagnosable in logs.
  */
-class DnsFloorException(val mode: Int, val actualHost: String?, val expectedHost: String) :
-    IllegalStateException(
-        "Fail-closed: DNS floor not verifiably pinned (mode=$mode host=$actualHost expected=$expectedHost)",
-    )
+class DnsFloorException(
+    val mode: Int,
+    val actualHost: String?,
+    val expectedHost: String,
+    val locked: Boolean = true,
+) : IllegalStateException(
+    "Fail-closed: DNS floor not verifiably pinned " +
+        "(mode=$mode host=$actualHost expected=$expectedHost locked=$locked)",
+)

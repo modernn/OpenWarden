@@ -38,6 +38,11 @@ more restriction, never less."
 
 Status: **ratified + implemented.** [`docs/adr/016-fail-closed-dns-floor.md`](../../docs/adr/016-fail-closed-dns-floor.md)
 is Accepted; `child-android` `DnsFloor` (#19) pins the public filtering floor, never
-OFF/OPPORTUNISTIC/localhost, locks `DISALLOW_CONFIG_PRIVATE_DNS`, and the policy watchdog
-re-asserts it on boot/connectivity/timer. The `docs/DNS_RESOLVER.md` §11/§12 and
-`docs/DNS_FILTER.md` "Off" fail-open language was reconciled in the same PR.
+OFF/OPPORTUNISTIC/localhost, locks `DISALLOW_CONFIG_PRIVATE_DNS` (the lock is part of the
+fail-closed verify), and it is re-asserted on boot/connectivity/timer (`PolicyWatchdog`) **and on
+every policy-bundle apply** (`DefaultPolicyApplier`). v1 curates an **adult+malware** filtering set
+(Cloudflare-for-Families default + CleanBrowsing-Family); malware-only Quad9 is excluded, and an
+unlisted `private_dns` is silently mapped to the default filtering host (fail-closed; a
+validated-custom-resolver + parent-visible-override-signal path is a tracked follow-up). The
+`docs/DNS_RESOLVER.md` §11/§12 and `docs/DNS_FILTER.md` "Off" fail-open language was reconciled in
+the same PR.

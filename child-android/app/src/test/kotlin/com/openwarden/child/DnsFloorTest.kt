@@ -55,9 +55,21 @@ class DnsFloorTest {
 
     @Test
     fun `host match is case-insensitive and trimmed`() {
+        // Use a NON-default member so a pass proves "normalized THEN matched", not "fell back to
+        // the default" (which would also equal DEFAULT and hide a broken normalization).
+        assertEquals(
+            "family-filter-dns.cleanbrowsing.org",
+            DnsFloor.resolveFilteringHost("  FAMILY-FILTER-DNS.CleanBrowsing.ORG  "),
+        )
+    }
+
+    @Test
+    fun `trailing-dot fqdn falls back to the default filtering host`() {
+        // Exact-match curated set: a trailing-dot FQDN is not a member, so it fails closed to the
+        // default filtering host (still filtering — never OFF).
         assertEquals(
             DnsFloor.DEFAULT_FILTERING_HOST,
-            DnsFloor.resolveFilteringHost("  FAMILY.Cloudflare-DNS.com  "),
+            DnsFloor.resolveFilteringHost("family.cloudflare-dns.com."),
         )
     }
 
@@ -105,11 +117,12 @@ class DnsFloorTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `verifyOrThrow passes when mode is PROVIDER_HOSTNAME and host matches`() {
+    fun `verifyOrThrow passes when mode is PROVIDER_HOSTNAME host matches and toggle is locked`() {
         val floor = DnsFloor(
             context,
             readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
             readHost = { DnsFloor.DEFAULT_FILTERING_HOST },
+            readPrivateDnsLocked = { true },
         )
         floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST)
     }
@@ -120,6 +133,7 @@ class DnsFloorTest {
             context,
             readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_OFF },
             readHost = { null },
+            readPrivateDnsLocked = { true },
         )
         assertFailsWith<DnsFloorException> { floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST) }
     }
@@ -129,7 +143,21 @@ class DnsFloorTest {
         val floor = DnsFloor(
             context,
             readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
-            readHost = { "dns.quad9.net" },
+            readHost = { "family-filter-dns.cleanbrowsing.org" },
+            readPrivateDnsLocked = { true },
+        )
+        assertFailsWith<DnsFloorException> { floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST) }
+    }
+
+    @Test
+    fun `verifyOrThrow throws when the private-DNS toggle is not locked`() {
+        // A pinned-but-unlocked floor lets the child change DNS in Settings — fail-closed must
+        // treat the missing DISALLOW_CONFIG_PRIVATE_DNS lock as a verify failure.
+        val floor = DnsFloor(
+            context,
+            readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
+            readHost = { DnsFloor.DEFAULT_FILTERING_HOST },
+            readPrivateDnsLocked = { false },
         )
         assertFailsWith<DnsFloorException> { floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST) }
     }
@@ -154,6 +182,7 @@ class DnsFloorTest {
             context,
             readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_OFF },
             readHost = { null },
+            readPrivateDnsLocked = { true },
         )
         try {
             floor.applyFloor(DnsFloor.DEFAULT_FILTERING_HOST)
@@ -169,14 +198,15 @@ class DnsFloorTest {
     fun `applyFloor pins the floor end-to-end`() {
         val admin = AdminReceiver.componentName(context)
         val floor = DnsFloor(context) // real readback
+        val host = "family-filter-dns.cleanbrowsing.org"
         try {
-            floor.applyFloor("dns.quad9.net")
+            floor.applyFloor(host)
         } catch (e: UnsupportedOperationException) {
             assumeTrue("Robolectric shadow supports setGlobalPrivateDnsModeSpecifiedHost", false)
         } catch (e: DnsFloorException) {
-            assumeTrue("Robolectric shadow round-trips Private DNS mode/host", false)
+            assumeTrue("Robolectric shadow round-trips Private DNS mode/host + lock", false)
         }
         assertEquals(DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME, dpm.getGlobalPrivateDnsMode(admin))
-        assertEquals("dns.quad9.net", dpm.getGlobalPrivateDnsHost(admin))
+        assertEquals(host, dpm.getGlobalPrivateDnsHost(admin))
     }
 }
