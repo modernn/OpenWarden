@@ -32,19 +32,39 @@ class ApiServer(private val context: Context) {
                     val active = store.loadActive()
                     call.respond(mapOf(
                         "version" to BuildVersion,
-                        "policy_version" to (active?.issued_at ?: "none"),
-                        "policy_expires_at" to (active?.expires_at ?: "n/a"),
+                        // §2: issued_at / not_after are integer ms (u53-bounded), not ISO strings.
+                        "policy_version" to (active?.issued_at?.toString() ?: "none"),
+                        "policy_not_after" to (active?.not_after?.toString() ?: "n/a"),
                         "is_locked" to false   // TODO
                     ))
                 }
                 post("/policy") {
                     val bundle = call.receive<SignedBundle>()
-                    val result = PolicyStore(this@ApiServer.context).ingest(bundle)
-                    if (result == PolicyStore.IngestResult.Applied) {
-                        PolicyEnforcer(this@ApiServer.context).applyAllowlist(bundle.policy.allowlist.toSet())
-                        call.respond(HttpStatusCode.OK, mapOf("status" to "applied"))
-                    } else {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to result.name))
+                    val ctx = this@ApiServer.context
+                    val store = PolicyStore(ctx)
+                    val floorStore = ReplayFloorStore(ctx)
+                    // ADR-017 admission pipeline: JC1 -> audience -> signature -> genesis/floor
+                    // -> monotonic/jump, then two-phase commit (stage -> apply+fsync -> advance
+                    // floor -> ack). Floor advances LAST. The parent key is pinned out-of-band at
+                    // pairing (PolicyStore.pinParentPubkey), so the wire uses the pinned-key path;
+                    // bundle-carried genesis TOFU (decide(genesis=true)) is implemented + tested in
+                    // PolicyAdmission but is not reachable here because v1 bundles carry no pubkey.
+                    val result = PolicyAdmission.admit(
+                        bundle = bundle,
+                        store = floorStore,
+                        applier = DefaultPolicyApplier(ctx),
+                        pinParentKey = { store.pinParentPubkey(it) },
+                        pinnedParentPubkey = store.parentPubkey(),
+                    )
+                    when (result) {
+                        is PolicyAdmission.Result.Applied ->
+                            call.respond(HttpStatusCode.OK, mapOf("status" to "applied", "policy_seq" to result.policySeq))
+                        is PolicyAdmission.Result.Rejected ->
+                            // Fail-closed: the previous (or strict baseline) policy stays in force.
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to if (result.malformed) "MALFORMED" else "REJECTED", "reason" to result.reason),
+                            )
                     }
                 }
                 post("/lock") {

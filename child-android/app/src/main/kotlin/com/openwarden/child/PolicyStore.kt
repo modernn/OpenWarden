@@ -72,12 +72,22 @@ class PolicyStore(private val context: Context) {
         }
     }
 
+    /**
+     * Legacy ingest path. SUPERSEDED by [PolicyAdmission.admit], which implements the
+     * ADR-017 replay floor (`policy_seq` monotonic + jump bound), audience binding,
+     * JCS integer bound, genesis gate, and two-phase commit. This method's `issued_at`
+     * string comparison is NOT the ADR-017 replay floor and MUST NOT be used as one.
+     * Retained only so it still compiles for any out-of-tree caller; the `/policy`
+     * route now routes through [PolicyAdmission]. Do not add new callers.
+     */
+    @Deprecated("Use PolicyAdmission.admit (ADR-017 replay floor + audience + two-phase commit)")
     fun ingest(bundle: SignedBundle): IngestResult {
         val pubkey = parentPubkey() ?: return IngestResult.NoParentPinned
         if (!BundleVerifier.verify(bundle, pubkey)) return IngestResult.BadSignature
-        if (bundle.isExpired()) return IngestResult.Expired
 
-        // Replay protection: reject older issued_at than current active
+        // Replay protection: reject older issued_at than current active. issued_at is now an
+        // integer (ms) per PROTOCOL.md §2; this legacy path is NOT the ADR-017 replay floor
+        // (PolicyAdmission is) and remains deprecated.
         val current = loadActive()
         if (current != null && bundle.issued_at <= current.issued_at) {
             return IngestResult.OlderThanActive
@@ -111,31 +121,69 @@ class PolicyStore(private val context: Context) {
     enum class IngestResult { Applied, NoParentPinned, BadSignature, Expired, OlderThanActive }
 }
 
+/**
+ * The child's verified policy bundle. Field set + wire names + types conform EXACTLY to
+ * PROTOCOL.md §2 — snake_case wire keys, u53-bounded integer (ms) timestamps (NOT
+ * ISO-8601 strings), so the parent signer (proto [com.openwarden.proto.PolicyBundle]) and
+ * this verifier emit byte-identical canonical JSON for the same logical bundle. `sig` is
+ * excluded from the signed bytes ([BundleVerifier.canonicalBody]).
+ *
+ * kotlinx serial names ARE the wire names here (the data-class properties are already
+ * snake_case), matching the §2 names the proto side reaches via @SerialName.
+ */
 @Serializable
 data class SignedBundle(
     val v: Int,
-    val issued_at: String,    // ISO-8601
-    val expires_at: String,
-    val nonce: String,
+    // ADR-017 §6 audience binding: the addressed child's pinned id (Ed25519-pubkey-derived
+    // stable id). MANDATORY signed field. The child rejects MALFORMED any bundle whose
+    // child_device_id != its own, BEFORE signature verification. Defaulted empty only so
+    // legacy stored bundles (pre-ADR-017) still parse; an empty id can never match a real
+    // child id, so it fails audience binding fail-closed.
+    val child_device_id: String = "",
+    // ADR-017: device-global monotonic replay floor counter. MANDATORY signed field.
+    // u53-bounded integer 0..2^53-1 (JCS-safe). policy_seq=0 is reserved and never a live
+    // policy. Defaulted 0 only so legacy stored bundles still parse; 0 is never admissible
+    // through PolicyAdmission, so the default is fail-closed.
+    val policy_seq: Long = 0L,
+    // PROTOCOL.md §2: integer Unix-ms timestamps (u53-bounded), NOT ISO-8601 strings.
+    // `expires_at` (ISO string) is GONE — replaced by the §2 not_before/not_after window.
+    val issued_at: Long,  // parent's claimed authorship time, ms
+    val not_before: Long, // earliest legal application time, ms
+    val not_after: Long,  // latest legal application time, ms (short freshness window)
+    val nonce: String,    // hex (32 chars / 16 bytes)
     val policy: PolicyDoc,
-    val sig: String           // hex Ed25519 over canonicalized {v, issued_at, expires_at, nonce, policy}
-) {
-    fun isExpired(): Boolean {
-        // TODO(v1): proper instant parsing
-        return false
-    }
-}
+    // hex Ed25519 over canonicalized bundle minus "sig" (now includes child_device_id +
+    // policy_seq). Tolerant of absence (default "") for verify-over-raw-bytes / storage-layer
+    // tests; an empty sig can never verify, so it stays fail-closed.
+    val sig: String = "",
+)
 
+/**
+ * PROTOCOL.md §2 `policy` object. `allowlist` + `restrictions` are required (defaulted to
+ * empty here so deny-all is the fail-closed default); `blocklist`, `windows`, `private_dns`,
+ * `frp_account_email` are optional. Optional null fields are OMITTED from the canonical
+ * bytes (BundleVerifier Json uses explicitNulls=false), matching the parent signer — §3.1
+ * rule 6 forbids `null` on the wire.
+ */
 @Serializable
 data class PolicyDoc(
     val allowlist: List<String> = emptyList(),
+    val blocklist: List<String> = emptyList(),
     val windows: List<TimeWindow> = emptyList(),
     val restrictions: List<String> = emptyList(),
-    val private_dns: String? = null
+    val private_dns: String? = null,
+    val frp_account_email: String? = null,
 )
 
+/**
+ * PROTOCOL.md §2 `policy.windows[]`: `{"pkg","allow":"16:00-18:00","days":"Mon,Tue,...","tz"}`.
+ * `allow_cron` is GONE — replaced by the §2 `allow`/`days`/`tz` string form. `tz` is the
+ * signed tz, never the device TZ (red-team T2).
+ */
 @Serializable
 data class TimeWindow(
     val pkg: String,
-    val allow_cron: String
+    val allow: String,
+    val days: String,
+    val tz: String,
 )

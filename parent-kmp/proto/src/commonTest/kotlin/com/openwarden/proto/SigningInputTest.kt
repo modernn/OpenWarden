@@ -16,20 +16,26 @@ class SigningInputTest {
         v = 1,
         policySeq = 5,
         childDeviceId = "dev-1",
+        issuedAt = 50,
         notBefore = 100,
         notAfter = 200,
+        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
         policy = Policy(allowlist = listOf("com.a")),
         sig = null,
     )
 
-    // ----- ADR-015: one signing rule, full-object canonical form -----
+    // ----- ADR-015: one signing rule, full-object canonical form (PROTOCOL.md §2 wire names) -----
 
     @Test
     fun bundleSigningBytesAreCanonicalAndSigStripped() {
-        // Keys sorted UTF-16; sig removed; defaults (empty blocklist/windows) present and signed.
+        // Keys sorted UTF-16; sig removed; §2 snake_case wire names; integer timestamps (ms,
+        // not ISO strings); defaults (empty blocklist/windows/restrictions) present and signed;
+        // null optionals (private_dns, frp_account_email) OMITTED (no `null` per §3.1 rule 6).
         assertEquals(
-            """{"childDeviceId":"dev-1","notAfter":200,"notBefore":100,""" +
-                """"policy":{"allowlist":["com.a"],"blocklist":[],"windows":[]},"policySeq":5,"v":1}""",
+            """{"child_device_id":"dev-1","issued_at":50,"nonce":"9f1b3c4d5e6f70819a2b3c4d5e6f7081",""" +
+                """"not_after":200,"not_before":100,""" +
+                """"policy":{"allowlist":["com.a"],"blocklist":[],"restrictions":[],"windows":[]},""" +
+                """"policy_seq":5,"v":1}""",
             bundleBytes(goldenBundle),
         )
     }
@@ -47,10 +53,12 @@ class SigningInputTest {
     fun verifierDocumentBytesMatchSignerBundleBytes() {
         // Verifier canonicalizes the RECEIVED document (different key order, whitespace, sig present)
         // and must arrive at exactly the signer's bytes — otherwise parent/child disagree (SIG_FAIL).
+        // Wire keys are PROTOCOL.md §2 snake_case; integer timestamps in ms.
         val wire = obj(
-            """{ "sig":"ZZ", "v":1, "policySeq":5, "childDeviceId":"dev-1",
-                 "notAfter":200, "notBefore":100,
-                 "policy":{"windows":[],"blocklist":[],"allowlist":["com.a"]} }""",
+            """{ "sig":"ZZ", "v":1, "policy_seq":5, "child_device_id":"dev-1",
+                 "issued_at":50, "not_after":200, "not_before":100,
+                 "nonce":"9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+                 "policy":{"windows":[],"restrictions":[],"blocklist":[],"allowlist":["com.a"]} }""",
         )
         assertEquals(bundleBytes(goldenBundle), SigningInput.forDocument(wire).decodeToString())
     }
@@ -58,12 +66,13 @@ class SigningInputTest {
     @Test
     fun omittingASignedDefaultFieldDivergesFromSignerBytes() {
         // ADR-019: the verifier must receive the EXACT bytes the signer signed. A wire document that
-        // drops a defaulted field the signer included (here: the empty blocklist/windows) canonicalizes
-        // to DIFFERENT bytes — which is precisely why the signer must transmit its canonical form
-        // verbatim, not let the verifier re-derive it from a typed model. This guards the forBundle-vs-
-        // forDocument divergence (PR #47 review finding).
+        // drops a defaulted field the signer included (here: the empty blocklist/windows/restrictions)
+        // canonicalizes to DIFFERENT bytes — which is precisely why the signer must transmit its
+        // canonical form verbatim, not let the verifier re-derive it from a typed model. This guards
+        // the forBundle-vs-forDocument divergence (PR #47 review finding).
         val wireMissingDefaults = obj(
-            """{"v":1,"policySeq":5,"childDeviceId":"dev-1","notAfter":200,"notBefore":100,
+            """{"v":1,"policy_seq":5,"child_device_id":"dev-1","issued_at":50,
+                 "not_after":200,"not_before":100,"nonce":"9f1b3c4d5e6f70819a2b3c4d5e6f7081",
                  "policy":{"allowlist":["com.a"]}}""",
         )
         assertNotEquals(

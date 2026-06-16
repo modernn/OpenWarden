@@ -45,6 +45,11 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("com.google.android.material:material:1.12.0")
 
+    // Encrypted at-rest storage for the replay floor + provisioning marker (ADR-017 part 1).
+    // EncryptedSharedPreferences master key is StrongBox-backed where available, TEE-backed
+    // otherwise. Best-effort at-rest integrity only — NOT a hardware monotonic counter.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Embedded HTTP server, control plane
     implementation("io.ktor:ktor-server-core:2.3.12")
     implementation("io.ktor:ktor-server-cio:2.3.12")

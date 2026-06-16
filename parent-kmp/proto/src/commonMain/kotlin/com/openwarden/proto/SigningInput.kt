@@ -37,7 +37,13 @@ object SigningInput {
     /** The wire field that carries the detached signature; always excluded from its own input. */
     const val SIG_FIELD: String = "sig"
 
-    private val json = Json { encodeDefaults = true }
+    // encodeDefaults=true so defaulted fields (e.g. `v`, empty blocklist/windows/restrictions)
+    // are part of the signed bytes; explicitNulls=false so optional fields left null
+    // (private_dns, frp_account_email) are OMITTED — PROTOCOL.md §3.1 rule 6 forbids `null`.
+    private val json = Json {
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     /** Signer side: canonical signing bytes for a [PolicyBundle] (ADR-015). */
     fun forBundle(bundle: PolicyBundle): ByteArray =

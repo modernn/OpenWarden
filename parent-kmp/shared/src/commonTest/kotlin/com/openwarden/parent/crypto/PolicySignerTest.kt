@@ -17,8 +17,10 @@ class PolicySignerTest {
     private fun bundle(seq: Long = 5) = PolicyBundle(
         policySeq = seq,
         childDeviceId = "dev-1",
+        issuedAt = 1,
         notBefore = 1,
         notAfter = 2,
+        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
         policy = Policy(allowlist = listOf("b.app", "a.app")),
     )
 
@@ -33,12 +35,13 @@ class PolicySignerTest {
 
     @Test
     fun signingBytesAreCanonical() {
-        // Object keys sorted; array (allowlist) order preserved as authored.
+        // Object keys sorted by UTF-16 code unit; array (allowlist) order preserved as authored.
+        // Wire names are PROTOCOL.md §2 snake_case.
         val s = PolicySigner.signingBytes(bundle()).decodeToString()
         assertTrue(s.contains("\"allowlist\":[\"b.app\",\"a.app\"]"))
-        val childIdx = s.indexOf("childDeviceId")
+        val childIdx = s.indexOf("child_device_id")
         val policyIdx = s.indexOf("\"policy\"")
-        assertTrue(childIdx in 0 until policyIdx, "keys must be lexicographically ordered")
+        assertTrue(childIdx in 0 until policyIdx, "keys must be lexicographically ordered (§2 wire names)")
     }
 
     @Test
