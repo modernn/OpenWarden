@@ -92,7 +92,7 @@
 
 **Model:** sonnet
 
-**Rationale:** `site/` exists in the repo and has had real PRs (PR #77 merged marketing website). No existing agent is scoped to it. Without a dedicated role, a contributor would have to use the catch-all, which has no guardrails for this area. The role's guardrails are simpler than mobile roles (no crypto surface) but it needs its own scope boundary to prevent cross-contamination with app code.
+**Rationale:** `site/` exists in the repo — the marketing website was added in commit `77ddbc7` ("merge: open-warden.com marketing website") and is present as the `site/` directory. No existing agent is scoped to it. Without a dedicated role, a contributor would have to use the catch-all, which has no guardrails for this area. The role's guardrails are simpler than mobile roles (no crypto surface) but it needs its own scope boundary to prevent cross-contamination with app code.
 
 **ADD NOW or DEFER:** ADD NOW — site exists, active work has occurred, contributors will ask.
 
