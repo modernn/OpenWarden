@@ -131,6 +131,15 @@ proposes, the maintainer approves the dispatch. Flow:
    Send independent dispatches in **one message** to run concurrently. **Never** dispatch
    `agent-blocked` work (crypto/`proto`/policy-enforcement/provisioning/CI/`.claude`/governance)
    — surface it for a human + ADR. For crypto questions, route `crypto-reviewer` (read-only).
+
+   > **Parallel worktree fan-out.** Each independent task MUST get its own worktree + branch
+   > (see `docs/WORKTREES.md`). Never dispatch two tasks to the same folder — concurrent
+   > commits collide on `HEAD`. One subagent = one worktree = one branch.
+
+   > **Right-size the dispatched model.** Use cheaper models (`haiku`, `sonnet`) for
+   > mechanical/test/build work and reserve the top model (`opus`) for hard reasoning
+   > (design reviews, crypto analysis, complex debugging). Pass the `model:` front-matter
+   > key when spawning an Agent to avoid burning top-tier quota on boilerplate.
 5. **Report + steer.** Summarize what's in flight, what's human-blocked, and what the next rung
    should be. If the survey implies a **pivot** (re-scope/reorder a rung, or a version's
    meaning changed), do **not** silently edit the plan — propose it via the protected-roadmap
@@ -155,6 +164,14 @@ human-only surfaces stay human-only. The lead multiplies throughput; it never wi
   run `/verify-openwarden-spec`.
 
 ## Step 3 — common closing path (every code/doc change)
+
+> **Build prerequisite — modules must build first.**  Before starting test or feature
+> work on any module, confirm it actually builds: the committed gradle wrapper must be
+> present, deps must resolve, and a clean `./gradlew testDebugUnitTest` (or equivalent)
+> must be green. If the build is broken, fixing the build infra (missing wrapper,
+> unresolved dep, misconfigured toolchain) is the bedrock-unblock task and comes before
+> everything else.
+
 1. Worktree branch: `git worktree add -b <conventional-branch> ../OpenWarden-<slug> main`.
 2. Make the change **with tests**.
 3. `cd parent-kmp && ./gradlew check` (or the relevant module build) — must be green.
