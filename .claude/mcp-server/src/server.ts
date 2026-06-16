@@ -19,6 +19,7 @@ import { dirname } from "node:path";
 import { repoRootFrom, searchKb, sessionDigest } from "./kb.js";
 import { getActiveWork, claimWork } from "./gh.js";
 import { proposeKbUpdate, type ProposeInput } from "./propose.js";
+import { progressStart, progressStop, progressResume, progressStatus } from "./progress.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // When built, this file lives at <repo>/.claude/mcp-server/dist/server.js → up 3 = repo.
@@ -92,6 +93,55 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "progress_start",
+    description:
+      "Maintain your place in development. Start/resume a work session for the CURRENT " +
+      "worktree+branch (optionally tied to an issue). Records to an UNCOMMITTED, " +
+      "worktree-aware ledger in the git common dir. Warns if the worktree looks wrong for the area.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        issue: { type: "number", description: "Issue number you're working on (optional)." },
+        area: { type: "string", description: "area:* label, for the worktree-match check (optional)." },
+        step: { type: "string", description: "What you're starting on (optional)." },
+        note: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "progress_stop",
+    description:
+      "Checkpoint/pause the active session in the current worktree: captures uncommitted + " +
+      "unpushed git state and your step/done/next/notes so you can resume later.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        step: { type: "string" },
+        done: { type: "array", items: { type: "string" } },
+        next: { type: "array", items: { type: "string" } },
+        note: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "progress_resume",
+    description:
+      "Restore your place: the paused/in-progress session(s) for the current worktree plus " +
+      "uncommitted/unpushed state. With no session here, returns a dashboard across all worktrees.",
+    inputSchema: {
+      type: "object",
+      properties: { issue: { type: "number", description: "Optional: only this issue." } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "progress_status",
+    description: "Dashboard of all dev sessions across every worktree, plus the worktree list.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
 ];
 
 const server = new Server(
@@ -130,6 +180,31 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         const r = proposeKbUpdate(REPO_ROOT, args as unknown as ProposeInput);
         return jsonResult(r);
       }
+
+      case "progress_start": {
+        const a = args as { issue?: number; area?: string; step?: string; note?: string };
+        return jsonResult(
+          progressStart(REPO_ROOT, {
+            issue: a.issue ?? null,
+            area: a.area ?? null,
+            step: a.step ?? null,
+            note: a.note ?? null,
+          })
+        );
+      }
+
+      case "progress_stop": {
+        const a = args as { step?: string; done?: string[]; next?: string[]; note?: string };
+        return jsonResult(progressStop(REPO_ROOT, a));
+      }
+
+      case "progress_resume": {
+        const a = args as { issue?: number };
+        return jsonResult(progressResume(REPO_ROOT, a.issue ?? null));
+      }
+
+      case "progress_status":
+        return jsonResult(progressStatus(REPO_ROOT));
 
       default:
         return { content: [{ type: "text" as const, text: `unknown tool: ${name}` }], isError: true };
