@@ -1,0 +1,25 @@
+#!/bin/sh
+# Copyright 2015 the original author or authors.
+# Licensed under the Apache License, Version 2.0
+
+SCRIPTDIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+APP_NAME="${0##*/}"
+APP_BASE_NAME="${APP_NAME%.*}"
+CLASSPATH="$SCRIPTDIR/gradle/wrapper/gradle-wrapper.jar"
+
+if [ -n "$JAVA_HOME" ] ; then
+    JAVACMD="$JAVA_HOME/bin/java"
+else
+    JAVACMD="java"
+fi
+
+if ! command -v "$JAVACMD" >/dev/null 2>&1; then
+    echo "ERROR: JAVA_HOME is not set and no 'java' command could be found in PATH"
+    exit 1
+fi
+
+exec "$JAVACMD" \
+    -Dorg.gradle.appname="$APP_BASE_NAME" \
+    -classpath "$CLASSPATH" \
+    org.gradle.wrapper.GradleWrapperMain \
+    "$@"

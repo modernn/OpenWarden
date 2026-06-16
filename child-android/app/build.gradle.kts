@@ -14,6 +14,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0-dev"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -23,6 +24,10 @@ android {
         debug {
             applicationIdSuffix = ".debug"
         }
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
     }
 
     compileOptions {
@@ -49,11 +54,16 @@ dependencies {
     // JSON + crypto
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("net.i2p.crypto:eddsa:0.3.0")          // Ed25519
-    implementation("io.github.novacrypto:BIP39:2019.01.27") // BIP39 mnemonic
+    // BIP39 mnemonic lib added when #15 (recovery phrase) is built — pick a Maven Central lib then
 
     // QR
     implementation("com.google.zxing:core:3.5.3")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test-junit"))
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
+
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }
