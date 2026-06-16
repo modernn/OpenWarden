@@ -1,31 +1,30 @@
 # ============================================================================
 # DRAFT — needs maintainer review before enabling.
 # ============================================================================
-# This workflow decides whether a PR is eligible for the lighter-touch (auto-merge)
-# tier. It does NOT replace CODEOWNERS or branch protection — it only *enables*
-# auto-merge when ALL of these hold:
-#   1. PR author is listed in .github/contributors.allow with a matching scope, AND
-#   2. the diff is KB-only OR a small agent-ready change (no sensitive paths), AND
-#   3. all required checks pass.
-# Crypto/proto/policy/CI/governance changes are NEVER auto-merged here.
+# Decides whether a PR is eligible for the lighter-touch (auto-merge) tier. It does NOT
+# replace CODEOWNERS or branch protection — it only *enables* auto-merge when ALL hold:
+#   1. PR author is in .github/contributors.allow with a matching scope, AND
+#   2. the PR is small and touches no sensitive path, AND
+#   3. it is `agent-ready` and NOT `agent-blocked`, AND
+#   4. all required checks pass.
+# Crypto / proto / policy / CI / governance changes are NEVER auto-merged here.
 #
 # SECURITY (mandatory, do not relax):
-#   - Trigger is `pull_request` (NEVER `pull_request_target`) so untrusted PR code
-#     cannot run with write tokens / repo secrets.
-#   - Top-level permissions are minimal (contents: read). The auto-merge job
-#     requests only the narrow scopes it needs.
-#   - Every action is pinned to a full commit SHA (with a # vX.Y.Z comment).
-#   - The allowlist is read from the BASE repo checkout, not from PR-controlled input.
+#   - Trigger is `pull_request` (NEVER `pull_request_target`) so untrusted PR code cannot
+#     run with write tokens / repo secrets.
+#   - Top-level permissions are minimal (contents: read).
+#   - Every action is pinned to a full commit SHA.
+#   - The allowlist is read from the BASE checkout; untrusted PR data (filenames, author)
+#     is passed to github-script via env + JSON, NEVER interpolated into the script source.
 #
-# TODO(maintainer): review tier logic + path rules, then (a) flip `if: false` guards,
-# (b) enable "Allow auto-merge" in repo settings, (c) ensure branch protection requires
-# the relevant checks. Until then this is inert.
+# TODO(maintainer): review tier logic + path rules, then (a) remove the `&& false` guard,
+# (b) enable "Allow auto-merge", (c) require the relevant checks in branch protection.
 # ============================================================================
 name: registry-gate (DRAFT)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -42,7 +41,7 @@ jobs:
     if: ${{ github.event.pull_request.draft == false && false }}
     permissions:
       contents: read
-      pull-requests: write   # to label / comment eligibility
+      pull-requests: write # to label / comment eligibility
     steps:
       - name: Checkout base (trusted) ref
         # actions/checkout v4.2.2
@@ -52,54 +51,83 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
-      - name: Compute changed files (read-only)
+      - name: Compute changed files (read-only, JSON-encoded)
         id: diff
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # Fetch only what we need to diff; head is untrusted DATA, never executed.
-          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA" || true
-          CHANGED="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" || true)"
-          echo "changed<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGED"     >> "$GITHUB_OUTPUT"
-          echo "EOF"          >> "$GITHUB_OUTPUT"
+          # Head content is untrusted DATA, only diffed by name — never executed.
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+          # Emit a JSON array so filenames are safe to pass through an env var (no shell/JS injection).
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+            | jq -R -s 'split("\n") | map(select(length > 0))' -c > changed.json
+          echo "json=$(cat changed.json)" >> "$GITHUB_OUTPUT"
 
       - name: Decide eligibility
         # actions/github-script v7.0.1
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          # Untrusted PR-controlled data — passed as DATA, never interpolated into the script.
+          CHANGED_FILES_JSON: ${{ steps.diff.outputs.json }}
         with:
           script: |
             const fs = require('fs');
-            const author = context.payload.pull_request.user.login.toLowerCase();
-            const changed = `${{ steps.diff.outputs.changed }}`.split('\n').map(s => s.trim()).filter(Boolean);
+            const author = (context.payload.pull_request.user.login || '').toLowerCase();
+            const labels = (context.payload.pull_request.labels || []).map((l) => (l.name || '').toLowerCase());
+            let changed = [];
+            try {
+              changed = JSON.parse(process.env.CHANGED_FILES_JSON || '[]');
+            } catch {
+              changed = [];
+            }
 
-            // --- read the trusted allowlist from the base checkout ---
+            // Trusted allowlist from the base checkout.
             const allow = fs.readFileSync('.github/contributors.allow', 'utf8');
-            const row = allow.split('\n')
-              .map(l => l.replace(/#.*$/, '').trim())
+            const row = allow
+              .split('\n')
+              .map((l) => l.replace(/#.*$/, '').trim())
               .filter(Boolean)
-              .map(l => l.split(/\s+/))
-              .find(cols => (cols[0] || '').toLowerCase() === author);
-            const scopes = row ? (row[1] || '').split(',').map(s => s.trim()) : [];
+              .map((l) => l.split(/\s+/))
+              .find((cols) => (cols[0] || '').toLowerCase() === author);
+            const scopes = row ? (row[1] || '').split(',').map((s) => s.trim()) : [];
 
-            // --- sensitive paths that can NEVER auto-merge ---
+            // Sensitive paths that can NEVER auto-merge (mirror CODEOWNERS).
             const SENSITIVE = [
-              /^proto\//, /crypto\//, /BundleVerifier\.kt$/, /PolicyEnforcer\.kt$/,
-              /PolicyService\.kt$/, /^\.github\//, /^\.claude\//, /^CODEOWNERS$/,
-              /^AGENTS\.md$/, /^CLAUDE\.md$/, /^SECURITY\.md$/,
+              /^proto\//,
+              /(^|\/)parent-kmp\/proto\//,
+              /\/crypto\//,
+              /BundleVerifier\.kt$/,
+              /PolicyEnforcer\.kt$/,
+              /PolicyService\.kt$/,
+              /(^|\/)provision/i,
+              /^\.github\//,
+              /^\.claude\//,
+              /^\.mcp\.json$/,
+              /^CODEOWNERS$/,
+              /^AGENTS\.md$/,
+              /^CLAUDE\.md$/,
+              /^SECURITY\.md$/,
+              /^GOVERNANCE\.md$/,
             ];
-            const touchesSensitive = changed.some(f => SENSITIVE.some(re => re.test(f)));
-            const kbOnly = changed.length > 0 && changed.every(f => f.startsWith('kb/'));
+            const touchesSensitive = changed.some((f) => SENSITIVE.some((re) => re.test(f)));
+            const kbOnly = changed.length > 0 && changed.every((f) => f.startsWith('kb/'));
+
+            const MAX_FILES = 25;
+            const sizeOk = changed.length > 0 && changed.length <= MAX_FILES;
+            const agentBlocked = labels.includes('agent-blocked');
+            const agentReady = labels.includes('agent-ready');
 
             const eligible =
               scopes.length > 0 &&
               !touchesSensitive &&
-              (kbOnly ? scopes.includes('kb') : scopes.includes('code'));
+              !agentBlocked &&
+              sizeOk &&
+              (kbOnly ? scopes.includes('kb') : agentReady && scopes.includes('code'));
 
-            core.notice(`author=${author} scopes=[${scopes}] kbOnly=${kbOnly} sensitive=${touchesSensitive} eligible=${eligible}`);
-
-            // DRAFT: only annotate. Actual `gh pr merge --auto` is left for the maintainer
-            // to wire up once the tier is reviewed and branch protection requires checks.
-            // TODO(maintainer): on eligible===true and required checks green, enable auto-merge.
+            core.notice(
+              `author=${author} scopes=[${scopes}] files=${changed.length} kbOnly=${kbOnly} ` +
+                `agentReady=${agentReady} agentBlocked=${agentBlocked} sensitive=${touchesSensitive} eligible=${eligible}`
+            );
+            // DRAFT: annotate only. TODO(maintainer): on eligible && required checks green, enable auto-merge.
