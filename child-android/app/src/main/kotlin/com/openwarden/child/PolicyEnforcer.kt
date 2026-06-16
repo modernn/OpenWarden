@@ -21,9 +21,10 @@ import android.util.Log
  * gap and is the bug this class closes.
  *
  * @param context Device-Owner app context.
- * @param isRestrictionSet readback seam — defaults to the real [UserManager]. Injectable so
- *   tests can drive the verify path deterministically without depending on whether the
- *   Robolectric shadow wires `addUserRestriction` through to `UserManager`.
+ * @param isRestrictionSet readback seam — defaults to the DO-authoritative
+ *   [DevicePolicyManager.getUserRestrictions] for this admin (what *we* set, not the effective
+ *   union of all sources). Injectable so tests can drive the verify path deterministically
+ *   without depending on whether the Robolectric shadow round-trips the restriction state.
  */
 class PolicyEnforcer(
     private val context: Context,
@@ -194,10 +195,17 @@ class PolicyEnforcer(
          */
         const val DISALLOW_OEM_UNLOCK = "no_oem_unlock"
 
-        /** Default readback seam: the real per-user restriction state via [UserManager]. */
+        /**
+         * Default readback seam: the **DO-authoritative** restriction state via
+         * [DevicePolicyManager.getUserRestrictions] for this admin. This reads back exactly
+         * what *our* Device Owner set — NOT [UserManager.hasUserRestriction], which reports the
+         * effective restriction from any source (base/system/another admin) and could falsely
+         * report success when our `addUserRestriction(admin, …)` did not actually stick.
+         */
         private fun defaultRestrictionReader(context: Context): (String) -> Boolean {
-            val um = context.getSystemService(Context.USER_SERVICE) as UserManager
-            return { key -> um.hasUserRestriction(key) }
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val admin = AdminReceiver.componentName(context)
+            return { key -> dpm.getUserRestrictions(admin).getBoolean(key, false) }
         }
     }
 }

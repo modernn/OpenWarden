@@ -55,19 +55,31 @@ provision and on every boot / watchdog tick.
 
 **D3 — Callers re-assert and stay alive.** `AdminReceiver.onProfileProvisioningComplete` and
 the `PolicyService` foreground-service tick both call `applyDayOneRestrictions()` and **catch**
-the exception so the FGS watchdog keeps running and retries on the next tick. The device is
-already locked by D2, so swallowing in the caller is *fail-closed-but-alive*, not fail-open.
+the exception so the FGS watchdog keeps running and retries on the next tick. On a verify gap
+D2 has *attempted* `lockNow()` containment, so swallowing in the caller is *fail-closed-but-alive*,
+not fail-open. Note the honest edge: if `lockNow()` itself also failed (logged), the device is
+neither verified nor locked until the next watchdog tick re-attempts — a narrow retry window,
+not a fail-open by construction (the prior state was already a tamper attempt).
 
 **D4 — FRP is implemented, best-effort, and refuses to brick.** `applyFrpAccounts()` sets
 `setFactoryResetProtectionPolicy` (API 30+). It refuses an empty account set (enabling FRP with
 no recovery account would brick the device). Honesty caveat: FRP reliably blocks reset only on
-Pixel-class hardware with a locked bootloader; on much of Tier-2 it is bypassable (research/07).
-This is documented, not hidden, and is mitigated separately by heartbeat-silence alerts.
+Pixel-class hardware with a locked bootloader; on much of Tier-2 it is bypassable via vendor
+unlock tools (research/07 S1 names Xiaomi Mi-Unlock, OnePlus toggle). This is documented, not
+hidden, and is mitigated separately by heartbeat-silence alerts. **Scope:** the method is
+implemented and unit-tested but is **not yet wired into any caller** in this change — Day-One
+provisioning does not bind FRP today; the provisioning wiring (and the FRP-bypass A-class
+ATTACKS entry) is tracked separately.
 
 **D5 — Scope boundaries.** `DISALLOW_CONFIG_PRIVATE_DNS` is intentionally **not** in this set —
 the DNS fail-closed floor (pin the resolver + lock the toggle) is owned by issue #19 so the DNS
-story lives in one place. `DISALLOW_OEM_UNLOCK` is a hidden `@SystemApi` constant, so it is
-pinned by its stable AOSP string key (`"no_oem_unlock"`); a Device Owner can still set it.
+story lives in one place. **Interim window:** until #19 lands, there is no lock on the Private
+DNS toggle and no pinned filtering resolver, so the DNS surface is fail-open in the meantime;
+#19 is therefore a **blocking dependency** for any fail-closed-DNS claim, and #19 must pin a
+*public filtering* resolver and never fall back to OFF/OPPORTUNISTIC/localhost on any failure
+path (research/07 K3). `DISALLOW_OEM_UNLOCK` is a hidden `@SystemApi` constant, so it is pinned
+by its stable AOSP string key (`"no_oem_unlock"`); a Device Owner can still set it, though the
+readback bit being set does not prove bootloader-level enforcement on Tier-2 (research/07 S1).
 
 ## Consequences
 
