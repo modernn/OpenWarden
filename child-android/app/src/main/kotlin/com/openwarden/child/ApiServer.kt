@@ -28,7 +28,7 @@ class ApiServer(private val context: Context) {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             routing {
                 get("/state") {
-                    val store = PolicyStore(context)
+                    val store = PolicyStore(this@ApiServer.context)
                     val active = store.loadActive()
                     call.respond(mapOf(
                         "version" to BuildVersion,
@@ -39,16 +39,16 @@ class ApiServer(private val context: Context) {
                 }
                 post("/policy") {
                     val bundle = call.receive<SignedBundle>()
-                    val result = PolicyStore(context).ingest(bundle)
+                    val result = PolicyStore(this@ApiServer.context).ingest(bundle)
                     if (result == PolicyStore.IngestResult.Applied) {
-                        PolicyEnforcer(context).applyAllowlist(bundle.policy.allowlist.toSet())
+                        PolicyEnforcer(this@ApiServer.context).applyAllowlist(bundle.policy.allowlist.toSet())
                         call.respond(HttpStatusCode.OK, mapOf("status" to "applied"))
                     } else {
                         call.respond(HttpStatusCode.BadRequest, mapOf("error" to result.name))
                     }
                 }
                 post("/lock") {
-                    PolicyEnforcer(context).lockNow()
+                    PolicyEnforcer(this@ApiServer.context).lockNow()
                     call.respond(HttpStatusCode.OK, mapOf("status" to "locked"))
                 }
                 get("/usage") {
