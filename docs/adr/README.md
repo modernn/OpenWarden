@@ -46,6 +46,7 @@ What this means going forward (good + bad).
 | [018](018-version-semantics-and-dynamic-roadmap.md) | Proposed | Version semantics (v0.x road → v1.0 public release), dynamic protected roadmap, tech-lead mode |
 | [019](019-canonical-signing-invariant.md) | Accepted | Canonical signing — sign-and-transmit-exact-bytes, verify over received bytes |
 | [020](020-failclosed-dayone-restrictions.md) | Accepted | Day-One restriction baseline applied fail-closed (verify-or-throw) + FRP |
+| [021](021-policy-watchdog-reassert-triggers.md) | Accepted | Policy watchdog re-asserts on boot, connectivity, and a periodic timer |
 
 ## When to write an ADR
 
