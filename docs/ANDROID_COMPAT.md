@@ -88,6 +88,8 @@ The trend: **OEMs from "Western / EU markets" (Motorola, Nothing, Fairphone) hew
 
 ## 3. StrongBox availability matrix
 
+> **Monotonic counter note (ADR-017):** There is **no app-usable rollback-resistant monotonic counter on any Android tier** — not Tier 1 (Pixel 6+ / Titan M2), not Tier 2 (Samsung Knox Vault, Snapdragon SPU), not Tier 3. Android's `KeyGenParameterSpec.Builder` exposes `setIsStrongBoxBacked(boolean)` and `setMaxUsageCount(int)` (a usage countdown toward zero, not an app-readable/-settable monotonic counter), and nothing else resembling a rollback-resistant counter. KeyMint/Keymaster HAL has `Tag::ROLLBACK_RESISTANCE`, but that governs whether the *key blob* survives a factory reset — it is not surfaced to apps as a readable/writable counter. **StrongBox vs TEE affects only at-rest key isolation (confidentiality and integrity of stored keys), not monotonicity of any app-held value.** The `policy_seq` replay floor is therefore best-effort at-rest + chain-mirrored, with the parent device as the authoritative monotonicity anchor (see [`CRYPTO.md`](CRYPTO.md) §5, §8 and [`PROTOCOL.md`](PROTOCOL.md) §5). The parent app MUST NOT advertise "hardware rollback resistance" on any tier.
+
 `CRYPTO.md` §3 is currently absolutist: *"`setIsStrongBoxBacked(true)` is non-negotiable."* That has to relax for any Tier 2 support.
 
 ### Devices with hardware StrongBox in 2026
