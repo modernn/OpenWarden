@@ -2,6 +2,8 @@ package com.openwarden.child
 
 import android.app.admin.DevicePolicyManager
 import android.content.Context
+import org.junit.After
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,10 +22,10 @@ import kotlin.test.assertTrue
  * Note on Robolectric + ShadowDevicePolicyManager keyguard round-trip:
  * As of Robolectric 4.13 / sdk 34, ShadowDevicePolicyManager does support storing and
  * returning keyguard disabled features via setKeyguardDisabledFeatures /
- * getKeyguardDisabledFeatures when device-owner is set. Where a full round-trip is
- * supported, we assert equality. Where shadow behaviour is limited, we assert the
- * expected bit composition on [LockScreenLockdown.disabledKeyguardFeatures] and that
- * [LockScreenLockdown.apply] does not throw.
+ * getKeyguardDisabledFeatures when device-owner is set. Round-trip tests are gated with
+ * [assumeTrue] so they SKIP (not vacuously pass) if the shadow ever stops persisting the
+ * value. Static-property tests for individual flag bits are kept as separate test methods
+ * so coverage of the constant composition is always unconditional.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -46,8 +48,16 @@ class LockScreenLockdownTest {
         lockdown = LockScreenLockdown(context)
     }
 
+    @After
+    fun tearDown() {
+        // Restore Device Owner after every test so that tests that temporarily clear it
+        // (apply()-throws-when-NOT-DO) do not break isolation for other tests in the suite.
+        val shadowDpm = Shadows.shadowOf(dpm)
+        shadowDpm.setDeviceOwner(AdminReceiver.componentName(context))
+    }
+
     // -------------------------------------------------------------------------
-    // disabledKeyguardFeatures composition
+    // disabledKeyguardFeatures composition — unconditional static-property tests
     // -------------------------------------------------------------------------
 
     @Test
@@ -111,42 +121,37 @@ class LockScreenLockdownTest {
         val admin = AdminReceiver.componentName(context)
         val reported = dpm.getKeyguardDisabledFeatures(admin)
 
-        // ShadowDevicePolicyManager in Robolectric 4.13 supports keyguard round-trips.
-        // If the shadow does NOT persist the value it returns 0; in that case we fall back
-        // to asserting on the property (see note in class KDoc).
-        if (reported != 0) {
-            assertEquals(
-                lockdown.disabledKeyguardFeatures,
-                reported,
-                "getKeyguardDisabledFeatures() must return the exact mask passed to setKeyguardDisabledFeatures()"
-            )
-        } else {
-            // Shadow did not store the value — assert the property is non-zero and has the
-            // mandatory SECURE_CAMERA bit.
-            assertTrue(
-                lockdown.disabledKeyguardFeatures != 0,
-                "disabledKeyguardFeatures must be non-zero"
-            )
-            assertTrue(
-                (lockdown.disabledKeyguardFeatures and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
-                "disabledKeyguardFeatures must have KEYGUARD_DISABLE_SECURE_CAMERA set"
-            )
-        }
+        // Gate on the shadow actually persisting the value. If the shadow no-ops
+        // getKeyguardDisabledFeatures (returns 0), the test SKIPS rather than
+        // vacuously passing with a static-property assertion that never touched DPM.
+        assumeTrue("Robolectric shadow stored keyguard features", reported != 0)
+
+        assertEquals(
+            lockdown.disabledKeyguardFeatures,
+            reported,
+            "getKeyguardDisabledFeatures() must return the exact mask passed to setKeyguardDisabledFeatures()"
+        )
     }
 
     @Test
     fun `apply() throws when app is NOT device owner`() {
-        // Build a fresh context where the shadow has no device-owner set.
-        val freshContext = RuntimeEnvironment.getApplication()
-        val freshDpm = freshContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        val freshShadow = Shadows.shadowOf(freshDpm)
-        // Explicitly clear device owner (set to null component = not DO)
-        freshShadow.setDeviceOwner(null)
+        // RuntimeEnvironment.getApplication() returns the SAME singleton, so we must
+        // manipulate the shadow on the shared DPM. We clear DO, assert the precondition
+        // ourselves, then restore DO in @After so other tests are not broken.
+        val shadowDpm = Shadows.shadowOf(dpm)
+        shadowDpm.setDeviceOwner(null)
 
-        val notDoLockdown = LockScreenLockdown(freshContext)
+        // Prove our own precondition: the shadow must reflect NOT-DO before we test the throw.
+        assertTrue(
+            !dpm.isDeviceOwnerApp(context.packageName),
+            "Precondition failed: expected isDeviceOwnerApp() to be false after clearing DO"
+        )
+
+        val notDoLockdown = LockScreenLockdown(context)
         assertFailsWith<IllegalArgumentException>("apply() must throw when not Device Owner") {
             notDoLockdown.apply()
         }
+        // @After will restore DO so that any remaining tests in the suite are not affected.
     }
 
     // -------------------------------------------------------------------------
@@ -165,13 +170,13 @@ class LockScreenLockdownTest {
         val admin = AdminReceiver.componentName(context)
         val reported = dpm.getKeyguardDisabledFeatures(admin)
 
-        if (reported != 0) {
-            assertTrue(
-                (reported and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
-                "After disableCameraOnKeyguardOnly(), KEYGUARD_DISABLE_SECURE_CAMERA must be set"
-            )
-        }
-        // Shadow fallback: property check already covers this via dedicated flag tests above.
+        // Gate on the shadow actually persisting the value; skip rather than vacuously pass.
+        assumeTrue("Robolectric shadow stored keyguard features", reported != 0)
+
+        assertTrue(
+            (reported and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
+            "After disableCameraOnKeyguardOnly(), KEYGUARD_DISABLE_SECURE_CAMERA must be set"
+        )
     }
 
     @Test
@@ -184,15 +189,17 @@ class LockScreenLockdownTest {
         lockdown.disableCameraOnKeyguardOnly()
 
         val reported = dpm.getKeyguardDisabledFeatures(admin)
-        if (reported != 0) {
-            assertTrue(
-                (reported and DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS) != 0,
-                "Pre-existing KEYGUARD_DISABLE_TRUST_AGENTS must survive disableCameraOnKeyguardOnly()"
-            )
-            assertTrue(
-                (reported and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
-                "KEYGUARD_DISABLE_SECURE_CAMERA must be added by disableCameraOnKeyguardOnly()"
-            )
-        }
+
+        // Gate on the shadow actually persisting the value; skip rather than vacuously pass.
+        assumeTrue("Robolectric shadow stored keyguard features", reported != 0)
+
+        assertTrue(
+            (reported and DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS) != 0,
+            "Pre-existing KEYGUARD_DISABLE_TRUST_AGENTS must survive disableCameraOnKeyguardOnly()"
+        )
+        assertTrue(
+            (reported and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
+            "KEYGUARD_DISABLE_SECURE_CAMERA must be added by disableCameraOnKeyguardOnly()"
+        )
     }
 }
