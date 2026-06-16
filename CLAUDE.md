@@ -53,6 +53,46 @@ Open-source, no-subscription, local-only parental control. Apache 2.0. See [`REA
 - `scripts/` — build + test + provisioning automation
 - `.claude/skills/` — project-specific Claude Code skills
 
+## Git worktrees (parallel Claude sessions)
+
+We often run more than one Claude Code window on this repo at once (e.g. parent-kmp
+build in one, marketing site in another). A **git worktree** gives each window its
+own folder with its own checked-out branch, while sharing one `.git` (same history,
+branches, remotes, push/pull). This is **mandatory** here: two windows in the *same*
+folder share one `HEAD`, so commits land on whichever branch is currently checked
+out — we already had crypto commits accidentally land on the website branch that way.
+
+**Rule: one window = one worktree folder = one branch.** Never run two windows in the
+same folder on different branches. If you need a branch that's checked out elsewhere,
+make your own worktree — don't hijack another window's folder or `reset` its branch.
+
+Standing layout (trust `git worktree list` over this table — it drifts):
+
+| Folder | Branch | Purpose |
+|---|---|---|
+| `C:\src\OpenWarden` | `main` | shared base, no active editing |
+| `C:\src\OpenWarden-kmp` | `feat/parent-kmp-scaffold` | parent-kmp build |
+| `C:\src\OpenWarden-site` | `feat/marketing-website` | marketing site |
+
+**At the START of every session, before changing anything:**
+1. `git worktree list` — see every worktree and its branch.
+2. For each, check nothing is stranded: `git -C <path> status -s` (uncommitted) and
+   `git -C <path> log --oneline @{u}..` (committed-but-unpushed). Commit + push or
+   clean it — never abandon work sitting in a worktree.
+3. `git worktree prune` — forget folders that were deleted by hand.
+4. Confirm you're in the right folder for the branch you intend to edit.
+
+**Cheat sheet:**
+```
+git worktree add <path> <branch>        # existing branch -> new folder
+git worktree add -b <new> <path> main   # new branch off main -> new folder
+git worktree list                       # all worktrees + branches
+git worktree remove <path>              # delete a FINISHED worktree (must be clean)
+git worktree prune                      # forget hand-deleted folders
+```
+A branch lives in only one worktree at a time. When done with a line of work, `remove`
+its worktree — don't leave stale ones lying around.
+
 ## Doc tier system
 
 - v1 canon = what we're building now
