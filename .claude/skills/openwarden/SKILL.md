@@ -228,6 +228,66 @@ Run a cleanup pass after every completed line of work:
 A finished worktree left lying around wastes disk and causes `git worktree list`
 confusion; remove it as soon as the PR is merged.
 
+## Unattended / AFK mode
+
+Use when the operator wants the autopilot to run heads-down without check-ins.
+
+### 1. Front-load questions, then signal AFK-safe
+At the START of a `/openwarden start` run, surface any ambiguity up front via
+**AskUserQuestion** (unclear candidate pick, unset autonomy scope, etc.). Once it has
+what it needs, emit an explicit line:
+
+> ✅ AFK-safe — running unattended until \<condition\>
+
+so the operator knows they can walk away. **Never** trickle questions out mid-run;
+hold all clarifications for the front-load pass or hold them until the next natural
+stop (human-gated blocker or session boundary).
+
+### 2. Autonomy ceiling — full auto incl. governance
+Unattended, the autopilot runs the full tech-lead loop (Step 1c) autonomously:
+
+1. **Survey** → build the current picture (worktrees, milestones, ROADMAP rung, KB).
+2. **Pick** → choose the single highest-leverage `agent-ready`, non-`agent-blocked`
+   item (bedrock-first; tech-lead decision, no human prompt needed).
+3. **Claim + worktree** → `claim_work(<n>)`; `git worktree add -b <branch> ../OpenWarden-<slug> main`.
+4. **Dispatch role subagents** → right-sized model per Step 1c; one subagent per worktree.
+5. **Implement with tests** → per Step 3; Codex-review (`/codex-second-opinion`) and
+   fix any Codex blocker before opening a PR.
+6. **Auto-merge any green PR** — CI passing + Codex-clean — **including docs, `.claude/`,
+   and governance PRs** (additive, gate-neutral, CODEOWNERS-gated), not just code PRs.
+7. **Completion protocol cleanup** → after each merge, run the full self-clean pass
+   (remove merged worktrees/branches, `git worktree prune`, `git fetch --prune`, delete
+   temp scratch) per the "Completion protocol" section above.
+8. **Loop** → return to step 1 and pick the next item.
+
+### 3. Hard floor — never crosses this, even unattended
+- **Never dispatch or auto-merge `agent-blocked` work**: crypto, `proto`,
+  policy-enforcement, provisioning, CI/CD config, or any PR whose diff touches an
+  `agent-blocked` surface. Those always **STOP for a human + ADR**. See
+  `kb/design-memory/agent-ready-vs-blocked.md` and the guardrails below.
+- **Stop on a failing gate**: CI red or a Codex blocker that cannot be auto-fixed.
+- **Stop on genuine ambiguity** that was not resolved in the front-load pass.
+- The non-negotiables (no SaaS/telemetry/content-monitoring, fail-closed) always win
+  over autonomy — no exception.
+
+### 4. Reduced approvals
+The curated auto-approve allowlist lives in `.claude/settings.local.json` (local,
+**not committed**): `gh`, `git`, `./gradlew`, `gradle`, `node` (Codex companion),
+and subagent dispatch. If a needed command is NOT allowlisted and would block an
+unattended run, surface it once in the next status line and continue with what it
+can — do NOT silently stall.
+
+### 5. Loop termination + session summary
+Keep cooking until the active ROADMAP rung's `agent-ready` work is exhausted, or
+until the autopilot hits a human-gated wall (agent-blocked item, failing gate,
+unresolvable ambiguity). Then:
+- Emit a session summary (PRs opened/merged, worktrees cleaned, items remaining).
+- Emit the standard `**Next:**` line per the Completion protocol.
+- Stop and hand back to the operator.
+
+References: `docs/WORKTREES.md` (worktree rules), the `start | stop | resume` ledger
+(§ "Maintain your place"), and the agent-blocked gating in this file and Step 1c.
+
 ## Guardrails (enforce; refuse otherwise)
 - Never touch crypto / `proto` / provisioning / policy-enforcement, CI, `.claude/`
   hooks, `CODEOWNERS`, `AGENTS.md`, or `CLAUDE.md` without a maintainer + an ADR
