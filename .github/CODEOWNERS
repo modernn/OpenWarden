@@ -18,6 +18,7 @@
 
 # Decisions, specs-as-canon
 /docs/adr/                          @modernn
+/docs/ROADMAP.md                    @modernn   # protected canon; pivots need an ADR (ADR-018)
 
 # CI, hooks, agent config, the rules themselves
 /.github/                           @modernn
@@ -25,7 +26,7 @@
 /AGENTS.md                          @modernn
 /CLAUDE.md                          @modernn
 /SECURITY.md                        @modernn
-/CODEOWNERS                         @modernn
+/.github/CODEOWNERS                 @modernn
 
 # Contributor-autopilot surfaces — KB, approval registry, agent/skill config
 /kb/**                              @modernn

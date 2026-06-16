@@ -45,8 +45,9 @@ hands `agent-blocked` work back to a human.
 
 ### agent-ready vs agent-blocked (the safety hinge)
 
-An agent may *implement* an issue only when it is **all** of: open, on the `v1` milestone,
-labeled `agent-ready`, labeled a role `area:*`, and **not** `agent-blocked`/`claimed`.
+An agent may *implement* an issue only when it is **all** of: open, on an **active milestone**
+(the current/next `v0.x` rung in [`docs/ROADMAP.md`](ROADMAP.md), which the GitHub milestones
+mirror), labeled `agent-ready`, labeled a role `area:*`, and **not** `agent-blocked`/`claimed`.
 
 An issue is **`agent-blocked` (human-only)** when it touches crypto, `proto/`, the wire
 format, `BundleVerifier.kt`, policy enforcement, provisioning, CI, `.github/`, `.claude/`,

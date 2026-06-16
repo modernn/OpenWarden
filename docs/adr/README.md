@@ -43,6 +43,7 @@ What this means going forward (good + bad).
 | [015](015-event-log-crypto-primitives.md) | Proposed | Event-log crypto primitives normative: sealed-box only (red-team SB1/nonce/SG1) |
 | [016](016-fail-closed-dns-floor.md) | Proposed | Fail-closed DNS floor (red-team K3) |
 | [017](017-replay-rollback-resistance.md) | Proposed | Replay/rollback resistance + JCS integer bound (red-team K1/JC1) |
+| [018](018-version-semantics-and-dynamic-roadmap.md) | Proposed | Version semantics (v0.x road → v1.0 public release), dynamic protected roadmap, tech-lead mode |
 
 ## When to write an ADR
 

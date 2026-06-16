@@ -5,7 +5,7 @@ type: design-memory
 tags: [governance, agents, agent-ready, agent-blocked, codeowners, contribution]
 status: active
 created: 2026-06-15
-updated: 2026-06-15
+updated: 2026-06-15  # de-hardcoded "v1 milestone" -> active milestone (ADR-018)
 expires: null
 source_pr: null
 ---
@@ -17,7 +17,7 @@ safety hinge is a single gating rule, expressed with GitHub labels + CODEOWNERS.
 
 ## The rule
 An autonomous agent may **implement** an issue only when it is **all** of:
-- open and on the `v1` milestone,
+- open and on an **active milestone** (the current/next `v0.x` rung in `docs/ROADMAP.md`),
 - labeled `agent-ready`,
 - labeled a role area it owns: `area:child-android`, `area:parent-kmp`, `area:dns`, or
   `area:infra`. **`area:proto` is never agent-implementable** — proto is the wire-format /
