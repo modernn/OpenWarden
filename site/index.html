@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenWarden: parental control that can't spy on your kid</title>
+  <meta name="description" content="Open-source, local-only parental control for Android. No subscription, no cloud, no content monitoring. Runs on your own phones. Your kid sees exactly what it does. Apache 2.0, free forever." />
+  <meta name="theme-color" content="#f4ecdc" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="canonical" href="https://open-warden.com/" />
+  <meta property="og:title" content="OpenWarden: parental control that can't spy on your kid" />
+  <meta property="og:description" content="Open-source, local-only Android parental control. No subscription, no cloud, no content monitoring. Your kid sees everything it does." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://open-warden.com/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="stylesheet" href="styles.css?v=2" />
+  <script src="main.js?v=2"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- ===== Icon sprite (Lucide-derived, stroke=currentColor) ============= -->
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+    <defs>
+      <g id="i-base" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"></g>
+    </defs>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-eye-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c5.5 0 9.5 5 10 7a13.2 13.2 0 0 1-2 2.7"/><path d="M6.6 6.6C3.9 8.2 2.3 10.6 2 12c.5 2 4.5 7 10 7 1.6 0 3-.4 4.3-1"/><path d="m9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3 3 18 18"/></g></symbol>
+    <symbol id="icon-wifi" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M2 9a15 15 0 0 1 20 0"/><circle cx="12" cy="19.5" r="0.6" fill="currentColor" stroke="none"/></g></symbol>
+    <symbol id="icon-unlock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></g></symbol>
+    <symbol id="icon-cloud-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M5.8 8.8A5 5 0 0 0 7 18.5h9.5"/><path d="M9 5.3A5 5 0 0 1 18 9a4 4 0 0 1 2.5 7"/><path d="m2 2 20 20"/></g></symbol>
+    <symbol id="icon-github" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-key" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4"/><path d="m10.5 12.5 8-8m-2 2 2 2m-4 0 2 2"/></g></symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></g></symbol>
+    <symbol id="icon-tool" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 1-5.2 5.2L5 16v3h3l4.5-4.5a4 4 0 0 1 5.2-5.2l-2.7 2.7-2.3-2.3 2.7-2.7Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-handshake" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1.4 1.4 0 0 0 2-2"/><path d="m13 15 2.5 2.5a1.4 1.4 0 0 0 2-2L13 11l-1.5 1a2 2 0 0 1-2.5 0L7 10.5l-4 4"/><path d="M14 6.5 12 8 9.5 6.5a2 2 0 0 0-2.4.3L3 11"/><path d="m14 6.5 3.5-1 3.5 4.5"/><path d="m3 11-1-1"/></g></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></g></symbol>
+    <symbol id="icon-lifebuoy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="m4.9 4.9 4.6 4.6m5 5 4.6 4.6m0-14.2-4.6 4.6m-5 5-4.6 4.6"/></g></symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="icon-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></g></symbol>
+    <symbol id="icon-device" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M10.5 18h3"/></g></symbol>
+  </svg>
+
+  <!-- ===== Header ======================================================== -->
+  <header class="site-header" id="top">
+    <div class="wrap nav">
+      <a class="brand" href="#top" aria-label="OpenWarden home">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="25" height="25" rx="8" fill="none" stroke="var(--clay)" stroke-width="2.2"/>
+          <path d="M9 18.5 16 10l7 8.5" fill="none" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="21.5" r="1.7" fill="var(--clay)"/>
+        </svg>
+        OpenWarden
+      </a>
+      <button class="nav__toggle" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu">
+        <svg aria-hidden="true"><use href="#icon-menu"/></svg>
+      </button>
+      <nav class="nav__links" id="nav-links" aria-label="Primary">
+        <a class="nav__link" href="#different">Why it's different</a>
+        <a class="nav__link" href="#never">What it never sees</a>
+        <a class="nav__link" href="#how">How it works</a>
+        <a class="nav__link" href="#roadmap">Roadmap</a>
+        <a class="nav__link" href="building.html">How we build</a>
+        <a class="nav__link" href="ethics.html">Ethics</a>
+        <a class="btn btn--primary btn--sm" href="https://github.com/modernn/OpenWarden">
+          <svg aria-hidden="true"><use href="#icon-github"/></svg> Star on GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ===== Hero ======================================================== -->
+    <section class="hero">
+      <div class="wrap hero__grid">
+        <div class="hero__text">
+          <span class="eyebrow reveal">Open-source parental control · Android</span>
+          <h1 class="reveal" data-delay="1">The parental control that <span class="accent">can't</span> spy on your kid.</h1>
+          <p class="hero__lede reveal" data-delay="2">
+            OpenWarden runs entirely on your own phones. No subscription. No cloud.
+            No company reading your family's messages, including us. You get real
+            control over your kid's Android, and your kid can see exactly what it does.
+          </p>
+          <div class="btnrow reveal" data-delay="3">
+            <a class="btn btn--primary" href="https://github.com/modernn/OpenWarden">
+              <svg aria-hidden="true"><use href="#icon-github"/></svg> Star on GitHub
+            </a>
+            <a class="btn btn--ghost" href="#never">
+              See what it can't see <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+            </a>
+          </div>
+          <p class="hero__note reveal" data-delay="3">
+            Free forever. Apache&nbsp;2.0. Funded by grants and donations, never by you.
+          </p>
+        </div>
+
+        <aside class="hero__aside reveal" data-delay="2" aria-label="The OpenWarden pledge">
+          <div class="trust-card trust-card--never">
+            <h2 class="card-title">The pledge</h2>
+            <ul class="tlist tlist--never">
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-check"/></svg>
+                <span class="label">No subscription, ever<span class="sub">Grant-funded. We never bill parents.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-cloud-off"/></svg>
+                <span class="label">No server, no telemetry<span class="sub">Your data never leaves your devices.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg>
+                <span class="label">Never reads messages, photos, or audio<span class="sub">The stalkerware line. We don't cross it.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye"/></svg>
+                <span class="label">Your kid sees everything it tracks<span class="sub">No hidden monitoring. No secret modes.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-unlock"/></svg>
+                <span class="label">Fails closed, and exits clean<span class="sub">Errors lock down. A recovery phrase always lets you out.</span></span></li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+
+      <div class="wrap">
+        <ul class="pledge-strip reveal" aria-label="Built on open, verifiable cryptography">
+          <li><svg aria-hidden="true"><use href="#icon-check"/></svg> <span class="mono">Ed25519</span>&nbsp;signed policy</li>
+          <li><svg aria-hidden="true"><use href="#icon-check"/></svg> Sealed-box encrypted log</li>
+          <li><svg aria-hidden="true"><use href="#icon-check"/></svg> <span class="mono">BIP39</span> recovery phrase</li>
+          <li><svg aria-hidden="true"><use href="#icon-check"/></svg> Works fully offline</li>
+          <li><svg aria-hidden="true"><use href="#icon-check"/></svg> Zero analytics, zero trackers</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== Why it's different ========================================== -->
+    <section class="section band--alt" id="different">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Control without surveillance</span>
+          <h2>Most "parental control" apps are surveillance with a friendly logo.</h2>
+          <p class="lede">OpenWarden is built the opposite way. The things that make it different aren't features bolted on. They're the architecture.</p>
+        </div>
+        <div class="reasons">
+          <div class="reason reveal">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-wifi"/></svg></div>
+            <div>
+              <h3>It runs on your phones, not our servers.</h3>
+              <p>Policy is enforced locally on the kid's device and edited from yours. The two sync directly over your own Wi-Fi. There is no OpenWarden account, no backend, and nothing for us, or anyone else, to breach. It keeps working with the internet off.</p>
+            </div>
+          </div>
+          <div class="reason reveal">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-eye-off"/></svg></div>
+            <div>
+              <h3>It can't read your kid's content. By design.</h3>
+              <p>No message bodies, no photo libraries, no search history, no keystrokes, no in-app screens. The app doesn't request the permissions that would make it possible. This isn't a setting you trust us to leave off. It's a capability we never built.</p>
+            </div>
+          </div>
+          <div class="reason reveal">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-eye"/></svg></div>
+            <div>
+              <h3>Your kid is never kept in the dark.</h3>
+              <p>Every category OpenWarden tracks is listed on a plain-language screen on the kid's own phone. The audit log they see is the same one you see. A teacher, doctor, or the other parent can read it too. Surveillance hidden from the watched person is exactly what we refuse to ship.</p>
+            </div>
+          </div>
+          <div class="reason reveal">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-unlock"/></svg></div>
+            <div>
+              <h3>No subscription, no lock-in, no telemetry.</h3>
+              <p>Apache&nbsp;2.0 and free forever, funded by grants and donations. The policy format is open and anyone can implement it. A 24-word recovery phrase is the root authority, and it lets you leave cleanly whenever you want.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== What it never sees ========================================== -->
+    <section class="section" id="never">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">The line we won't cross</span>
+          <h2>What OpenWarden will never see.</h2>
+          <p class="lede">The strongest thing we can show you isn't a feature list. It's the list of things this app refuses to do, the same list your kid can read on their phone.</p>
+        </div>
+
+        <div class="contrast-cols">
+          <div class="trust-card trust-card--never reveal">
+            <h3><span class="trust-card__tag">Never</span> Out of reach, on purpose</h3>
+            <p>None of this is collected, logged, or sent anywhere. Not to you, not to us, not to anyone.</p>
+            <ul class="tlist tlist--never">
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label"><s>Your kid's messages</s><span class="sub">SMS and in-app chats are never read.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label"><s>Their photos and videos</s><span class="sub">An optional check runs on-device, then forgets. Nothing is saved or sent.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label"><s>Audio and call recordings</s><span class="sub">The app physically can't record on the phone.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label"><s>Search history</s><span class="sub">Never read.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label"><s>Keystrokes</s><span class="sub">No keyboard logging, ever.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-eye-off"/></svg><span class="label"><s>Inside-app screens</s><span class="sub">No Roblox chat, no Discord DMs, no scrolling feeds.</span></span></li>
+            </ul>
+          </div>
+
+          <div class="trust-card trust-card--sees reveal" data-delay="1">
+            <h3><span class="trust-card__tag">In the open</span> What it does see</h3>
+            <p>Just enough to enforce the rules you set, all of it visible to your kid on their own phone.</p>
+            <ul class="tlist tlist--sees">
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-check"/></svg><span class="label">Which apps, and for how long<span class="sub">Totals only, never what happened inside.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-check"/></svg><span class="label">The time windows you set<span class="sub">Bedtime, school hours, lock-now.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-check"/></svg><span class="label">Video sessions by network signature<span class="sub">That a video played, not its title or content.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-check"/></svg><span class="label">Who called or texted, and when<span class="sub">Numbers and times, never the words.</span></span></li>
+              <li><svg class="ticon" aria-hidden="true"><use href="#icon-check"/></svg><span class="label">Location, only by a rule you both see<span class="sub">Like a curfew check, never a live map.</span></span></li>
+            </ul>
+          </div>
+        </div>
+
+        <p class="callout-strong reveal">
+          We didn't forget these features. We <span class="accent">refuse</span> them. This is the line between parental control and stalkerware, and OpenWarden is built so it can't cross it, even if we wanted to.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== How it works ================================================ -->
+    <section class="section band--clay" id="how">
+      <div class="wrap how__grid">
+        <div>
+          <div class="section-head" style="margin-bottom: var(--space-m)">
+            <span class="eyebrow">How it works</span>
+            <h2>Two phones. Your Wi-Fi. Nothing in between.</h2>
+          </div>
+          <div class="steps">
+            <div class="step reveal">
+              <div class="step__num" aria-hidden="true"></div>
+              <div>
+                <h3>Set up the kid's phone once.</h3>
+                <p>You provision OpenWarden as the device's owner over USB. From then on it enforces policy locally, even with no internet and after a reboot.</p>
+              </div>
+            </div>
+            <div class="step reveal" data-delay="1">
+              <div class="step__num" aria-hidden="true"></div>
+              <div>
+                <h3>Edit the rules from your phone.</h3>
+                <p>Allowlists, time windows, lock-now. Each change is cryptographically signed and sent straight to the kid's phone over your home Wi-Fi. No relay, no inbox in the cloud.</p>
+              </div>
+            </div>
+            <div class="step reveal" data-delay="2">
+              <div class="step__num" aria-hidden="true"></div>
+              <div>
+                <h3>Everyone reads the same record.</h3>
+                <p>Both parents and the kid see one shared, honest audit log. There's no primary-parent backdoor and no view that's hidden from anyone the kid chooses to show.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <figure class="diagram reveal" data-delay="1">
+          <svg viewBox="0 0 420 260" role="img" aria-label="Diagram: a parent phone and a kid phone sync directly over your home Wi-Fi, with no cloud server in between.">
+            <!-- struck cloud: no server -->
+            <g transform="translate(160 14)" opacity="0.85">
+              <path d="M14 28a13 13 0 0 1 3-25 16 16 0 0 1 30 4 11 11 0 0 1-2 21Z" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="4 4"/>
+              <path d="M6 6 64 34" stroke="var(--clay-deep)" stroke-width="2.4" stroke-linecap="round"/>
+              <text x="34" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--ink-3)">no server</text>
+            </g>
+
+            <!-- wifi center -->
+            <g transform="translate(210 150)">
+              <g fill="none" stroke="var(--clay)" stroke-width="2.4" stroke-linecap="round">
+                <path d="M-22 -6a30 30 0 0 1 44 0"/>
+                <path d="M-13 2a18 18 0 0 1 26 0"/>
+              </g>
+              <circle cx="0" cy="9" r="2.4" fill="var(--clay)"/>
+              <text x="0" y="34" text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--ink-2)">your Wi-Fi</text>
+            </g>
+
+            <!-- connection line -->
+            <line x1="92" y1="150" x2="328" y2="150" stroke="var(--line-strong)" stroke-width="2" stroke-dasharray="2 6" stroke-linecap="round"/>
+            <!-- animated packets -->
+            <circle class="packet" style="--drift:118px" cx="92" cy="150" r="4" fill="var(--clay)"/>
+            <circle class="packet packet--2" style="--drift:-118px" cx="328" cy="150" r="4" fill="var(--pine)"/>
+
+            <!-- parent phone -->
+            <g transform="translate(40 96)">
+              <rect x="0" y="0" width="64" height="108" rx="12" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4"/>
+              <rect x="8" y="10" width="48" height="70" rx="5" fill="var(--clay-tint)"/>
+              <line x1="24" y1="92" x2="40" y2="92" stroke="var(--ink-3)" stroke-width="2.4" stroke-linecap="round"/>
+              <text x="32" y="128" text-anchor="middle" font-family="var(--font-mono)" font-size="12" fill="var(--ink-2)">parent</text>
+            </g>
+            <!-- kid phone -->
+            <g transform="translate(316 96)">
+              <rect x="0" y="0" width="64" height="108" rx="12" fill="var(--paper)" stroke="var(--ink)" stroke-width="2.4"/>
+              <rect x="8" y="10" width="48" height="70" rx="5" fill="var(--pine-tint)"/>
+              <line x1="24" y1="92" x2="40" y2="92" stroke="var(--ink-3)" stroke-width="2.4" stroke-linecap="round"/>
+              <text x="32" y="128" text-anchor="middle" font-family="var(--font-mono)" font-size="12" fill="var(--ink-2)">kid</text>
+            </g>
+          </svg>
+          <figcaption>signed policy out · encrypted log back · all on your LAN</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ===== Trust / verifiability ======================================= -->
+    <section class="section" id="trust">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Trust, but verify</span>
+          <h2>Built to be checked, not just believed.</h2>
+          <p class="lede">Every promise on this page is backed by source you can read and crypto you can audit. None of it asks you to take our word for it.</p>
+        </div>
+        <div class="split">
+          <div class="reason reveal" style="border:0;padding:0">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-key"/></svg></div>
+            <div>
+              <h3>Open crypto, documented end to end.</h3>
+              <p>Policy bundles are signed with <span class="kbd-term">Ed25519</span> and canonicalized with RFC&nbsp;8785. The event log is sealed to the parent's key with a libsodium sealed box, so the kid's device can't even read what it wrote. Replay is blocked by a monotonic <span class="kbd-term">policy_seq</span> with a freshness window. Recovery is a <span class="kbd-term">BIP39</span> 24-word phrase.</p>
+            </div>
+          </div>
+          <div class="reason reveal" data-delay="1" style="border:0;padding:0">
+            <div class="reason__icon"><svg aria-hidden="true"><use href="#icon-search"/></svg></div>
+            <div>
+              <h3>Fail-closed, and adversarial about it.</h3>
+              <p>Every error path defaults to more restriction, never less. The threat model treats even the parent as a possible adversary, and the design refuses covert monitoring on principle. Read the attacks, the defenses, and the ethics, then try to break them.</p>
+              <p style="margin-top: var(--space-s)">
+                <a class="textlink" href="https://github.com/modernn/OpenWarden/blob/main/docs/DEFENSES.md">Read the threat model <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg></a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Roadmap ===================================================== -->
+    <section class="section band--alt" id="roadmap">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">Where it stands</span>
+          <h2>Honest status: the plan is done, the build is just starting.</h2>
+          <p class="lede">OpenWarden is pre-1.0. The specs, the threat model, and the ethics are written and complete. The code is at the beginning. That's exactly why now is a good time to help shape it.</p>
+        </div>
+        <div class="roadmap">
+          <div class="phase reveal">
+            <div class="phase__meta">
+              <span class="phase__ver">v1</span>
+              <span class="status status--now">Building</span>
+            </div>
+            <div>
+              <p class="phase__lede">The core: real local control on a stock Android phone, fully offline-tolerant.</p>
+              <ul class="phase__items">
+                <li>App allowlist + blocklist</li>
+                <li>Bedtime &amp; school-time windows</li>
+                <li>Signed policy bundles</li>
+                <li>Sealed-box event log</li>
+                <li>24-word recovery + printable PDF</li>
+                <li>Kid transparency screen</li>
+                <li>"Ask a parent" requests</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase reveal" data-delay="1">
+            <div class="phase__meta">
+              <span class="phase__ver">v2</span>
+              <span class="status status--next">Designed</span>
+            </div>
+            <div>
+              <p class="phase__lede">Quality of life and reach, once v1 is stable.</p>
+              <ul class="phase__items">
+                <li>DNS content filter</li>
+                <li>Install-approval flow</li>
+                <li>On-device NSFW image check (opt-in)</li>
+                <li>iOS parent app</li>
+                <li>WireGuard &amp; Tailscale transports</li>
+                <li>Multi-child UI</li>
+              </ul>
+            </div>
+          </div>
+          <div class="phase reveal" data-delay="2">
+            <div class="phase__meta">
+              <span class="phase__ver">v3</span>
+              <span class="status status--later">Later</span>
+            </div>
+            <div>
+              <p class="phase__lede">Smarter, still local, still opt-in.</p>
+              <ul class="phase__items">
+                <li>Geofencing (home, school)</li>
+                <li>On-device text classifier (opt-in per app)</li>
+                <li>Call screening + contacts allowlist</li>
+                <li>Earned screen-time / time bank</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <p class="hero__note reveal" style="margin-top: var(--space-l)">
+          v1 targets the Pixel&nbsp;7 first; broader device support comes later. Every line above stays inside the pledge: no cloud analysis, no content monitoring, no subscription, ever.
+        </p>
+      </div>
+    </section>
+
+    <!-- ===== Contribute ================================================== -->
+    <section class="section band--bark" id="contribute">
+      <div class="wrap contribute__grid">
+        <div>
+          <span class="eyebrow">It isn't built yet</span>
+          <h2>So help build the one that doesn't spy.</h2>
+          <p style="margin-top: var(--space-s); max-width: 34rem">
+            OpenWarden only works if it ships. It's a two-person, grant-funded effort with the
+            hardest part, the design, already done. Kotlin devs, cryptographers, and
+            anti-stalkerware advocates: this is where you come in.
+          </p>
+          <div class="btnrow" style="margin-top: var(--space-l)">
+            <a class="btn btn--on-bark" href="get-started.html">
+              Start contributing <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+            </a>
+            <a class="btn btn--ghost-on-bark" href="building.html">
+              How we build
+            </a>
+          </div>
+        </div>
+        <div class="contrib-list">
+          <div class="contrib reveal">
+            <div class="contrib__icon"><svg aria-hidden="true"><use href="#icon-tool"/></svg></div>
+            <div>
+              <h3>Build it</h3>
+              <p>Kotlin DPC, KMP parent app, the signed-log protocol. Issues are labeled with honest build and maintenance cost so you can pick something real.</p>
+            </div>
+          </div>
+          <div class="contrib reveal" data-delay="1">
+            <div class="contrib__icon"><svg aria-hidden="true"><use href="#icon-search"/></svg></div>
+            <div>
+              <h3>Audit it</h3>
+              <p>Security researchers and stalkerware advocates: read the threat model, try to break the boundaries, and tell us where they leak.</p>
+            </div>
+          </div>
+          <div class="contrib reveal" data-delay="2">
+            <div class="contrib__icon"><svg aria-hidden="true"><use href="#icon-handshake"/></svg></div>
+            <div>
+              <h3>Fund it</h3>
+              <p>Grants and donations keep it free for every parent. The only paid line item in the whole project is Apple's $99/yr developer fee.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Safety / ethics teaser ====================================== -->
+    <section class="section--tight">
+      <div class="wrap wrap--narrow">
+        <div class="safety-note reveal">
+          <h3><svg aria-hidden="true"><use href="#icon-lifebuoy"/></svg> A tool like this can be misused. So we built against it.</h3>
+          <p>
+            "Parental control" software is one of the most weaponized categories there is.
+            OpenWarden treats that risk as a design problem, not a disclaimer: the kid always
+            sees what's monitored, help is one tap away on every screen, and older teens can
+            remove it on their own. If you are in an unsafe home, you deserve real help.
+          </p>
+          <ul class="safety-list">
+            <li><span class="num">988</span> Suicide &amp; Crisis Lifeline</li>
+            <li><span class="num">1-800-422-4453</span> Childhelp</li>
+            <li>Text <span class="num">HOME</span> to <span class="num">741741</span></li>
+            <li><a class="textlink" href="https://stopstalkerware.org/">Coalition Against Stalkerware</a></li>
+          </ul>
+          <p style="margin-top: var(--space-m); margin-bottom: 0">
+            <a class="textlink" href="ethics.html">Read our full ethics &amp; anti-stalkerware stance <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg></a>
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Footer ======================================================== -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer__top">
+        <div class="footer__brand">
+          <a class="brand" href="#top">
+            <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="25" height="25" rx="8" fill="none" stroke="var(--clay-on-bark)" stroke-width="2.2"/>
+              <path d="M9 18.5 16 10l7 8.5" fill="none" stroke="var(--paper-on-bark)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="16" cy="21.5" r="1.7" fill="var(--clay-on-bark)"/>
+            </svg>
+            OpenWarden
+          </a>
+          <p class="footer__pledge">Open-source, local-only parental control for Android. No subscription, no server, no content monitoring. Your family's data stays on your family's devices.</p>
+        </div>
+        <div class="footer__col">
+          <h4>Project</h4>
+          <ul>
+            <li><a href="https://github.com/modernn/OpenWarden">GitHub</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/README.md">Overview</a></li>
+            <li><a href="#roadmap">Roadmap</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/LICENSE">License (Apache 2.0)</a></li>
+          </ul>
+        </div>
+        <div class="footer__col">
+          <h4>Trust</h4>
+          <ul>
+            <li><a href="ethics.html">Ethics &amp; anti-stalkerware</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/DEFENSES.md">Threat model</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/CRYPTO.md">Cryptography</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/PRIVACY_LEGAL.md">Privacy &amp; legal</a></li>
+          </ul>
+        </div>
+        <div class="footer__col">
+          <h4>Build</h4>
+          <ul>
+            <li><a href="building.html">How we build</a></li>
+            <li><a href="get-started.html">Get started</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/CONTRIBUTING.md">Contributing</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/GOVERNANCE.md">Governance</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <p class="footer__anti">OpenWarden is anti-stalkerware. The kid always sees what is monitored. If you are in an unsafe home: call or text 988 (US), Childhelp 1-800-422-4453, or contact the Coalition Against Stalkerware.</p>
+        <span>© 2026 OpenWarden · Apache 2.0 · No trackers, no cookies, no analytics on this site.</span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

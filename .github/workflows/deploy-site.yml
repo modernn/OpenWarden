@@ -1,0 +1,41 @@
+name: Deploy site to Cloudflare Pages
+
+# Publishes the static marketing site (site/) to the existing Cloudflare Pages
+# project "open-warden" on every push to main that touches the site.
+# Code stays public on GitHub; Cloudflare serves it with the _headers security
+# stack (CSP/HSTS/X-Frame-Options) that GitHub Pages cannot provide.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   CLOUDFLARE_API_TOKEN   token with "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID  ebba1b921a972edd4a79f9dd1e3e7cbd  (Me@larson.link)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/deploy-site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions pinned to full commit SHAs (supply-chain hardening).
+      # Update the SHA + comment together when bumping versions.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name=open-warden --branch=main

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Start contributing · OpenWarden</title>
+  <meta name="description" content="What you need and how to get started contributing to OpenWarden: install the toolchain with one command, pick a good-first-issue, drive the test-first loop, and open a signed PR." />
+  <meta name="theme-color" content="#f4ecdc" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="canonical" href="https://open-warden.com/get-started" />
+  <meta property="og:title" content="Start contributing to OpenWarden" />
+  <meta property="og:description" content="What you need and the five steps to your first PR." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://open-warden.com/get-started" />
+  <link rel="stylesheet" href="styles.css?v=2" />
+  <script src="main.js?v=2"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <!-- ===== Icon sprite ================================================== -->
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-github" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+    <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5m6 6-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  </svg>
+
+  <!-- ===== Header ======================================================= -->
+  <header class="site-header" id="top">
+    <div class="wrap nav">
+      <a class="brand" href="index.html" aria-label="OpenWarden home">
+        <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="25" height="25" rx="8" fill="none" stroke="var(--clay)" stroke-width="2.2"/>
+          <path d="M9 18.5 16 10l7 8.5" fill="none" stroke="var(--ink)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="16" cy="21.5" r="1.7" fill="var(--clay)"/>
+        </svg>
+        OpenWarden
+      </a>
+      <button class="nav__toggle" aria-expanded="false" aria-controls="nav-links" aria-label="Open menu">
+        <svg aria-hidden="true"><use href="#icon-menu"/></svg>
+      </button>
+      <nav class="nav__links" id="nav-links" aria-label="Primary">
+        <a class="nav__link" href="index.html#never">What it never sees</a>
+        <a class="nav__link" href="index.html#how">How it works</a>
+        <a class="nav__link" href="index.html#roadmap">Roadmap</a>
+        <a class="nav__link" href="building.html">How we build</a>
+        <a class="nav__link" href="ethics.html">Ethics</a>
+        <a class="btn btn--primary btn--sm" href="https://github.com/modernn/OpenWarden">
+          <svg aria-hidden="true"><use href="#icon-github"/></svg> Star on GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ===== Hero ======================================================= -->
+    <section class="page-hero">
+      <div class="wrap wrap--narrow">
+        <p style="margin-bottom: var(--space-m)">
+          <a class="textlink" href="building.html"><svg aria-hidden="true" style="transform:none"><use href="#icon-arrow-left"/></svg> How we build</a>
+        </p>
+        <span class="eyebrow">Start contributing</span>
+        <h1>Help build the one that doesn't spy.</h1>
+        <p class="lede">OpenWarden is pre-1.0: the specs and threat model are complete, the code is just beginning. That makes now the best time to shape it. Here's exactly what you need and the path to your first pull request.</p>
+        <div class="btnrow" style="margin-top: var(--space-l)">
+          <a class="btn btn--primary" href="https://github.com/modernn/OpenWarden">
+            <svg aria-hidden="true"><use href="#icon-github"/></svg> Open the repo
+          </a>
+          <a class="btn btn--ghost" href="#steps">See the five steps <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg></a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== What you need ============================================== -->
+    <section class="section--tight band--alt">
+      <div class="wrap wrap--narrow">
+        <div class="section-head">
+          <span class="eyebrow">What you need</span>
+          <h2>Short list. One command installs most of it.</h2>
+        </div>
+        <ul class="req">
+          <li><span class="req__k">A computer</span><span class="req__v">macOS, Linux, or Windows. The bootstrap script installs the rest.</span></li>
+          <li><span class="req__k">The toolchain</span><span class="req__v">JDK&nbsp;21, Android SDK + emulator, and ktlint, all installed by <span class="mono">/bootstrap-repo</span>. No manual setup hunt.</span></li>
+          <li><span class="req__k">A test target</span><span class="req__v">The emulator the bootstrap creates, or a Pixel&nbsp;7 for real device-controller work.</span></li>
+          <li><span class="req__k">Git + GitHub</span><span class="req__v">You'll fork the repo and open pull requests. Commits must be signed.</span></li>
+          <li><span class="req__k">A skill to bring</span><span class="req__v">Kotlin / Android for v1; crypto review, docs, or Swift come later. Not sure where you fit? Every <span class="mono">good-first-issue</span> is labeled with its cost.</span></li>
+          <li><span class="req__k">Optional: an engine</span><span class="req__v">Claude Code or Codex CLI if you want the AI loop. Pure-human contributions are just as welcome.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== Five steps ================================================= -->
+    <section class="section" id="steps">
+      <div class="wrap wrap--narrow">
+        <div class="section-head">
+          <span class="eyebrow">The path</span>
+          <h2>Five steps to your first PR.</h2>
+        </div>
+        <div class="steps">
+          <div class="step reveal">
+            <div class="step__num" aria-hidden="true"></div>
+            <div><h3>Read the docs</h3><p>Start with the README and the spec under <span class="mono">docs/</span>. Every claim on this site traces to a doc; your code should too.</p></div>
+          </div>
+          <div class="step reveal" data-delay="1">
+            <div class="step__num" aria-hidden="true"></div>
+            <div><h3>Bootstrap your machine</h3><p>Run <span class="mono">/bootstrap-repo</span> once, then confirm with <span class="mono">./scripts/verify-env.sh</span>. It's idempotent, so it's safe to re-run.</p></div>
+          </div>
+          <div class="step reveal" data-delay="2">
+            <div class="step__num" aria-hidden="true"></div>
+            <div><h3>Pick a good first issue</h3><p>Grab one labeled with build and maintain cost. Start small and Tier&nbsp;0 or 1. At least five are kept open at all times.</p></div>
+          </div>
+          <div class="step reveal">
+            <div class="step__num" aria-hidden="true"></div>
+            <div><h3>Build it test-first</h3><p>Write the failing test, make the smallest diff to green, then run <span class="mono">/verify-openwarden-spec</span>. Stuck after three tries, or touching crypto? Run <span class="mono">/codex-second-opinion</span>.</p></div>
+          </div>
+          <div class="step reveal" data-delay="1">
+            <div class="step__num" aria-hidden="true"></div>
+            <div><h3>Open the pull request</h3><p>Sign your commits, add the DCO sign-off, and make sure CI is green. One approval merges; crypto and ADR changes need two.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Rules ====================================================== -->
+    <section class="section--tight band--alt">
+      <div class="wrap wrap--narrow">
+        <div class="section-head">
+          <span class="eyebrow">The rules, on one screen</span>
+          <h2>Non-negotiable, and short.</h2>
+        </div>
+        <ul class="req">
+          <li><span class="req__k">Sign-off</span><span class="req__v">DCO on every commit: <span class="mono">git commit -s</span>. Submitting a PR confirms it.</span></li>
+          <li><span class="req__k">Signed commits</span><span class="req__v">Cryptographically signed: <span class="mono">git commit -S</span>.</span></li>
+          <li><span class="req__k">Tests</span><span class="req__v">Required for crypto, protocol, new features, and bug fixes (with a regression test).</span></li>
+          <li><span class="req__k">CI</span><span class="req__v">Must pass before review. Reviewers don't babysit a red build.</span></li>
+          <li><span class="req__k">Conduct</span><span class="req__v">Contributor Covenant 2.1, enforced.</span></li>
+          <li><span class="req__k">Won't merge</span><span class="req__v">Anything with a subscription, telemetry, a required third-party SaaS, or content monitoring. Those aren't bugs to fix; they're the line.</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ===== Where to ask =============================================== -->
+    <section class="section--tight">
+      <div class="wrap wrap--narrow">
+        <div class="safety-note reveal">
+          <h3><svg aria-hidden="true"><use href="#icon-check"/></svg> Where to ask</h3>
+          <p>New contributors are expected, not tolerated. If something's unclear, open a discussion before sinking a weekend into it.</p>
+          <ul class="safety-list">
+            <li><a class="textlink" href="https://github.com/modernn/OpenWarden/blob/main/CONTRIBUTING.md">CONTRIBUTING</a></li>
+            <li><a class="textlink" href="https://github.com/modernn/OpenWarden/blob/main/docs/GOVERNANCE.md">Governance</a></li>
+            <li><a class="textlink" href="https://github.com/modernn/OpenWarden/blob/main/docs/COMMUNITY.md">Community</a></li>
+            <li><a class="textlink" href="https://github.com/modernn/OpenWarden/issues">Issues</a></li>
+          </ul>
+          <p style="margin-top: var(--space-m); margin-bottom: 0">
+            <a class="textlink" href="building.html">See the whole build system &amp; AI dev loop <svg aria-hidden="true"><use href="#icon-arrow-right"/></svg></a>
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Footer ======================================================= -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer__top">
+        <div class="footer__brand">
+          <a class="brand" href="index.html">
+            <svg class="brand__mark" viewBox="0 0 32 32" aria-hidden="true">
+              <rect x="3.5" y="3.5" width="25" height="25" rx="8" fill="none" stroke="var(--clay-on-bark)" stroke-width="2.2"/>
+              <path d="M9 18.5 16 10l7 8.5" fill="none" stroke="var(--paper-on-bark)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="16" cy="21.5" r="1.7" fill="var(--clay-on-bark)"/>
+            </svg>
+            OpenWarden
+          </a>
+          <p class="footer__pledge">Open-source, local-only parental control for Android. No subscription, no server, no content monitoring. Your family's data stays on your family's devices.</p>
+        </div>
+        <div class="footer__col">
+          <h4>Project</h4>
+          <ul>
+            <li><a href="https://github.com/modernn/OpenWarden">GitHub</a></li>
+            <li><a href="index.html">Overview</a></li>
+            <li><a href="index.html#roadmap">Roadmap</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/LICENSE">License (Apache 2.0)</a></li>
+          </ul>
+        </div>
+        <div class="footer__col">
+          <h4>Build</h4>
+          <ul>
+            <li><a href="building.html">How we build</a></li>
+            <li><a href="get-started.html" aria-current="page">Get started</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/CONTRIBUTING.md">Contributing</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/GOVERNANCE.md">Governance</a></li>
+          </ul>
+        </div>
+        <div class="footer__col">
+          <h4>Trust</h4>
+          <ul>
+            <li><a href="ethics.html">Ethics</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/DEFENSES.md">Threat model</a></li>
+            <li><a href="https://github.com/modernn/OpenWarden/blob/main/docs/CRYPTO.md">Cryptography</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <p class="footer__anti">OpenWarden is anti-stalkerware. The kid always sees what is monitored. If you are in an unsafe home: call or text 988 (US), Childhelp 1-800-422-4453, or contact the Coalition Against Stalkerware.</p>
+        <span>© 2026 OpenWarden · Apache 2.0 · No trackers, no cookies, no analytics on this site.</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
