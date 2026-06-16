@@ -11,6 +11,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Pre-1.0
   Builds + tests green on the Android/JVM targets; iOS targets and SKIE are
   host-gated to macOS (ADR-002, ADR-011, `docs/PARENT_KMP_STRUCTURE.md`).
 - Committed Gradle 8.11 wrapper and version catalog (`parent-kmp/gradle/libs.versions.toml`).
+- `Canonical` (`:proto`) — RFC 8785 (JCS) canonicalizer, the single signing input
+  (ADR-015), integers-only with the 0..2^53−1 guard (ADR-017). Host-tested.
+- `PolicySigner` / `Identity` (`:shared`) — JCS signing-input bytes + Ed25519
+  sign/verify via libsodium. Pure signing-input tests run on the host; the
+  libsodium round-trip runs on-device / CI (native lib not on the desktop JVM).
 - ADRs 013–017 (Proposed) resolving Phase-0 red-team findings — see
   `docs/research/07-redteam-design-review.md`.
 - Doc-freshness automation: Stop + PostToolUse hooks in `.claude/settings.json`.

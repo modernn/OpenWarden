@@ -15,6 +15,10 @@ if (isMac) {
 kotlin {
     jvmToolchain(17)
     androidTarget()
+    // JVM target for fast host-side commonTest (pure logic: JCS signing input, policy model).
+    // libsodium round-trip tests run on-device (androidInstrumentedTest) / CI where the
+    // native library is present — the desktop JVM does not ship it.
+    jvm()
 
     // iOS targets + framework only on a macOS host (see dev-platform plan).
     if (isMac) {
