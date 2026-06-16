@@ -179,6 +179,115 @@ human-only surfaces stay human-only. The lead multiplies throughput; it never wi
 5. Update any touched `docs/`/ADR in the same change.
 6. Push the branch; open a PR following `.github/PULL_REQUEST_TEMPLATE.md`. (`gh pr create` is in the ask-list — confirm with the user.)
 
+## Completion protocol — always end a step this way
+
+At the end of **every** completed `/openwarden` action (a finished step, a merged PR,
+a stopped session, or a handed-off task), do both of the following before returning:
+
+### 1. Emit the next command
+
+Always print an explicit `**Next:** <command>` line so the operator knows exactly
+what to run. Examples:
+
+- **More work to do in this session →** `**Next:** /openwarden start` (auto-picks
+  the next highest-leverage bedrock issue)
+- **Walking away mid-task →** `**Next:** /openwarden stop` (checkpoint before you leave)
+- **Returning to in-flight work →** `**Next:** /openwarden resume` (restores this
+  worktree's session; shows a dashboard if none)
+- **PR is open and needs a human eye →** `**Next:** merge PR #N after review` (or
+  whichever concrete follow-up is needed)
+- **Specific follow-on issue →** `**Next:** /openwarden start <issue#>` (when the
+  natural sequel is known, e.g. a feature whose tests were just written)
+
+Never end a completed flow without a `**Next:**` line. If the right next command is
+genuinely ambiguous, show a one-line shortlist and ask via **AskUserQuestion** — but
+still emit a `**Next:**` once the choice is made.
+
+Cross-reference the `start | stop | resume` ledger (§ "Maintain your place") when
+choosing what to emit.
+
+### 2. Self-clean worktrees, branches, and temp files
+
+Run a cleanup pass after every completed line of work:
+
+1. **Merged worktrees.** For each entry in `git worktree list`, check whether its
+   branch has already been merged into `main`. If yes, remove it:
+   `git worktree remove <path>` (must be clean; stash or commit anything left first).
+   See [`docs/WORKTREES.md`](../../../docs/WORKTREES.md) for the full worktree rules.
+2. **Merged local branches.** After removing a merged worktree, delete the local
+   branch: `git branch -d <branch>` (use `-D` only if the remote already deleted it
+   and the branch is confirmed merged).
+3. **Prune stale refs.** `git worktree prune` to forget any hand-deleted worktree
+   folders. `git fetch --prune` to drop refs to deleted remote branches.
+4. **Temp scratch files.** Delete any ephemeral files the run created — diff bundles,
+   patch files, JSON scratch dumps — typically under the OS temp dir or a run-local
+   `tmp/` folder. Do NOT delete anything that belongs to the source tree or a still-open
+   PR branch.
+
+**Keep** worktrees and branches only for still-open PRs or actively in-flight work.
+A finished worktree left lying around wastes disk and causes `git worktree list`
+confusion; remove it as soon as the PR is merged.
+
+## Unattended / AFK mode
+
+Use when the operator wants the autopilot to run heads-down without check-ins.
+
+### 1. Front-load questions, then signal AFK-safe
+At the START of a `/openwarden start` run, surface any ambiguity up front via
+**AskUserQuestion** (unclear candidate pick, unset autonomy scope, etc.). Once it has
+what it needs, emit an explicit line:
+
+> ✅ AFK-safe — running unattended until \<condition\>
+
+so the operator knows they can walk away. **Never** trickle questions out mid-run;
+hold all clarifications for the front-load pass or hold them until the next natural
+stop (human-gated blocker or session boundary).
+
+### 2. Autonomy ceiling — full auto incl. governance
+Unattended, the autopilot runs the full tech-lead loop (Step 1c) autonomously:
+
+1. **Survey** → build the current picture (worktrees, milestones, ROADMAP rung, KB).
+2. **Pick** → choose the single highest-leverage `agent-ready`, non-`agent-blocked`
+   item (bedrock-first; tech-lead decision, no human prompt needed).
+3. **Claim + worktree** → `claim_work(<n>)`; `git worktree add -b <branch> ../OpenWarden-<slug> main`.
+4. **Dispatch role subagents** → right-sized model per Step 1c; one subagent per worktree.
+5. **Implement with tests** → per Step 3; Codex-review (`/codex-second-opinion`) and
+   fix any Codex blocker before opening a PR.
+6. **Auto-merge any green PR** — CI passing + Codex-clean — **including docs, `.claude/`,
+   and governance PRs** (additive, gate-neutral, CODEOWNERS-gated), not just code PRs.
+7. **Completion protocol cleanup** → after each merge, run the full self-clean pass
+   (remove merged worktrees/branches, `git worktree prune`, `git fetch --prune`, delete
+   temp scratch) per the "Completion protocol" section above.
+8. **Loop** → return to step 1 and pick the next item.
+
+### 3. Hard floor — never crosses this, even unattended
+- **Never dispatch or auto-merge `agent-blocked` work**: crypto, `proto`,
+  policy-enforcement, provisioning, CI/CD config, or any PR whose diff touches an
+  `agent-blocked` surface. Those always **STOP for a human + ADR**. See
+  `kb/design-memory/agent-ready-vs-blocked.md` and the guardrails below.
+- **Stop on a failing gate**: CI red or a Codex blocker that cannot be auto-fixed.
+- **Stop on genuine ambiguity** that was not resolved in the front-load pass.
+- The non-negotiables (no SaaS/telemetry/content-monitoring, fail-closed) always win
+  over autonomy — no exception.
+
+### 4. Reduced approvals
+The curated auto-approve allowlist lives in `.claude/settings.local.json` (local,
+**not committed**): `gh`, `git`, `./gradlew`, `gradle`, `node` (Codex companion),
+and subagent dispatch. If a needed command is NOT allowlisted and would block an
+unattended run, surface it once in the next status line and continue with what it
+can — do NOT silently stall.
+
+### 5. Loop termination + session summary
+Keep cooking until the active ROADMAP rung's `agent-ready` work is exhausted, or
+until the autopilot hits a human-gated wall (agent-blocked item, failing gate,
+unresolvable ambiguity). Then:
+- Emit a session summary (PRs opened/merged, worktrees cleaned, items remaining).
+- Emit the standard `**Next:**` line per the Completion protocol.
+- Stop and hand back to the operator.
+
+References: `docs/WORKTREES.md` (worktree rules), the `start | stop | resume` ledger
+(§ "Maintain your place"), and the agent-blocked gating in this file and Step 1c.
+
 ## Guardrails (enforce; refuse otherwise)
 - Never touch crypto / `proto` / provisioning / policy-enforcement, CI, `.claude/`
   hooks, `CODEOWNERS`, `AGENTS.md`, or `CLAUDE.md` without a maintainer + an ADR
