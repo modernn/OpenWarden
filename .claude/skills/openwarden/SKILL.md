@@ -43,9 +43,10 @@ CLI fallback `node .claude/mcp-server/dist/progress.js <cmd>` if the server isn'
   `area:*`, NOT `agent-blocked`, NOT already `claimed`. Choose **bedrock-first** (most
   downstream unblocked — e.g. `#7 AdminReceiver` gates all of child-android). Then proceed
   exactly as `start <that#>`: `claim_work`, worktree + branch, route to the matching role
-  agent, implement **with tests** (Step 3). If two-or-more candidates tie, surface a one-line
-  shortlist via **AskUserQuestion**; otherwise just go. **Never** auto-start `agent-blocked`
-  work — if the rung has only blocked work left, say so and hand to a human.
+  agent, and carry the item all the way through Step 3 **including review → merge → cleanup →
+  loop** (steps 7–9). If two-or-more candidates tie, surface a one-line shortlist via
+  **AskUserQuestion**; otherwise just go. **Never** auto-start `agent-blocked` work — if the
+  rung has only blocked work left, say so and hand to a human.
 - **`/openwarden start <issue#>`** → `progress_start` — begin/resume a session on a specific
   issue in this worktree; **warns if the worktree doesn't match the issue's `area:*`**.
 - **`/openwarden stop`** → `progress_stop` — checkpoint: captures uncommitted + unpushed git
@@ -88,8 +89,10 @@ Then run the role's flow:
 2. **Claim it.** MCP `claim_work(<n>)`, else
    `gh issue edit <n> --add-assignee @me --add-label claimed`.
 3. **Worktree + branch**, then implement **with tests** per the role body and Step 3.
-4. **Signed PR.** If the work turns out to touch an `agent-blocked` path, STOP and hand back
-   to a human (crypto/proto/policy/CI/governance is human-only).
+4. **Signed PR → Codex review → merge → cleanup.** Follow Step 3 steps 6–9 end-to-end.
+   If the work turns out to touch an `agent-blocked` path (crypto/`proto`/policy-enforcement/
+   provisioning/CI/governance), STOP at step 8 and hand back to a human — never auto-merge
+   such a PR, even if CI is green.
 
 ## Step 1b — maintainer: seed issues from ROADMAP
 For a maintainer turning the roadmap into the vetted backlog (issues #3–#33 model):
@@ -177,7 +180,10 @@ human-only surfaces stay human-only. The lead multiplies throughput; it never wi
 3. `cd parent-kmp && ./gradlew check` (or the relevant module build) — must be green.
 4. Commit **signed + DCO, conventional**: `git commit -S -s -m "feat: …"`. Never `--no-verify`.
 5. Update any touched `docs/`/ADR in the same change.
-6. Push the branch; open a PR following `.github/PULL_REQUEST_TEMPLATE.md`. (`gh pr create` is in the ask-list — confirm with the user.)
+6. Push the branch; open a PR following `.github/PULL_REQUEST_TEMPLATE.md`. (`gh pr create` is allowlisted in `.claude/settings.local.json` — no per-PR confirm gate in normal operation, though an attended operator may still choose to pause.)
+7. **Review.** Run Codex review via `/codex-second-opinion` on the opened PR's diff. Scale depth to risk: full review for code / security-adjacent / build changes; light or skip for pure docs/typo PRs. Fix any Codex blocker and re-push before proceeding to merge.
+8. **Merge.** Per the autonomy ceiling (see § "Unattended / AFK mode"). Unattended/full-auto: merge any green + Codex-clean PR, **including docs/`.claude/`/governance** PRs. **Any PR whose diff touches an `agent-blocked` surface (crypto/`proto`/policy-enforcement/provisioning/CI) STOPS for a human + ADR — never auto-merged**, even if green. Attended runs: merge when authorized, else hand the PR link to the maintainer.
+9. **Cleanup + loop.** Run the Completion protocol self-clean (remove merged worktree/branch, `git worktree prune`, `git fetch --prune`, delete temp scratch), then return to the tech-lead decision (Step 1c) and pick the next item — continue until the active rung's `agent-ready` work is exhausted or a human-gated wall.
 
 ## Completion protocol — always end a step this way
 
@@ -251,14 +257,15 @@ Unattended, the autopilot runs the full tech-lead loop (Step 1c) autonomously:
    item (bedrock-first; tech-lead decision, no human prompt needed).
 3. **Claim + worktree** → `claim_work(<n>)`; `git worktree add -b <branch> ../OpenWarden-<slug> main`.
 4. **Dispatch role subagents** → right-sized model per Step 1c; one subagent per worktree.
-5. **Implement with tests** → per Step 3; Codex-review (`/codex-second-opinion`) and
-   fix any Codex blocker before opening a PR.
-6. **Auto-merge any green PR** — CI passing + Codex-clean — **including docs, `.claude/`,
-   and governance PRs** (additive, gate-neutral, CODEOWNERS-gated), not just code PRs.
-7. **Completion protocol cleanup** → after each merge, run the full self-clean pass
-   (remove merged worktrees/branches, `git worktree prune`, `git fetch --prune`, delete
-   temp scratch) per the "Completion protocol" section above.
-8. **Loop** → return to step 1 and pick the next item.
+5. **Implement with tests + close the cycle** → per Step 3 (all steps 1–9): implement,
+   build, commit, open PR, Codex-review the diff (`/codex-second-opinion`), fix any Codex
+   blocker, then merge + cleanup + loop per steps 7–9. (Step 3 is the single source of truth
+   for this sequence — AFK mode follows it exactly.)
+6. **Auto-merge ceiling**: any green + Codex-clean PR is merged automatically,
+   **including docs, `.claude/`, and governance PRs** (additive, gate-neutral, CODEOWNERS-gated).
+   **`agent-blocked` PRs (crypto/`proto`/policy-enforcement/provisioning/CI) STOP for a human
+   + ADR — never auto-merged**, even if green (Step 3, step 8).
+7. **Loop** → after cleanup (Step 3, step 9), return to step 1 and pick the next item.
 
 ### 3. Hard floor — never crosses this, even unattended
 - **Never dispatch or auto-merge `agent-blocked` work**: crypto, `proto`,
