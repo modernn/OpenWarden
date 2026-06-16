@@ -154,7 +154,37 @@ install_optional() {
 
 install_optional "gh"        "gh"        "gh"           "GitHub.cli"     "gh"
 install_optional "jq"        "jq"        "jq"           "jqlang.jq"      "jq"
-install_optional "ktlint"    "ktlint"    "ktlint"       "Pinterest.Ktlint" "ktlint"
+
+# ktlint has no winget package; install from GitHub release (self-executable jar).
+install_ktlint() {
+  if command -v ktlint >/dev/null 2>&1; then INFO "ktlint: OK"; return 0; fi
+  INFO "Installing ktlint"
+  case "$OS" in
+    macos) brew install ktlint && return 0 ;;
+    linux)
+      command -v brew >/dev/null && { brew install ktlint && return 0; }
+      sudo apt-get install -y ktlint 2>/dev/null && return 0
+      ;;
+  esac
+  # Fallback (and Windows): download self-executable from GitHub releases.
+  local ver dest
+  command -v gh >/dev/null 2>&1 && ver=$(gh release view --repo pinterest/ktlint --json tagName -q .tagName 2>/dev/null)
+  ver="${ver:-1.8.0}"
+  if [[ "$OS" == "windows" ]]; then
+    dest="${LOCALAPPDATA}/Microsoft/WinGet/Links"; [[ -d "$dest" ]] || dest="$HOME/bin"
+  else
+    dest="$HOME/.local/bin"
+  fi
+  mkdir -p "$dest"
+  if curl -sSLo "$dest/ktlint" "https://github.com/pinterest/ktlint/releases/download/${ver}/ktlint"; then
+    chmod +x "$dest/ktlint"
+    [[ "$OS" == "windows" ]] && printf '@echo off\r\njava -jar "%%~dp0ktlint" %%*\r\n' > "$dest/ktlint.bat"
+    INFO "ktlint $ver installed to $dest (ensure it is on PATH)"
+  else
+    WARN "ktlint download failed"
+  fi
+}
+install_ktlint
 
 # detekt is a Gradle plugin, not a CLI tool. Skip CLI install.
 # swiftlint only matters on macOS for iOS work
