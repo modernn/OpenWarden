@@ -165,13 +165,19 @@ All Ed25519 signing and BLAKE3 hashing operate on **JCS canonical bytes** ([RFC 
 ### 3.1 JCS rules (summary)
 
 1. UTF-8, no BOM.
-2. Object members sorted by code-point of the UTF-16 key (RFC 8785 §3.2.3).
+2. Object members sorted by UTF-16 code unit of the key (RFC 8785 §3.2.3).
 3. No insignificant whitespace. No trailing newline.
 4. Numbers serialized per RFC 8785 §3.2.2.3 (ECMAScript 6 `Number.prototype.toString`). Integers without exponent or fraction; floats as shortest round-tripping form. **OpenWarden entries use integers only.** Floats in `payload` are forbidden — reject `MALFORMED`.
 5. Strings: shortest valid JSON escape; only `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, and `\u00XX` for control codes; all other characters literal UTF-8.
 6. `null` is forbidden in OpenWarden. Omit the key instead.
 7. Booleans literal `true` / `false`.
 8. Arrays preserve insertion order (NOT sorted).
+
+**Sign-and-transmit-exact-bytes (ADR-019).** The signer transmits the exact canonical bytes it
+signed — the canonical JCS encoding of the object with its `sig` removed **is** the wire body. The
+verifier verifies the signature over the bytes it received, verbatim, and only then parses. A
+verifier MUST NOT parse a document and re-canonicalize it before verifying; that reintroduces
+signer/verifier byte drift and fails valid signatures.
 
 ### 3.2 Why JCS, not JWS/JOSE
 
@@ -197,7 +203,7 @@ All four MUST produce byte-identical output for the test vectors in §9. CI cros
 |---|---|
 | `{"b": 1, "a": 2}` | `7b2261223a322c2262223a317d` → `{"a":2,"b":1}` |
 | `{"x": [3, 1, 2]}` | `7b2278223a5b332c312c325d7d` → `{"x":[3,1,2]}` (array order preserved) |
-| `{"é": 1, "e": 2}` | `7b2265223a322c2022c3a9223a317d` → `{"e":2,"é":1}` (code-point sort) |
+| `{"é": 1, "e": 2}` | `7b2265223a322c2022c3a9223a317d` → `{"e":2,"é":1}` (UTF-16 code-unit sort) |
 
 ---
 
