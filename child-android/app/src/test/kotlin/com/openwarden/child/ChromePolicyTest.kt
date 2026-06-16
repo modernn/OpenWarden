@@ -11,6 +11,7 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowDevicePolicyManager
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -22,13 +23,9 @@ import kotlin.test.assertTrue
  * - G1: gds.google.com Play-Services WebView hidden browser.
  * - W1: translate proxies, archive.org, 12ft.io, data:/blob:/file: URI schemes.
  *
- * NOTE on Robolectric sdk 34 application-restrictions round-trip:
- * [ShadowDevicePolicyManager] in Robolectric 4.13 does implement
- * setApplicationRestrictions / getApplicationRestrictions and returns the stored Bundle.
- * Tests below assert both the source-of-truth list ([ChromePolicy.urlBlocklist]) and the
- * round-tripped Bundle from the shadow DPM. If the shadow DPM returns null or an empty
- * Bundle (regression in the Robolectric version), the fallback assertions on
- * [ChromePolicy.urlBlocklist] still guard the contract.
+ * Contract tests call [ChromePolicy.apply] and assert against the round-tripped Bundle
+ * from [ShadowDevicePolicyManager.getApplicationRestrictions] — this is the real contract
+ * (the entries must be in the DPM bundle, not only in the in-memory list).
  *
  * @see docs/adr/009-browser-strategy.md
  */
@@ -55,8 +52,7 @@ class ChromePolicyTest {
     }
 
     // -------------------------------------------------------------------------
-    // Source-of-truth list assertions (always run — not dependent on shadow DPM
-    // round-trip behaviour)
+    // Source-of-truth list assertions (in-memory list content)
     // -------------------------------------------------------------------------
 
     @Test
@@ -75,31 +71,6 @@ class ChromePolicyTest {
     }
 
     @Test
-    fun `urlBlocklist contains W1 threat — data URI scheme`() {
-        assertContains(policy.urlBlocklist, "data://*")
-    }
-
-    @Test
-    fun `urlBlocklist contains W1 threat — blob URI scheme`() {
-        assertContains(policy.urlBlocklist, "blob://*")
-    }
-
-    @Test
-    fun `urlBlocklist contains W1 threat — file URI scheme`() {
-        assertContains(policy.urlBlocklist, "file://*")
-    }
-
-    @Test
-    fun `urlBlocklist contains W1 threat — 12ft bypass proxy`() {
-        assertContains(policy.urlBlocklist, "12ft.io")
-    }
-
-    @Test
-    fun `urlBlocklist contains W1 threat — web archive org`() {
-        assertContains(policy.urlBlocklist, "web.archive.org")
-    }
-
-    @Test
     fun `urlBlocklist contains W1 threat — wildcard translate goog subdomain`() {
         assertContains(policy.urlBlocklist, "*.translate.goog")
     }
@@ -110,6 +81,67 @@ class ChromePolicyTest {
             policy.urlBlocklist.size >= 10,
             "urlBlocklist must cover at minimum G1 + W1 entries; got ${policy.urlBlocklist.size}",
         )
+    }
+
+    // -------------------------------------------------------------------------
+    // Contract tests: apply() → stored DPM bundle must contain key W1 entries.
+    // These are the authoritative threat-model tests — a bug where apply() fails
+    // to write entries into the DPM bundle would NOT be caught by the in-memory
+    // list assertions above.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `apply() stores W1 threat — data URI scheme (correct Chrome form data colon star)`() {
+        policy.apply()
+        val stored = dpm.getApplicationRestrictions(AdminReceiver.componentName(context), ChromePolicy.CHROME_PKG)
+        val blocklistSet = stored.getStringArray("URLBlocklist")?.toSet()
+        assertNotNull(blocklistSet, "URLBlocklist must be present in stored restrictions")
+        assertContains(blocklistSet, "data:*", "data:* must be in stored DPM bundle (not data://*)")
+    }
+
+    @Test
+    fun `apply() stores W1 threat — blob URI scheme (correct Chrome form blob colon star)`() {
+        policy.apply()
+        val stored = dpm.getApplicationRestrictions(AdminReceiver.componentName(context), ChromePolicy.CHROME_PKG)
+        val blocklistSet = stored.getStringArray("URLBlocklist")?.toSet()
+        assertNotNull(blocklistSet, "URLBlocklist must be present in stored restrictions")
+        assertContains(blocklistSet, "blob:*", "blob:* must be in stored DPM bundle (not blob://*)")
+    }
+
+    @Test
+    fun `apply() stores W1 threat — file URI scheme (correct Chrome form file colon star)`() {
+        policy.apply()
+        val stored = dpm.getApplicationRestrictions(AdminReceiver.componentName(context), ChromePolicy.CHROME_PKG)
+        val blocklistSet = stored.getStringArray("URLBlocklist")?.toSet()
+        assertNotNull(blocklistSet, "URLBlocklist must be present in stored restrictions")
+        assertContains(blocklistSet, "file:*", "file:* must be in stored DPM bundle (not file://*)")
+    }
+
+    @Test
+    fun `apply() stores W1 threat — 12ft bypass proxy in DPM bundle`() {
+        policy.apply()
+        val stored = dpm.getApplicationRestrictions(AdminReceiver.componentName(context), ChromePolicy.CHROME_PKG)
+        val blocklistSet = stored.getStringArray("URLBlocklist")?.toSet()
+        assertNotNull(blocklistSet, "URLBlocklist must be present in stored restrictions")
+        assertContains(blocklistSet, "12ft.io")
+    }
+
+    @Test
+    fun `apply() stores W1 threat — web archive org in DPM bundle`() {
+        policy.apply()
+        val stored = dpm.getApplicationRestrictions(AdminReceiver.componentName(context), ChromePolicy.CHROME_PKG)
+        val blocklistSet = stored.getStringArray("URLBlocklist")?.toSet()
+        assertNotNull(blocklistSet, "URLBlocklist must be present in stored restrictions")
+        assertContains(blocklistSet, "web.archive.org")
+    }
+
+    @Test
+    fun `apply() stores G1 threat — gds google com in DPM bundle`() {
+        policy.apply()
+        val stored = dpm.getApplicationRestrictions(AdminReceiver.componentName(context), ChromePolicy.CHROME_PKG)
+        val blocklistSet = stored.getStringArray("URLBlocklist")?.toSet()
+        assertNotNull(blocklistSet, "URLBlocklist must be present in stored restrictions")
+        assertContains(blocklistSet, "gds.google.com")
     }
 
     // -------------------------------------------------------------------------
@@ -140,37 +172,42 @@ class ChromePolicyTest {
 
         val blocklistSet = blocklist.toSet()
         assertContains(blocklistSet, "gds.google.com")
-        assertContains(blocklistSet, "data://*")
-        assertContains(blocklistSet, "blob://*")
+        assertContains(blocklistSet, "data:*")
+        assertContains(blocklistSet, "blob:*")
         assertContains(blocklistSet, "12ft.io")
         assertContains(blocklistSet, "web.archive.org")
         assertContains(blocklistSet, "*.translate.goog")
     }
 
     @Test
-    fun `apply() stores SafeSitesFilterBehavior enabled in Chrome restrictions`() {
+    fun `apply() stores SafeSitesFilterBehavior=1 (filtering enabled) in Chrome restrictions`() {
         policy.apply()
 
         val admin = AdminReceiver.componentName(context)
         val stored = dpm.getApplicationRestrictions(admin, ChromePolicy.CHROME_PKG)
 
-        // SafeSitesFilterBehavior=1 means adult-content filtering enabled
-        assertTrue(
-            stored.containsKey("SafeSitesFilterBehavior"),
-            "SafeSitesFilterBehavior must be present",
+        // SafeSitesFilterBehavior=1 means adult-content filtering enabled.
+        // Assert the actual value — containsKey alone would pass on SafeSitesFilterBehavior=0 (filtering OFF).
+        assertEquals(
+            1,
+            stored.getInt("SafeSitesFilterBehavior"),
+            "SafeSitesFilterBehavior must be 1 (filtering enabled)",
         )
     }
 
     @Test
-    fun `apply() stores IncognitoModeAvailability disabled in Chrome restrictions`() {
+    fun `apply() stores IncognitoModeAvailability=1 (incognito disabled) in Chrome restrictions`() {
         policy.apply()
 
         val admin = AdminReceiver.componentName(context)
         val stored = dpm.getApplicationRestrictions(admin, ChromePolicy.CHROME_PKG)
 
-        assertTrue(
-            stored.containsKey("IncognitoModeAvailability"),
-            "IncognitoModeAvailability must be present",
+        // IncognitoModeAvailability=1 means incognito not available.
+        // Assert the actual value — containsKey alone would pass on IncognitoModeAvailability=0 (incognito ON).
+        assertEquals(
+            1,
+            stored.getInt("IncognitoModeAvailability"),
+            "IncognitoModeAvailability must be 1 (incognito disabled)",
         )
     }
 

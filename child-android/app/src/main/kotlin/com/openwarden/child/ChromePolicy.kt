@@ -13,7 +13,7 @@ import android.util.Log
  *   entries for gds.google.com and related Google help/support endpoints.
  * - W1 (translate proxies, archive.org, 12ft.io, data/blob/file URI schemes): blocked via
  *   [urlBlocklist] entries for translate.goog variants, web.archive.org, 12ft.io, and
- *   dangerous URI scheme patterns.
+ *   dangerous URI scheme patterns (data:*, blob:*, file:*).
  *
  * Policy is applied via [DevicePolicyManager.setApplicationRestrictions] targeting
  * [CHROME_PKG] ("com.android.chrome"). This requires Device Owner status.
@@ -40,11 +40,14 @@ class ChromePolicy(private val context: Context) {
     // Entries follow Chrome enterprise URLBlocklist pattern syntax:
     //   - Bare hostname: blocks the exact host and all subdomains.
     //   - Wildcard prefix "*.example.com": blocks all subdomains of example.com.
-    //   - Scheme pattern e.g. "data://*": blocks all URLs with that scheme.
+    //   - Scheme pattern e.g. "data:*": blocks all URLs with that scheme.
+    //     NOTE: data:, blob:, and file: URIs are opaque (no authority component),
+    //     so the correct Chrome URLBlocklist form is "data:*" NOT "data://*".
+    //     "data://*" will NOT match "data:text/html,..." in Chrome.
     //
     // G1 mitigations: gds.google.com, support.google.com/help, play.google.com/help
     // W1 mitigations: translate.goog, *.translate.goog, web.archive.org, 12ft.io,
-    //                 data://* (data URI), blob://* (blob URI), file://* (local files)
+    //                 data:* (data URI), blob:* (blob URI), file:* (local files)
     val urlBlocklist: List<String> = listOf(
         // G1 — Play-Services WebView hidden browser leak endpoints
         "gds.google.com",
@@ -57,9 +60,10 @@ class ChromePolicy(private val context: Context) {
         "web.archive.org",
         "12ft.io",
         // W1 — Dangerous URI schemes (data-URL exploit, local file access, blob pages)
-        "data://*",
-        "blob://*",
-        "file://*",
+        // Chrome URLBlocklist: opaque schemes use "scheme:*" (no "//"), not "scheme://*".
+        "data:*",
+        "blob:*",
+        "file:*",
     )
 
     /**
