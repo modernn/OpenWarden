@@ -192,8 +192,8 @@ Perf is dominated by upstream RTT; the local resolver itself adds <1ms.
 - **Upstream Cloudflare unreachable.** Fall back to Quad9 family (`9.9.9.9` family resolver, DoT to `family.quad9.net`). Logged once per outage.
 - **All upstreams unreachable.** Return `SERVFAIL`. Log a `tamper` event (possible jamming, possible captive portal misbehavior). Retry upstream every 30s with backoff.
 - **Upstream cert pin mismatch.** Refuse, log `tamper`, fall back to next upstream. Do not silently downgrade to plaintext.
-- **Local listener cert rejected by OS.** Should not happen — DPC installs the cert in the system trust store at provisioning time — but if it does, OS falls back to default network DNS and we lose visibility. Detected by absence of queries; raises an event after 5 minutes of silence.
-- **Resolver process crashes.** Foreground service watchdog (per the FGS budget in [`SIMPLIFY.md`](SIMPLIFY.md)) restarts within 2s. During the gap the OS uses cached entries and then default network DNS; we lose visibility for the gap. Restart event is logged with the gap duration.
+- **Local listener cert rejected by OS.** Should not happen — DPC installs the cert in the system trust store at provisioning time — but if it does, the OS resolves directly against the **public filtering floor** ([`ADR-016`](adr/016-fail-closed-dns-floor.md): Private DNS is pinned to `family.cloudflare-dns.com`/parent-selected filtering host, **not** localhost), so **filtering is preserved** — only visibility/per-app caps are lost for the window. Detected by absence of queries; raises a *visibility*-gap event after 5 minutes of silence. This is NOT an unfiltered window (K3 closed).
+- **Resolver process crashes.** Foreground service watchdog (per the FGS budget in [`SIMPLIFY.md`](SIMPLIFY.md)) restarts within 2s. During the gap the OS uses cached entries and then the **public filtering floor** (ADR-016), **not** default network DNS — filtering preserved, visibility lost. The gap is logged as a *visibility* gap, not a filtering gap.
 - **DNS exfiltration (kid sends 100k queries to weird TLD).** Rate limit per source-process is not available (we can't see source process from inside the resolver). Instead: per-window query-rate ceiling. Exceeding it raises a tamper event, does not block.
 
 ---
@@ -205,8 +205,8 @@ Per [`PROVISIONING_V2.md`](PROVISIONING_V2.md), provisioning is the only chance 
 1. Generate localhost DoT cert. Store private key in Android Keystore, non-exportable, hardware-backed where available.
 2. Install cert into system trust store via the DPC.
 3. Start the resolver foreground service. Bind to `127.0.0.1:853`. Verify the listener responds.
-4. Set Private DNS: `dpm.setGlobalPrivateDnsMode(admin, PRIVATE_DNS_MODE_PROVIDER_HOSTNAME, "openwarden.localhost")` where `openwarden.localhost` is a hostname whose A record (served by the local resolver itself for that one name) is `127.0.0.1`.
-5. DPC sets `DISALLOW_CONFIG_PRIVATE_DNS` so the kid cannot change Private DNS in Settings.
+4. Set Private DNS to the **public filtering floor** (ADR-016): `dpm.setGlobalPrivateDnsModeSpecifiedHost(admin, "family.cloudflare-dns.com")` (or the parent-selected *filtering* resolver). This is the floor the OS falls back to whenever the local resolver is down. The local DoT listener still intercepts as the *active* resolver while healthy; the pinned public host is the fail-closed fallback, **never** `127.0.0.1`/localhost (whose absence would drop the OS to unfiltered network DNS — the K3 bug). The DPC never sets OFF/OPPORTUNISTIC. Implemented by `DnsFloor` (#19).
+5. DPC sets `DISALLOW_CONFIG_PRIVATE_DNS` so the kid cannot change Private DNS in Settings. (`DnsFloor.applyFloor` asserts this alongside the pin, and the watchdog re-asserts both on boot/connectivity/timer.)
 6. Smoke test: resolve `example.com` end-to-end. Resolve a known-blocked test domain and confirm `NXDOMAIN`.
 
 Cert rotation: daily, before expiry. Rotation is in-process — old cert valid for one extra hour to cover the handoff.

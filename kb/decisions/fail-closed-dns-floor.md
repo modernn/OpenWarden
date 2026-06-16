@@ -36,5 +36,8 @@ more restriction, never less."
   currently drop to unfiltered DNS (violates fail-closed); mitigation = pin to public
   filtering resolver, never OFF/OPPORTUNISTIC.
 
-TODO(maintainer): close the K3 gap in `docs/DNS_RESOLVER.md` and ratify. Task brief called
-this "ADR-016" — that ADR does not exist yet.
+Status: **ratified + implemented.** [`docs/adr/016-fail-closed-dns-floor.md`](../../docs/adr/016-fail-closed-dns-floor.md)
+is Accepted; `child-android` `DnsFloor` (#19) pins the public filtering floor, never
+OFF/OPPORTUNISTIC/localhost, locks `DISALLOW_CONFIG_PRIVATE_DNS`, and the policy watchdog
+re-asserts it on boot/connectivity/timer. The `docs/DNS_RESOLVER.md` §11/§12 and
+`docs/DNS_FILTER.md` "Off" fail-open language was reconciled in the same PR.

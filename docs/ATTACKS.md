@@ -79,7 +79,7 @@ Behavioral (kid red team):
 1. **In-app WebView leaks (D1).** Either blocklist Discord/Roblox/Snap by default OR ship DNS filter in v1 (originally v2) OR document loudly that "allowing X allows the whole web."
 2. **Play Store web install (D8).** Install-approval flow MUST move from v2 → v1. Bitdefender-documented bypass otherwise.
 3. **Signed-bundle replay (H1, C8).** Bundle must carry `policy_seq` + `not_before` + `not_after`. Child rejects regressions. **Not yet in scaffold.**
-4. **Fail-closed everywhere (G2, H2, F3).** Sig parse error, missing policy file, clock anomaly, storage fail → strict baseline, never "unrestricted".
+4. **Fail-closed everywhere (G2, H2, F3, K3).** Sig parse error, missing policy file, clock anomaly, storage fail → strict baseline, never "unrestricted". **K3 (induced resolver failure → unfiltered DNS):** the DNS floor is pinned to a *public filtering* resolver (`DnsFloor`, ADR-016), never localhost/OFF/OPPORTUNISTIC — so a crashed/cert-rejected local resolver still resolves through a filtering upstream. A missing/corrupt bundle re-asserts deny-all + the default filtering floor.
 5. **Parent pubkey pinning at provisioning (H3).** Rotation requires recovery phrase. Already in scaffold; verify enforcement.
 6. **Monotonic clock + signed parent timestamps (F3, F1, F2).** Don't trust wall clock even if `DISALLOW_CONFIG_DATE_TIME` works.
 7. **Recovery-phrase use logged + delayed (K2, K3).** Any phrase use → audit-log entry; non-emergency requires 24h delay.

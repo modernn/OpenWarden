@@ -39,7 +39,7 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 | # | Defense | Attack | Cost |
 |---|---|---|---|
 | 16 | **Install-approval flow** (intercept `PackageInstaller` callback) | D8 (Play web install) | M |
-| 17 | **Force `setGlobalPrivateDnsMode(OpenWarden-resolver)`** w/ self-hosted or NextDNS | C2 (DoH in browser) | M |
+| 17 | **Pin Private DNS to a *public filtering* resolver** (`DnsFloor`, ADR-016) — `setGlobalPrivateDnsModeSpecifiedHost(family.cloudflare-dns.com/parent-selected)`, never localhost/OFF/OPPORTUNISTIC; `DISALLOW_CONFIG_PRIVATE_DNS` locked; re-asserted on boot/connectivity/timer | C2 (DoH in browser), **K3** (induced resolver failure → unfiltered) | M |
 | 18 | **Pin `setAlwaysOnVpnPackage(OpenWarden)`** | C4 (Always-On hijack) | S |
 | 19 | Monotonic clock for window enforcement (`SystemClock.elapsedRealtime`) + signed parent timestamps | F3 (NTP spoof even if DATE_TIME blocked fails) | S |
 | 20 | **Co-parent visibility feed** — any rule change pushed to all parent devices | K1, K2, divide-and-conquer | M |
@@ -76,6 +76,7 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 | F3 | NTP spoof | 19 (monotonic clock + signed parent ts) | Tech |
 | F4 | Force-stop OpenWarden | 1 (setUserControlDisabled) | Tech |
 | G2 | Storage fill → fail-open | fail-closed posture mandatory | Tech (design) |
+| K3-dns (research/07) | Induced resolver failure → unfiltered DNS | 17 (public filtering floor — never localhost/OFF/OPPORTUNISTIC; `DnsFloor`, ADR-016) | Tech (design) |
 | G4 | Backup restore | 3 (FRP) | Tech |
 | H1 | Replay old bundle | 6 (policy_seq) | Tech |
 | H2 | Sig stripping / downgrade | fail-closed on verify error | Tech (design) |

@@ -1,7 +1,7 @@
 # ADR-016: Fail-closed DNS floor — pin Private DNS to a public filtering resolver, not localhost
 
-Status: Proposed
-Date: 2026-06-16
+Status: Accepted
+Date: 2026-06-16 (ratified + implemented by #19 — `DnsFloor`)
 
 ## Context
 

@@ -67,10 +67,15 @@ class PolicyWatchdog(
             return PolicyWatchdog(
                 reassertRestrictions = { enforcer.applyDayOneRestrictions() },
                 reassertAllowlist = { enforcer.applyAllowlist(allowlistFor(store.load())) },
-                // TODO(#19): re-assert the fail-closed DNS floor here (pin Private DNS to the
-                // public filtering resolver — ADR-016). The triggers (boot / connectivity /
-                // timer) already call this seam; only the body is deferred to the DNS-floor issue.
-                reassertDnsFloor = {},
+                // Pin the fail-closed DNS floor (ADR-016). The parent's chosen resolver comes
+                // from the active bundle's private_dns; a missing/corrupt bundle (null) or any
+                // non-filtering host resolves to the default filtering host — never OFF. Re-pinned
+                // on every trigger (boot / connectivity / timer), incl. airplane-mode toggles.
+                reassertDnsFloor = {
+                    val requested = (store.load() as? PolicyStore.LoadResult.Loaded)
+                        ?.bundle?.policy?.private_dns
+                    DnsFloor(context).applyFloor(requested)
+                },
             )
         }
     }
