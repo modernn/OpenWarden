@@ -3,6 +3,7 @@ package com.openwarden.proto
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.encodeToJsonElement
@@ -72,11 +73,22 @@ object SigningInput {
         when (element) {
             is JsonObject -> element.values.forEach { requireAllIntegersJcsSafe(it) }
             is JsonArray -> element.forEach { requireAllIntegersJcsSafe(it) }
+            JsonNull -> Unit // null carries no integer; null-policy handled on the verifier path
             is JsonPrimitive ->
                 if (!element.isString) {
-                    element.content.toLongOrNull()?.let { Canonical.requireJcsSafe(it) }
+                    val c = element.content
+                    if (c != "true" && c != "false") {
+                        // A bare JSON number. It MUST be an integer within the JCS-safe range.
+                        // toLongOrNull() == null means a float/exponent or a value beyond Long's
+                        // range — reject HERE, fail-closed, rather than letting it slip through to
+                        // canonicalization with a misleading "non-integer" error (review finding).
+                        val l = c.toLongOrNull()
+                            ?: throw IllegalArgumentException(
+                                "JSON number '$c' is not a JCS-safe integer (must be an integer in 0..2^53-1)",
+                            )
+                        Canonical.requireJcsSafe(l)
+                    }
                 }
-            else -> Unit // JsonNull
         }
     }
 }
