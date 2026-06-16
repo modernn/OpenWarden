@@ -40,33 +40,36 @@ are **frozen design** — do not implement them ahead of their rung without an A
 Provisional. The current and next rung are committed; lower rungs are a best
 guess and will be re-cut by ADR. GitHub milestones mirror these.
 
-### v0.1 — DPC foundation *(current)*
+### v0.1 — DPC foundation ✅ *(complete)*
 
 The bedrock: the child app can become **Device Owner**, persist and verify a
 **signed** policy bundle, and hold day-one restrictions across reboot. Nothing
 else in child-android works until this lands.
 
-- [ ] `AdminReceiver` + manifest + `device_admin.xml` *(#7 — bedrock)*
-- [ ] `PolicyStore` — persist/load signed bundles to internal storage *(#9)*
-- [ ] `BundleVerifier` — Ed25519 signature check vs pinned parent pubkey *(human-gated: crypto + ADR + tests)*
-- [ ] `PolicyEnforcer` wraps `DevicePolicyManager` *(human-gated: policy-enforcement)*
-- [ ] Day-one restrictions applied at boot: `DISALLOW_FACTORY_RESET`,
+- [x] `AdminReceiver` + manifest + `device_admin.xml` *(#7 — bedrock)*
+- [x] `PolicyStore` — persist/load signed bundles to internal storage *(#9)*
+- [x] `BundleVerifier` — Ed25519 signature check vs pinned parent pubkey *(#10 — crypto + ADR-019)*
+- [x] `PolicyEnforcer` wraps `DevicePolicyManager` — fail-closed verify-or-throw + FRP *(#8, ADR-020)*
+- [x] Day-one restrictions applied at boot: `DISALLOW_FACTORY_RESET`,
   `DISALLOW_CONFIG_VPN`, `DISALLOW_DEBUGGING_FEATURES`,
   `DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY`, `DISALLOW_MODIFY_ACCOUNTS`,
-  `DISALLOW_ADD_USER`, `setFactoryResetProtectionPolicy(parent account)`
+  `DISALLOW_ADD_USER`, `setFactoryResetProtectionPolicy(parent account)` *(#8 — canonical 17, DEFENSES row 2)*
 
-### v0.2 — child enforcement surface
+### v0.2 — child enforcement surface *(current)*
 
 The restrictions a parent actually feels, plus the transparency screen that
 keeps us on the right side of the stalkerware boundary.
 
-- [ ] Lock down accessibility services *(#13)*
-- [ ] Kid Transparency / "Why am I blocked?" screen — lists **all** monitored
+- [x] Lock down accessibility services *(#13)*
+- [x] Kid Transparency / "Why am I blocked?" screen — lists **all** monitored
   categories *(#14)*
-- [ ] Chrome managed policy — `URLBlocklist` (hidden browsers, proxies,
+- [x] Chrome managed policy — `URLBlocklist` (hidden browsers, proxies,
   `data:`/`blob:`) *(#16)*
-- [ ] Lock-screen / QuickSettings / camera lockdown *(#17)*
-- [ ] App allowlist via `setPackagesSuspended` (visible + grayed + admin message)
+- [x] Lock-screen / QuickSettings / camera lockdown *(#17)*
+- [x] PolicyService FGS watchdog — reassert on boot/connectivity/timer/apply *(#11, ADR-021)*
+- [x] DNS floor — pin Private DNS to a public *filtering* resolver, fail-closed, never OFF *(#19, ADR-016)*
+- [ ] App allowlist via `setPackagesSuspended` (visible + grayed + admin message); allowlist-only launch, deny-by-default *(#12)*
+- [ ] Progressive ratchet to strict baseline after N hours no-contact *(#18)*
 
 ### v0.3 — parent app MVP (Android)
 
