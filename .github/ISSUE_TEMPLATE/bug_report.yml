@@ -1,0 +1,54 @@
+name: 🐞 Bug report
+description: Something doesn't work as intended (NOT a security vulnerability)
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. **Security vulnerabilities go through private reporting** (see SECURITY.md), not here.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - child-android (DPC)
+        - parent-kmp (parent app)
+        - proto (wire format)
+        - dns (resolver/filter)
+        - infra (build/CI/tooling)
+        - docs
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected vs what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: Device/emulator, Android version, OS you build on, commit/branch.
+      placeholder: "Pixel 7 emulator API 35; building on Windows; feat/parent-kmp-scaffold @ 4a2ab6c"
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is not a security vulnerability (those use private reporting per SECURITY.md).
+          required: true
+        - label: I searched existing issues for a duplicate.
+          required: true

@@ -1,0 +1,45 @@
+name: ✨ Feature / task
+description: Propose a feature, improvement, or a contributor-sized task
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - child-android (DPC)
+        - parent-kmp (parent app)
+        - proto (wire format)
+        - dns (resolver/filter)
+        - infra (build/CI/tooling)
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What gap or need does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Sketch the change. Link any relevant doc/ADR.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know it's done? (Behavior + the tests that prove it.)
+      placeholder: |
+        - [ ] …
+        - [ ] tests covering …
+  - type: checkboxes
+    id: pledge
+    attributes:
+      label: Respects the non-negotiables
+      description: See CONTRIBUTING.md / CLAUDE.md.
+      options:
+        - label: No subscription/SaaS/telemetry, no content monitoring, fail-closed.
+          required: true

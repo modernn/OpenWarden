@@ -1,36 +1,76 @@
-# Contributing
+# Contributing to OpenWarden
 
-Apache 2.0. By submitting a PR, you confirm DCO sign-off (`git commit -s`).
+Thanks for helping build a parental-control tool that protects kids **without**
+surveilling them. OpenWarden is Apache-2.0 and community-built.
 
-## Non-negotiables
-1. **No subscription path.** OpenWarden will never gate features behind payment. PRs introducing paid services, paid tiers, or paid components in the required path will not merge.
-2. **No telemetry, no analytics, no phone-home.** Crash reports are opt-in only and never on by default.
-3. **No required third-party SaaS.** Optional convenience integrations (Tailscale, NextDNS, etc.) are fine if they remain truly optional and a self-hosted / FOSS alternative ships alongside.
-4. **Threat model rules.** Read [`docs/SECURITY.md`](docs/SECURITY.md). Features that weaken the model get pushed back.
+New here? **[`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)** gets it running
+locally (Android-first). Using Claude Code or Codex? See **[`AGENTS.md`](AGENTS.md)**
+and run the **`/openwarden`** skill — it asks what you want to do and
+walks you through it.
 
-## What we want
-- Hardening of the DPC (more `DevicePolicyManager` coverage)
-- Better cross-platform parity in the Flutter parent app
-- Self-hostable transport docs (WireGuard, mesh VPNs, LAN-only)
-- Tests, especially for the policy bundle signature/verification path
-- Translations
-- Better "Why am I blocked?" UX on the child device
+## Non-negotiables (a PR that violates any of these will not merge)
 
-## What we'll push back on
-- Content surveillance features (reading messages, screenshots of social apps). OpenWarden is a *control* tool, not a *monitoring* tool. Stalkerware concerns live here.
-- Anything that requires Google Play services to function
-- Anything that requires an account on a vendor's cloud
-- Multi-tenant SaaS deployment patterns
+1. **No subscription, no SaaS, no telemetry/analytics/phone-home.** Ever. Optional
+   convenience integrations (Cloudflare family DNS, Tailscale, ntfy.sh) are fine
+   only if truly optional with a FOSS/self-hosted alternative alongside.
+2. **No content monitoring.** Messages, photos, audio are never read or sent.
+   OpenWarden is a *control* tool, not a *monitoring* tool — the stalkerware
+   boundary lives here.
+3. **Fail-closed.** Every error path defaults to *more* restriction, never less.
+4. **Kid transparency.** Every monitored category is shown on the kid's device.
+5. **No secrets in the repo.** No keys, tokens, or BIP39 phrases — ever.
 
-## Setup
-1. Clone
-2. Child Android: open `child-android/` in Android Studio, sync, run on a dev device (NOT the real kid phone)
-3. Parent Flutter: `cd parent-flutter && flutter pub get && flutter run`
+These are also enforced by review (CODEOWNERS) and CI, not just trust.
+
+## Ways to contribute
+
+Run `/openwarden` (Claude Code) or pick a path here:
+
+- **Run it locally** → [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
+- **Write tests** → [`docs/TESTING.md`](docs/TESTING.md). Tests are *required* for
+  crypto, protocol, and policy logic.
+- **Implement a feature** → grab an `enhancement` / `good first issue` /
+  `agent-ready` [issue](https://github.com/modernn/OpenWarden/issues). Check
+  [`docs/adr/`](docs/adr/) and the doc-tier rules first (v2/v3 frozen-design needs
+  an ADR before implementation).
+- **Fix a bug** → grab a `bug` issue; add a regression test.
+- **Improve docs** → docs are the spec; keep them accurate.
+
+Good first areas: DPC hardening (more `DevicePolicyManager` coverage), policy
+bundle signature/verification tests, the "Why am I blocked?" kid UX, translations.
+
+## We'll push back on
+- Content surveillance (reading messages, screenshots of social apps).
+- Anything that *requires* Google Play services or a vendor cloud account.
+- Multi-tenant SaaS deployment patterns.
+
+## Pull request flow
+
+1. **Branch via a worktree** (see [`CLAUDE.md`](CLAUDE.md) → Git worktrees):
+   `git worktree add -b feat/my-thing ../OpenWarden-my-thing main`.
+2. Make the change **with tests**.
+3. `cd parent-kmp && ./gradlew check` (or the relevant module build) — green.
+4. **Commit signed + DCO:** `git commit -S -s -m "feat: …"`.
+   - **Conventional** (`feat:`/`fix:`/`docs:`/`chore:`/`test:`) — **required**.
+   - **DCO sign-off** (`-s`) certifies the [Developer Certificate of Origin](https://developercertificate.org/) — **required**.
+   - **Signed** (`-S`) — required (see GOVERNANCE.md). Never `--no-verify`.
+5. Open a PR; fill in the template. Touched a `docs/` behavior or ADR? Update it in
+   the same PR. Architecture pivot? Add an ADR in `docs/adr/`.
+
+CI runs `./gradlew check` + lint + a DCO/conventional-commit check. CODEOWNERS
+routes crypto/proto/policy/CI changes to a maintainer.
 
 ## Style
-- Kotlin: ktlint defaults
-- Dart: `flutter format`
-- Commits: imperative, conventional ("feat:", "fix:", "docs:") encouraged but not required
+- Kotlin: ktlint defaults.
+- Swift (iOS, later): SwiftLint defaults.
+- Commits: imperative, conventional, signed, DCO.
 
-## Bench testing the DPC
-Set up a **second Pixel** (or emulator with DeviceAdmin) and run the provisioning flow in `docs/PROVISIONING.md`. Never test new policy changes on a real kid's phone first.
+## Bench-testing the DPC
+Use a **dev device or emulator** (Device Owner) — **never test policy changes on a
+real kid's phone first**. Provisioning: [`docs/PROVISIONING_V2.md`](docs/PROVISIONING_V2.md);
+emulator E2E: `./scripts/test-emulator.sh`.
+
+## Conduct & security
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Found a
+vulnerability? **Do not open a public issue** — see [`SECURITY.md`](SECURITY.md).
+Governance: [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md).

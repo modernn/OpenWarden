@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/modernn/OpenWarden/security/advisories/new
+    about: Do NOT open a public issue for vulnerabilities. Use private reporting (see SECURITY.md).
+  - name: 💬 Questions & ideas (Discussions)
+    url: https://github.com/modernn/OpenWarden/discussions
+    about: Ask questions or float ideas before filing a feature request.
+  - name: 📖 Getting started (run it locally)
+    url: https://github.com/modernn/OpenWarden/blob/main/docs/GETTING_STARTED.md
+    about: Build and run OpenWarden locally before contributing.

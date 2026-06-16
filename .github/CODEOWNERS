@@ -1,0 +1,28 @@
+# CODEOWNERS — paths requiring maintainer review.
+# This is the guardrail that keeps AI agents (and humans) from changing the
+# crypto, the wire format, the rules that govern contributions, or CI/security
+# config without a maintainer in the loop. See GOVERNANCE.md.
+
+# Default owner
+*                                   @modernn
+
+# Crypto / protocol / wire format — NOT agent-ready; require maintainer + ADR + tests
+/proto/                             @modernn
+/parent-kmp/proto/                  @modernn
+/parent-kmp/shared/src/commonMain/kotlin/com/openwarden/parent/crypto/  @modernn
+/child-android/app/src/main/kotlin/com/openwarden/child/BundleVerifier.kt  @modernn
+
+# Policy enforcement surface
+/child-android/app/src/main/kotlin/com/openwarden/child/PolicyEnforcer.kt  @modernn
+/child-android/app/src/main/kotlin/com/openwarden/child/PolicyService.kt   @modernn
+
+# Decisions, specs-as-canon
+/docs/adr/                          @modernn
+
+# CI, hooks, agent config, the rules themselves
+/.github/                           @modernn
+/.claude/                           @modernn
+/AGENTS.md                          @modernn
+/CLAUDE.md                          @modernn
+/SECURITY.md                        @modernn
+/CODEOWNERS                         @modernn

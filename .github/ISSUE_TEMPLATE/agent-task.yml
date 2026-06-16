@@ -1,0 +1,51 @@
+name: 🤖 Agent-ready task
+description: A small, well-scoped task suitable for an AI coding agent (Claude Code / Codex)
+labels: ["agent-ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Maintainers: only apply `agent-ready` to small, non-sensitive tasks. **Crypto, proto,
+        provisioning, and policy-enforcement work is NOT agent-ready** — it needs an ADR + maintainer.
+  - type: input
+    id: goal
+    attributes:
+      label: Goal (one line)
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: Background / why
+      description: Context + links to the relevant doc or ADR.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Files / modules to change
+      description: Point the agent at the exact place(s).
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria (definition of done)
+      value: |
+        - [ ] Behavior: …
+        - [ ] Unit tests added/updated covering the change
+        - [ ] `cd parent-kmp && ./gradlew check` green (or relevant module build)
+        - [ ] Conventional commit, signed + DCO (`git commit -S -s`)
+        - [ ] Any touched doc/ADR updated in the same PR
+    validations:
+      required: true
+  - type: textarea
+    id: donot
+    attributes:
+      label: Do NOT modify
+      value: |
+        - crypto / proto / provisioning / policy-enforcement paths (see CODEOWNERS)
+        - CI workflows, .claude/ hooks, CODEOWNERS, AGENTS.md, CLAUDE.md
+        - never add SaaS/telemetry/content-monitoring deps; never weaken fail-closed
+    validations:
+      required: true
