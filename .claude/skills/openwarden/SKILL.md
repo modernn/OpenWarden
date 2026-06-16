@@ -39,15 +39,18 @@ CLI fallback `node .claude/mcp-server/dist/progress.js <cmd>` if the server isn'
 - **`/openwarden start`** (NO issue#) → **auto-start: just begin the right work.** Run the
   tech-lead decision (Step 1c steps 1–2): survey live milestones + open issues + the current
   `docs/ROADMAP.md` rung + KB, then pick the **single highest-leverage** issue that is *all*
-  of: `agent-ready`, on the **active milestone** (current rung — `v0.1` now), labeled a role
-  `area:*`, NOT `agent-blocked`, NOT already `claimed`. Choose **bedrock-first** (most
-  downstream unblocked — e.g. `#7 AdminReceiver` gates all of child-android). Then proceed
+  of: `agent-ready`, on the **active milestone** (the current rung per
+  [`docs/ROADMAP.md`](../../../docs/ROADMAP.md) — don't hardcode the version, read it), labeled a
+  role `area:*`, NOT `agent-blocked`, NOT already `claimed`. Choose **bedrock-first** (most
+  downstream unblocked — e.g. `#7 AdminReceiver` gated all of child-android). Then proceed
   exactly as `start <that#>`: `claim_work`, worktree + branch, route to the matching role
   agent, and carry the item all the way through Step 3 **including review → merge → cleanup →
   loop** (steps 7–9). If two-or-more candidates tie, surface a one-line shortlist via
   **AskUserQuestion**; otherwise just go. **Never** auto-start `agent-blocked` work — if the
-  rung has only blocked work left, say so and hand to a human. After implementing, land the
-  work with **`/openwarden finish`** (review + complete).
+  rung has only blocked work left, say so and hand to a human. (To *deliberately* work an
+  `agent-blocked` issue with a maintainer present and authorizing, switch to § "Attended
+  agent-blocked mode" — supervised implement + human-approved merge; the auto-start path stays
+  blocked-averse.) After implementing, land the work with **`/openwarden finish`**.
 - **`/openwarden start <issue#>`** → `progress_start` — begin/resume a session on a specific
   issue in this worktree; **warns if the worktree doesn't match the issue's `area:*`**.
 - **`/openwarden stop`** → `progress_stop` — checkpoint: captures uncommitted + unpushed git
@@ -189,7 +192,7 @@ human-only surfaces stay human-only. The lead multiplies throughput; it never wi
 4. Commit **signed + DCO, conventional**: `git commit -S -s -m "feat: …"`. Never `--no-verify`.
 5. Update any touched `docs/`/ADR in the same change.
 6. Push the branch; open a PR following `.github/PULL_REQUEST_TEMPLATE.md`. (`gh pr create` is allowlisted in `.claude/settings.local.json` — no per-PR confirm gate in normal operation, though an attended operator may still choose to pause.)
-7. **Review.** Run Codex review via `/codex-second-opinion` on the opened PR's diff. Scale depth to risk: full review for code / security-adjacent / build changes; light or skip for pure docs/typo PRs. Fix any Codex blocker and re-push before proceeding to merge.
+7. **Review.** Scale depth to risk. **For any `agent-blocked` / fail-closed / security-adjacent PR, run the dual adversarial pass** (see § "Dual adversarial review"): a `cavecrew-reviewer` (diff bugs) **and** a `crypto-reviewer` (fail-closed/enforcement semantics) subagent in parallel, plus `/codex-second-opinion` if warranted. For ordinary code/build PRs a single reviewer or Codex is enough; light or skip for pure docs/typo PRs. **HIGH/blocker findings gate the merge** — fix and re-push until clean; surface any genuine *behavior/policy decision* the review exposes for explicit human sign-off (don't silently pick).
 8. **Merge.** Per the autonomy ceiling (see § "Unattended / AFK mode"). Unattended/full-auto: merge any green + Codex-clean PR, **including docs/`.claude/`/governance** PRs. **Any PR whose diff touches an `agent-blocked` surface (crypto/`proto`/policy-enforcement/provisioning/CI) STOPS for a human + ADR — never auto-merged**, even if green. Attended runs: merge when authorized, else hand the PR link to the maintainer.
 9. **Cleanup + loop.** Run the Completion protocol self-clean (remove merged worktree/branch, `git worktree prune`, `git fetch --prune`, delete temp scratch), then return to the tech-lead decision (Step 1c) and pick the next item — continue until the active rung's `agent-ready` work is exhausted or a human-gated wall.
 
@@ -198,7 +201,7 @@ To review and land the PR opened in step 6, run **`/openwarden finish`**.
 ## Completion protocol — always end a step this way
 
 At the end of **every** completed `/openwarden` action (a finished step, a merged PR,
-a stopped session, or a handed-off task), do both of the following before returning:
+a stopped session, or a handed-off task), do all of the following before returning:
 
 ### 1. Emit the next command
 
@@ -229,6 +232,10 @@ Run a cleanup pass after every completed line of work:
 1. **Merged worktrees.** For each entry in `git worktree list`, check whether its
    branch has already been merged into `main`. If yes, remove it:
    `git worktree remove <path>` (must be clean; stash or commit anything left first).
+   **Windows file-lock gotcha:** a running Gradle daemon holds files in the worktree, so
+   `git worktree remove` fails with *"Permission denied"*. Run `./gradlew --stop` first.
+   If the folder delete still fails, the git admin entry is already gone — `git worktree
+   prune`, then `rm -rf <path>` the orphan folder (retry once; the lock is usually transient).
    See [`docs/WORKTREES.md`](../../../docs/WORKTREES.md) for the full worktree rules.
 2. **Merged local branches.** After removing a merged worktree, delete the local
    branch: `git branch -d <branch>` (use `-D` only if the remote already deleted it
@@ -244,6 +251,76 @@ Run a cleanup pass after every completed line of work:
 A finished worktree left lying around wastes disk and causes `git worktree list`
 confusion; remove it as soon as the PR is merged.
 
+### 3. Sync the protected ROADMAP as work lands
+
+[`docs/ROADMAP.md`](../../../docs/ROADMAP.md) is the source of truth and the GitHub
+milestones mirror it — but it **drifts** if only the milestones move. **Whenever a merged PR
+closes a rung item, sync the ROADMAP in the same flow** so it never falls behind reality:
+
+1. **Check off shipped items.** For each ROADMAP bullet whose issue just closed, flip
+   `- [ ]` → `- [x]` and annotate it with the PR/ADR (e.g. `*(#19, ADR-016)*`). If a shipped
+   item has no bullet yet (milestone/ROADMAP drift), add the bullet under its rung — that is a
+   status reflection, not a scope change.
+2. **Advance the `*(current)*` pointer.** When a rung's `agent-ready` work is exhausted *and*
+   its milestone shows 0 open, mark that rung `✅ *(complete)*` and move `*(current)*` to the
+   next rung. Confirm the GitHub milestones already mirror this (they are the copy; the file is
+   the source).
+3. **This is a status sync, NOT a pivot.** Checking off shipped work + advancing the pointer
+   needs **no ADR** — it reflects what already happened. Only a *re-scope / reorder / change of
+   what a version means* is a pivot (ADR + ROADMAP + milestone re-sync in one PR, per Step 0).
+4. **It's protected canon.** Land the sync as its own small `chore(roadmap):` PR (CODEOWNERS-
+   gated). Unattended/full-auto may auto-merge it (additive, gate-neutral); attended, the
+   maintainer merges. Never edit `main`'s ROADMAP directly — always via a branch/PR.
+
+Do this **every** time a rung item merges, so the roadmap is never the thing a human has to
+notice is stale.
+
+## Attended agent-blocked mode
+
+`agent-blocked` does **not** mean "a human must write the code." It means **not auto-merged by
+the unattended autopilot, and never handed to an unsupervised subagent.** With a **present
+maintainer who authorizes it**, the *main thread* may implement `agent-blocked` work (crypto /
+`proto` / policy-enforcement / DNS fail-closed / provisioning) **attended** — the human operates
+the merge gate, the agent does the implementation. This is the normal way to clear the human-gated
+backlog; "hand to a human" (Step 1a/auto-start) is the fallback when no maintainer is engaged.
+
+The attended flow for one `agent-blocked` issue:
+
+1. **Gather + propose.** Read the issue + the relevant canon (ADRs, DEFENSES/ATTACKS, KB). Present
+   the approach in plain English and surface every real fork via **AskUserQuestion**; get a go.
+2. **ADR first.** Write/update the ADR (it is the human-readable record the maintainer approves;
+   crypto/protocol/policy changes REQUIRE one). For an already-`Proposed` ADR, implementing it
+   flips it to `Accepted` in the same PR.
+3. **Implement with tests.** In a worktree/branch, match the repo's test idiom (Robolectric +
+   `assumeTrue` fail-or-skip; prove the fail-closed contract **deterministically** via injected
+   reader/seam doubles, not only via a shadow round-trip that can skip). Module build green.
+4. **Dual adversarial review** (§ "Dual adversarial review"). Fix HIGH/blocker findings; re-review
+   until clean. Surface accepted-residual + any **behavior/policy decision** plainly.
+5. **Hand a plain-English PR + the behavior decisions** to the maintainer. **Require explicit
+   merge approval** (AskUserQuestion) — **never auto-merge an `agent-blocked` PR, even green.**
+6. **Merge → Completion protocol** (cleanup + ROADMAP sync + `**Next:**`). Loop.
+
+Guardrails are unchanged: the non-negotiables win, fail-closed always, and the hard floor (no
+auto-merge / no unsupervised-subagent dispatch of `agent-blocked` work) holds. Attended mode adds
+a *supervised implementation* path; it does not widen the merge gate.
+
+### Dual adversarial review
+
+For `agent-blocked` / fail-closed / security-adjacent PRs, run **two** read-only reviewers **in
+parallel** (one message, two `Agent` calls), because each reliably catches a different class of
+bug:
+
+- **`cavecrew-reviewer`** — diff-level bugs, leaks, lifecycle, thread-safety, vacuous tests.
+- **`crypto-reviewer`** — fail-closed/enforcement semantics vs the ADRs + DEFENSES/ATTACKS:
+  readback authority, partial-apply windows, baseline completeness, doc over-claims.
+
+Optionally add `/codex-second-opinion` for a third lens on the highest-stakes changes. **Treat
+HIGH/blocker findings as merge-gating.** When a review exposes a genuine *behavior/policy
+decision* (e.g. deny-all-on-corrupt, which resolver set, where a restriction lives), do **not**
+silently choose — surface it to the maintainer for explicit sign-off at merge. In this project's
+history the dual pass caught a real defect on every agent-blocked PR (DO-readback aliasing;
+corrupt-bundle fail-open; a "filtering" resolver that didn't filter adult content).
+
 ## Step — finish (review + complete open PRs)
 
 Invoked by **`/openwarden finish`**. Closes out in-flight PRs: review → fix → gate-check →
@@ -251,10 +328,11 @@ complete → cleanup. `start` picks + implements + opens the PR; `finish` review
 
 1. **Enumerate.** `gh pr list --state open` (or the current branch's PR if scoped). Skip
    drafts (`--draft` state).
-2. **Review each PR.** Dispatch a **`cavecrew-reviewer`** subagent on the PR diff vs `main`
-   and/or run **`/codex-second-opinion`**. Scale depth to risk: full review for
-   code/security/build changes; light pass for pure docs/typo PRs. Collect severity-tagged
-   findings.
+2. **Review each PR.** Scale depth to risk. **For `agent-blocked` / fail-closed PRs run the
+   dual adversarial pass** (§ "Dual adversarial review"): `cavecrew-reviewer` (diff) **and**
+   `crypto-reviewer` (fail-closed semantics) in parallel, plus `/codex-second-opinion` if
+   warranted. Single reviewer/Codex for ordinary code; light pass for pure docs/typo PRs.
+   Collect severity-tagged findings; **HIGH/blocker gates**.
 3. **Fix blockers.** For any blocker/high-severity finding, dispatch the matching role agent
    (right-sized model, inside that PR's worktree) to fix it; re-push; re-review until clean.
 4. **Gate check before completing.** A PR is completable only if: CI green + review-clean
