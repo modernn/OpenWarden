@@ -74,8 +74,8 @@ Triggers for first-session setup:
 ## When stuck
 
 - Read relevant doc in `docs/` first
-- Try `codex:rescue` skill for second opinion
-- Try `impeccable-codex-debate` for high-stakes design contention
+- Try `/codex:rescue` (codex plugin) or the `codex-second-opinion` skill for a second opinion
+- For high-stakes design contention, run an adversarial Codex review (`/codex:rescue`) and apply the `impeccable` skill for UI craft (there is no `impeccable-codex-debate` plugin)
 - For provisioning issues: read [`docs/PROVISIONING_V2.md`](docs/PROVISIONING_V2.md)
 - For crypto: read [`docs/CRYPTO.md`](docs/CRYPTO.md) + run test vectors in `docs/test-vectors/`
 - For attacks/defenses: [`docs/ATTACKS.md`](docs/ATTACKS.md) + [`docs/DEFENSES.md`](docs/DEFENSES.md)
