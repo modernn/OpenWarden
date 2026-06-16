@@ -33,9 +33,9 @@ Field semantics:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `v` | u8 | yes | Schema version. v1 = `1`. Unknown `v` → fail-closed reject. |
-| `seq` | u64 | yes | Monotonic, starts at `0`, increments by exactly `1`. No gaps. |
+| `seq` | u53-bounded integer (0 .. 2^53−1) | yes | Monotonic, starts at `0`, increments by exactly `1`. No gaps. Values above 2^53−1 are rejected `MALFORMED` before signature verification. |
 | `prev_hash` | string | yes | `"b3:" + hex(BLAKE3-256(canonicalized_prev_entry_bytes))`. For `seq=0`, the all-zero hash above (genesis sentinel). |
-| `issued_at` | u64 | yes | Unix milliseconds, writer's signed claim. Authoritative only when writer is parent (see §5). |
+| `issued_at` | u53-bounded integer (0 .. 2^53−1) | yes | Unix milliseconds, writer's signed claim. Values above 2^53−1 are rejected `MALFORMED` before signature verification. Authoritative only when writer is parent (see §5). |
 | `payload_type` | enum string | yes | One of: `PolicyBundle`, `Event`, `SealedEvent`, `AckPolicy`, `AckCommand`, `Heartbeat`, `PairingHandshake`. |
 | `payload` | object | yes | Schema determined by `payload_type` (§1.3). |
 | `sig` | string | yes | `"ed25519:" + base64url(Ed25519_sign(canonical_bytes_without_sig_field, owner_privkey))`. Unpadded. |
@@ -101,6 +101,7 @@ The most security-critical artifact in the system. Every byte is signed, every f
 {
   "v": 1,
   "policy_seq": 42,
+  "child_device_id": "base64url(child_ed25519_pub_32_bytes)",
   "issued_at": 1734307200000,
   "not_before": 1734307200000,
   "not_after":  1736899200000,
@@ -122,10 +123,11 @@ Fields:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `v` | u8 | yes | Bundle schema version. Bumped only on format break. |
-| `policy_seq` | u64 | yes | **Monotonic at child.** Child rejects any bundle with `policy_seq ≤ last_applied_policy_seq` with reason `REGRESSION`. Closes attack H1/C8 ([`ATTACKS.md`](ATTACKS.md)). |
-| `issued_at` | u64 | yes | Parent's claimed authorship time, ms. |
-| `not_before` | u64 | yes | Earliest legal application time, ms. |
-| `not_after` | u64 | yes | Latest legal application time, ms. Hard deadline → stale-policy mode. |
+| `policy_seq` | u53-bounded integer (0 .. 2^53−1) | yes | **Device-global monotonic floor at child.** Child rejects any bundle with `policy_seq ≤ floor` with reason `REGRESSION`. `policy_seq = 0` is reserved and never a live policy. Values above 2^53−1 are rejected `MALFORMED` before signature verification. Closes attack H1/C8 ([`ATTACKS.md`](ATTACKS.md)). |
+| `child_device_id` | base64url string (32 bytes) | yes | **Audience binding.** The addressed child's pinned Ed25519 pubkey (or a stable id derived from it). Child rejects `MALFORMED` any bundle where this field does not match its own identity — checked before signature verification. Prevents cross-child replay under one parent key. |
+| `issued_at` | u53-bounded integer (0 .. 2^53−1) | yes | Parent's claimed authorship time, ms. Values above 2^53−1 are rejected `MALFORMED` before signature verification. |
+| `not_before` | u53-bounded integer (0 .. 2^53−1) | yes | Earliest legal application time, ms. Values above 2^53−1 are rejected `MALFORMED` before signature verification. |
+| `not_after` | u53-bounded integer (0 .. 2^53−1) | yes | Latest legal application time, ms. Hard deadline → stale-policy mode. Values above 2^53−1 are rejected `MALFORMED` before signature verification. |
 | `nonce` | hex string (32 chars, 16 bytes) | yes | CSPRNG-fresh per bundle. Distinct from `policy_seq` — `policy_seq` defeats replay, `nonce` defeats parallel forgery of identical content. |
 | `policy.allowlist` | string[] | yes | Package names that may launch. May be empty (= deny-all). |
 | `policy.blocklist` | string[] | no | Hard-deny even if otherwise allowed. |
@@ -138,23 +140,33 @@ Fields:
 ### 2.1 Verification algorithm
 
 ```
-verify_bundle(bundle, pinned_parent_ed25519_pub, last_applied_policy_seq, monotonic_now_ms):
-  1. if bundle.v != 1:                                 reject MALFORMED
-  2. if size(canonicalize(bundle)) > 65536:            reject MALFORMED
-  3. body := canonicalize(bundle without "sig" field)
-  4. if not Ed25519.verify(bundle.sig, body, pinned_parent_ed25519_pub):
-                                                       reject SIG_FAIL  (fail-closed)
-  5. if bundle.policy_seq <= last_applied_policy_seq:  reject REGRESSION
-  6. if monotonic_now_ms < bundle.not_before:          reject CLOCK_SKEW (defer, retry on heartbeat)
-  7. if monotonic_now_ms >= bundle.not_after:          reject EXPIRED   (stale-policy mode)
-  8. if abs(wall_clock_now - bundle.issued_at) > 24h AND prior parent contact <72h:
-                                                       reject CLOCK_SKEW
-  9. apply(bundle.policy)
- 10. persist(bundle, last_applied_policy_seq := bundle.policy_seq)
- 11. emit AckPolicy{policy_seq, "applied"}
+verify_bundle(bundle, pinned_parent_ed25519_pub, my_child_device_id,
+              floor := max(at_rest_floor, highest_policy_seq_in_chain),
+              monotonic_now_ms):
+  1.  if bundle.v != 1:                                 reject MALFORMED
+  2.  if size(canonicalize(bundle)) > 65536:            reject MALFORMED
+  3.  if any int/timestamp field > 2^53−1:              reject MALFORMED  // JCS integer bound
+  4.  if bundle.child_device_id != my_child_device_id:  reject MALFORMED  // audience binding
+  5.  body := canonicalize(bundle without "sig" field)
+  6.  if not Ed25519.verify(bundle.sig, body, pinned_parent_ed25519_pub):
+                                                        reject SIG_FAIL  (fail-closed)
+  7.  if bundle.policy_seq <= floor:                    reject REGRESSION
+  8.  if bundle.policy_seq > floor + MAX_SEQ_JUMP:      reject MALFORMED  // floor-poison DoS guard
+  9.  if monotonic_now_ms < bundle.not_before:          reject CLOCK_SKEW (defer, retry on heartbeat)
+  10. if monotonic_now_ms >= bundle.not_after:          reject EXPIRED    (stale-policy mode)
+  11. if anchor_or_not_after_watermark rolled back:     enter STRICT BASELINE (anomaly — see §5.1)
+  // ---- two-phase durable apply; floor advances LAST ----
+  12. STAGE the new policy to a temp record                     // not yet live
+  13. apply(bundle.policy); fsync the applied policy + staged record  // durable
+  14. ADVANCE floor := bundle.policy_seq               // at-rest DataStore + chain mirror, AFTER step 13
+  15. emit AckPolicy{policy_seq, "applied"}            // chain witness
 ```
 
-Steps 4 and 6–8 are **fail-closed**: parse error, signature failure, clock anomaly, or storage write failure MUST leave the previous bundle in force OR enter stale-policy mode. Never "unrestricted".
+`MAX_SEQ_JUMP = 1024`.
+
+Steps 6 and 9–11 are **fail-closed**: parse error, signature failure, clock anomaly, or storage write failure MUST leave the previous bundle in force OR enter stale-policy mode. Never "unrestricted."
+
+**Crash safety:** a crash between steps 12 and 14 leaves the old floor in force, so the same valid bundle re-applies cleanly on restart (idempotent). A crash never strands a legitimate bundle as a permanent `REGRESSION`.
 
 ---
 
@@ -167,7 +179,7 @@ All Ed25519 signing and BLAKE3 hashing operate on **JCS canonical bytes** ([RFC 
 1. UTF-8, no BOM.
 2. Object members sorted by UTF-16 code unit of the key (RFC 8785 §3.2.3).
 3. No insignificant whitespace. No trailing newline.
-4. Numbers serialized per RFC 8785 §3.2.2.3 (ECMAScript 6 `Number.prototype.toString`). Integers without exponent or fraction; floats as shortest round-tripping form. **OpenWarden entries use integers only.** Floats in `payload` are forbidden — reject `MALFORMED`.
+4. Numbers serialized per RFC 8785 §3.2.2.3 (ECMAScript 6 `Number.prototype.toString`). Integers without exponent or fraction; floats as shortest round-tripping form. **OpenWarden entries use integers only.** Floats in `payload` are forbidden — reject `MALFORMED`. All integer and timestamp fields (`seq`, `policy_seq`, `issued_at`, `not_before`, `not_after`) MUST be in the range `0 .. 2^53−1` (9007199254740991); values outside this range are rejected `MALFORMED` before signature verification. This ensures signer and verifier always produce byte-identical JCS canonical bytes (RFC 8785 §3.2.2.3 round-trips exactly within this range).
 5. Strings: shortest valid JSON escape; only `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, and `\u00XX` for control codes; all other characters literal UTF-8.
 6. `null` is forbidden in OpenWarden. Omit the key instead.
 7. Booleans literal `true` / `false`.
@@ -283,9 +295,12 @@ A partial sync over Wi-Fi resumes over cellular because **the chain is the sourc
 
 Replay was rated CRITICAL in [`ATTACKS.md`](ATTACKS.md) (H1, C8). The mandate:
 
-1. **`policy_seq` is monotonic at the child.** A bundle with `policy_seq ≤ last_applied_policy_seq` is rejected with `REGRESSION` before any field besides signature is consulted.
-2. **`not_before` / `not_after` is a strict window.** Outside the window → reject. No grace period beyond what's already encoded in `not_after`.
-3. **Stale-policy mode** on `EXPIRED`: strictest baseline (allowlist = essentials only: dialer, parent app, school app), banner "Ask parent to sync," heartbeat retries every 60 s instead of 5 min. Stale-policy mode persists until a fresh, valid bundle is applied — never times out into "unrestricted."
+1. **`policy_seq` floor is device-global and best-effort at-rest + chain-mirrored.** The floor is persisted in TEE/StrongBox-bound encrypted DataStore (best-effort at-rest integrity; not rollback-proof) and mirrored as a chain witness in the child's append-only event log. On read, `floor := max(at_rest_floor, highest_policy_seq_in_chain)`. The **parent is the authoritative monotonicity anchor**: on every sync it checks the child's reported floor and chain tip for regression or fork (`CHAIN_BREAK`), and on any anomaly raises a silence/tamper alarm and pushes a fresh strict-baseline bundle at a `policy_seq` above the highest ever seen. A bundle with `policy_seq ≤ floor` is rejected `REGRESSION`.
+2. **`not_before` / `not_after` is a strict window.** Outside the window → reject. No grace period beyond what's already encoded in `not_after`. Default `not_after` is intentionally short (hours, not weeks) to minimize the replay window on any local rollback.
+3. **Stale-policy mode** on `EXPIRED`: strictest baseline (allowlist = essentials only: dialer, parent app, school app), banner "Ask parent to sync," heartbeat retries every 60 s instead of 5 min. Stale-policy mode persists until a fresh, valid, in-order, audience-matched bundle is applied — never times out into "unrestricted."
+4. **Child fails closed to strict baseline on any local anomaly.** Anomaly conditions: at-rest floor reads lower than a `policy_seq` already witnessed in the chain; chain break (`prev_hash` mismatch); provisioning marker present but floor missing; time-anchor rollback (§5.1). Strict baseline persists until a valid bundle with `policy_seq > floor` is successfully applied.
+5. **After N hours without parent contact, the child ratchets toward the strict baseline** rather than coasting on the last permissive policy. See offline/silence alarm ladder in [`ATTACKS.md`](ATTACKS.md) (parent alerts at 15 min / 1 h / 6 h / 24 h).
+6. **Genesis (TOFU) vs anomaly.** A never-provisioned child (no provisioning marker, no pinned parent key, no floor) TOFU-accepts the first valid signed bundle with `policy_seq ≥ 1`, pins the parent pubkey, writes the provisioning marker, and seeds the floor to that `policy_seq`. `policy_seq = 0` is reserved and never a live policy. A provisioned child with a missing or lower floor is an **anomaly**, not genesis — fail closed to strict baseline.
 
 ### 5.1 Clock sources
 
@@ -298,7 +313,9 @@ The child MUST NOT trust the wall clock for window evaluation. Sources, in order
 | `Heartbeat.issued_at` from parent log | Periodic re-anchor | High (signed by parent) |
 | `System.currentTimeMillis()` wall clock | Display only | Low (kid can attack indirectly even with `DISALLOW_CONFIG_DATE_TIME`) |
 
-Window evaluation uses `parent_anchor + (elapsedRealtime_now - elapsedRealtime_at_anchor)`. If wall clock diverges from this estimate by >24 h, child enters stale-policy mode and waits for the next signed parent timestamp. Defeats F1/F2/F3.
+Window evaluation uses `parent_anchor + (elapsedRealtime_now - elapsedRealtime_at_anchor)`. `SystemClock.elapsedRealtime()` is kernel-monotonic and survives wall-clock changes. The anchor is re-established only by a signed parent timestamp (`bundle.issued_at` at apply time, or `Heartbeat.issued_at`).
+
+The persisted `(parent_anchor, elapsedRealtime_at_anchor)` pair is treated as monotonic. If, on read, the stored anchor or the last-applied `not_after` watermark is **lower** than one already witnessed — i.e., the anchor was rolled back — that is an **anomaly** and the child immediately enters strict baseline (§5 item 4). This defeats the snapshot-revival variant of F1/F2 (an expired-but-never-applied bundle cannot be revived by rolling back the time anchor). If wall clock diverges from the monotonic estimate by more than 24 h, child enters stale-policy mode and waits for the next signed parent timestamp. Defeats F1/F2/F3.
 
 ---
 
@@ -446,6 +463,12 @@ Test vectors are shipped as JSON files alongside this doc at [`docs/test-vectors
 | `test-vectors/bundles/bundle-02-full.json` + `.canonical` + `.sig` | Every field present. |
 | `test-vectors/bundles/bundle-03-unicode.json` + `.canonical` + `.sig` | Non-ASCII package names + emoji in policy strings (canonicalization stress). |
 | `test-vectors/bundles/bundle-04-rejected-regression.json` | `policy_seq` below prior; expect `REGRESSION`. |
+| `test-vectors/replay-floor/bundle-05-reject-seq-overflow.json` | `policy_seq = 2^53` (above JCS-safe bound); expect `MALFORMED` before signature verification. |
+| `test-vectors/replay-floor/bundle-06-reject-seq-jump.json` | `policy_seq = floor + 1025` (exceeds `MAX_SEQ_JUMP = 1024`); expect `MALFORMED`. |
+| `test-vectors/replay-floor/bundle-07-reject-wrong-audience.json` | `child_device_id` in bundle does not match child's own id; expect `MALFORMED` before signature verification. |
+| `test-vectors/replay-floor/snapshot-rollback.json` | at-rest floor < highest `policy_seq` in chain witness; expect child enters strict baseline (anomaly, not `REGRESSION`). |
+| `test-vectors/replay-floor/crash-during-apply.json` | Same bundle re-applied after simulated crash (floor not yet advanced); expect no `REGRESSION` — apply is idempotent. |
+| `test-vectors/replay-floor/time-anchor-rollback.json` | Persisted time anchor rolled back below last-seen value; expect child enters strict baseline. |
 | `test-vectors/events/event-01-applaunch.json` + `.sealed` | App-launch event, sealed to known parent pubkey. |
 | `test-vectors/events/event-02-aiflag.json` + `.sealed` | AI flag event with payload data. |
 | `test-vectors/events/event-03-heartbeat.json` + `.sealed` | Heartbeat at exactly 2048 bytes post-canonical. |

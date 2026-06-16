@@ -20,8 +20,7 @@ Every long-lived or session secret in OpenWarden, by role:
 | **Session ephemeral** | X25519 | 24h max | RAM, rotated | RAM, rotated | n/a |
 | **Recovery root seed** | 256-bit | Permanent | BIP39 24-word phrase, printed + memorized | n/a | The recovery itself |
 | **At-rest cache KEK** | AES-256-GCM | Permanent (per-install) | StrongBox-wrapped, derived from device + lock-screen | StrongBox-wrapped, derived from device + lock-screen | No (rebuilt on re-install) |
-| **`policy_seq` counter** | int64 | Permanent | Parent app DB (signed) | StrongBox counter key, monotonic | No |
-| **`cmd_seq` counter** | int64 | Permanent | Parent app DB | StrongBox counter key | No |
+| **`policy_seq` floor** | u53-bounded integer | Permanent | Parent app DB (signed) | TEE/StrongBox-bound encrypted DataStore + event-log chain mirror (best-effort; **not** a hardware monotonic counter) | No |
 | **Cover-traffic key** | derived from session | 24h | n/a (only padding) | n/a (only padding) | n/a |
 
 Two deliberate asymmetries:
@@ -229,37 +228,69 @@ Commands flow the other direction: parent issues, child verifies and executes. T
 
 ```
 SignedBundle = {
-  v:           1
-  cmd_seq:     int64                  // monotonic per parent identity
-  not_before:  int64                  // signed parent wall-clock ms
-  not_after:   int64
-  payload:     {...}                  // policy bundle, command, etc.
-  sig:         ed25519(canonical_json({v, cmd_seq, not_before, not_after, payload}),
-                        parent_ed25519_priv)
+  v:              1
+  policy_seq:     u53-bounded integer   // device-global monotonic floor (NOT keyed by parent pubkey)
+  child_device_id: string               // addressed child's pinned Ed25519 pubkey (audience binding)
+  not_before:     u53-bounded integer   // signed parent wall-clock ms
+  not_after:      u53-bounded integer
+  payload:        {...}                 // policy bundle, command, etc.
+  sig:            ed25519(canonical_json({v, policy_seq, child_device_id, not_before, not_after, payload}),
+                           parent_ed25519_priv)
 }
 ```
+
+`cmd_seq` is eliminated. The single monotonic replay counter is `policy_seq`, **device-global** — not keyed by parent pubkey. All integer/timestamp fields are bounded to 0 .. 2^53−1 (JCS-safe range); a value above that bound is rejected `MALFORMED` before signature verification.
 
 ### Child verification
 
 ```kotlin
-fun childVerifySignedBundle(bundle: SignedBundle, parentEd: PubKey): VerifyResult {
+fun childVerifySignedBundle(
+    bundle: SignedBundle,
+    parentEd: PubKey,
+    myChildDeviceId: String,
+    floor: Long,           // max(at_rest_floor, highest_policy_seq_in_chain)
+    monotonicNowMs: Long
+): VerifyResult {
+    // JCS integer bound check (before signature)
+    if (bundle.policy_seq > MAX_U53 || bundle.not_before > MAX_U53 || bundle.not_after > MAX_U53)
+        return VerifyResult.Malformed("int_out_of_range")
+
+    // Audience binding (before signature)
+    if (bundle.child_device_id != myChildDeviceId)
+        return VerifyResult.Malformed("wrong_audience")
+
+    // Signature verification
     val canonical = jcs.canonicalize(bundle.withoutSig())
     if (!sodium.crypto_sign_verify_detached(bundle.sig, canonical, parentEd))
         return VerifyResult.BadSignature
 
-    if (bundle.cmd_seq <= lastSeenSeq(parentEd))
+    // Replay floor
+    if (bundle.policy_seq <= floor)
         return VerifyResult.Replay
 
-    val wall = walletNow()  // see §9 for how we get this safely
-    if (wall < bundle.not_before || wall > bundle.not_after)
+    // Floor-poison DoS guard
+    if (bundle.policy_seq > floor + MAX_SEQ_JUMP)
+        return VerifyResult.Malformed("seq_jump_too_large")
+
+    if (monotonicNowMs < bundle.not_before)
+        return VerifyResult.ClockSkew
+    if (monotonicNowMs >= bundle.not_after)
         return VerifyResult.Stale
 
-    persistSeq(parentEd, bundle.cmd_seq)
+    // Two-phase durable apply — floor advances LAST
+    stagePolicy(bundle)
+    apply(bundle.policy)
+    fsync()
+    advanceFloor(bundle.policy_seq)   // at-rest DataStore + chain mirror, AFTER durable apply
+    emitAckPolicy(bundle.policy_seq, "applied")
+
     return VerifyResult.Ok
 }
 ```
 
-The `(parent_ed25519_pub, cmd_seq)` tuple gives us replay rejection at near-zero cost. The window `(not_before, not_after)` defangs the attack where a captured 2024 bundle is replayed in 2026 ("here's a more permissive policy I found on the floor").
+`MAX_SEQ_JUMP = 1024`. `MAX_U53 = 9007199254740991L` (2^53−1).
+
+The device-global `policy_seq` floor replaces the old pubkey-keyed `lastSeenSeq(parentEd)`. A single floor value covers all bundles regardless of which parent key signed them. **Rotation carries the floor forward and never resets it** — a `RotateKey` bundle carries its own `policy_seq`, the child enforces `policy_seq > floor` and advances the floor before swapping pubkeys, so the new key inherits the same floor (see §6). The `not_before`/`not_after` window closes replay of captured bundles across time.
 
 ---
 
@@ -291,13 +322,16 @@ A parent rotating keys (e.g. after parent phone replacement, see §7) issues a `
 
 ```
 RotateKey = SignedBundle {
-  cmd_seq:    next
-  payload:    { type: "rotate", new_ed25519_pub: ..., new_x25519_pub: ... }
-  sig:        ed25519(..., OLD_parent_ed25519_priv)
+  policy_seq:     next                  // MUST be > current device-global floor
+  child_device_id: <addressed child>
+  payload:        { type: "rotate", new_ed25519_pub: ..., new_x25519_pub: ... }
+  sig:            ed25519(..., OLD_parent_ed25519_priv)
 }
 ```
 
-The child verifies with the **currently pinned** parent_ed25519_pub, atomically swaps both pinned pubkeys, and acknowledges. The acknowledgment is a sealed-box event encrypted to the **new** parent_x25519_pub — confirming the rotation roundtrip.
+The child verifies with the **currently pinned** parent_ed25519_pub, enforces `policy_seq > floor`, **advances the device-global floor**, then atomically swaps both pinned pubkeys. The acknowledgment is a sealed-box event encrypted to the **new** parent_x25519_pub — confirming the rotation roundtrip.
+
+**The floor is never reset by rotation.** Because the floor is device-global (not keyed by parent pubkey), the new key inherits the same floor as the old key. All bundles signed by the old key (at `policy_seq ≤ floor`) are permanently dead. A rotation does not open a replay window for any previously-seen bundle.
 
 If the old privkey is lost (parent phone gone), rotation proceeds through the BIP-39 recovery flow (§7): the parent enters the phrase on a new device, re-derives the old privkey deterministically, signs the rotation with new keys generated from the same seed (which produces the *same* keys), and the child accepts.
 
@@ -336,9 +370,9 @@ The first event after re-pair carries a `prev_identity_pub` field (the old child
 Both parent and child stores use **encrypted DataStore on Android** with StrongBox-backed master keys, and **Keychain** on iOS for parent state. The data covered:
 
 - Pinned parent pubkeys (child).
-- Last-seen `cmd_seq` (child).
+- `policy_seq` floor (child) — stored in TEE/StrongBox-bound encrypted DataStore (best-effort at-rest integrity; **not** a hardware monotonic counter) and mirrored in the append-only hash-chained event log. On read, the effective floor is `max(at_rest_floor, highest_policy_seq_in_chain)`.
 - Sealed-box event queue (child).
-- `policy_seq` and `not_after` watermarks (child).
+- `not_after` watermark (child).
 - BIP-39-derived parent privkeys (parent).
 - Pairing history, attestation cert chains (parent).
 
@@ -349,7 +383,7 @@ The master key uses `setRequestStrongBoxBacked(true)` and `setUserAuthentication
 - Plaintext-signed policy bundles (the kid can read these — that's fine, they're the rules being enforced; reading them buys nothing).
 - Opaque sealed-box ciphertext (kid can't decrypt — sealed to parent X25519 priv).
 - Pinned parent pubkeys (kid can read these; substituting them needs to survive a signed `RotateKey` flow, which the kid can't fake).
-- Counters (kid can read; rolling them back is detected by parent's monotonicity check on next sync).
+- `policy_seq` floor (kid can read the at-rest value; the at-rest store is **not rollback-proof** — encrypting the file protects confidentiality, not version). If the at-rest floor reads lower than a `policy_seq` already witnessed in the hash-chained event log, that is a rollback anomaly and the child immediately fails closed to the strict baseline. A whole-snapshot rollback that moves both the DataStore and the event log back in lockstep is not locally detectable; **the parent is the authoritative monotonicity anchor** and detects it on the next sync by checking the child's reported floor and chain tip against the highest values it has ever seen, then pushes a strict-baseline bundle at a higher `policy_seq`.
 
 The win is "no offline forensic value." A wiped phone leaves no extractable secret material on the userdata partition that isn't either signed (and thus useless to forge) or sealed (and thus unreadable).
 
@@ -494,6 +528,19 @@ We cannot pin ciphertext bytes (ephemeral key randomness) but we can pin size an
 ### `attestation_chain.json`
 
 For each entry: a real Pixel 7 attestation chain (PEM-encoded), the `nonce` it attests to, and `expected_verdict: Ok`. Captured from a bench Pixel 7 under controlled conditions; includes one tampered chain that must produce `BOOT_NOT_GREEN`.
+
+### Replay-floor vectors (required by ADR-017)
+
+| Vector name | Scenario | Expected result |
+|---|---|---|
+| `bundle-05-reject-seq-overflow` | `policy_seq = 2^53` (above JCS-safe bound) | `MALFORMED` (rejected before signature verification) |
+| `bundle-06-reject-seq-jump` | `policy_seq = floor + 1025` (exceeds `MAX_SEQ_JUMP = 1024`) | `MALFORMED` |
+| `bundle-07-reject-wrong-audience` | `child_device_id` in bundle ≠ child's own id | `MALFORMED` (rejected before signature verification) |
+| `snapshot-rollback` | at-rest floor reads lower than highest `policy_seq` in chain witness | child enters strict baseline (anomaly, not `REGRESSION`) |
+| `crash-during-apply` | same bundle re-applied after crash (floor not yet advanced) | no `REGRESSION`; apply is idempotent |
+| `time-anchor-rollback` | persisted time anchor rolled back below last-seen value | child enters strict baseline (anomaly, part 3 of ADR-017) |
+
+These vectors specify behavior, not byte sequences. CI must drive the child verification logic through each scenario and assert the stated outcome. Vector files live under `docs/test-vectors/replay-floor/`.
 
 ---
 

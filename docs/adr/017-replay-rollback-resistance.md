@@ -1,7 +1,8 @@
 # ADR-017: Replay/rollback resistance — parent-anchored, fail-closed, JCS integer bound
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-16
+Accepted: 2026-06-16
 
 ## Context
 
