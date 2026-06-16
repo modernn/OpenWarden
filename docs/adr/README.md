@@ -38,6 +38,11 @@ What this means going forward (good + bad).
 | [010](010-no-os-fork.md) | Accepted | No OS fork; stock + GrapheneOS supported; LineageOS overlay v3+ |
 | [011](011-kmp-not-flutter.md) | Accepted | Kotlin Multiplatform for parent app, not Flutter |
 | [012](012-rename-openwarden.md) | Accepted | Project name = OpenWarden (renamed from Kidlock) |
+| [013](013-decommission-trigger-authority.md) | Proposed | Decommission/self-wipe trigger authority (red-team R1) |
+| [014](014-on-device-ai-content-boundary.md) | Proposed | On-device AI content boundary, no content monitoring (red-team C1/C2) |
+| [015](015-event-log-crypto-primitives.md) | Proposed | Event-log crypto primitives normative: sealed-box only (red-team SB1/nonce/SG1) |
+| [016](016-fail-closed-dns-floor.md) | Proposed | Fail-closed DNS floor (red-team K3) |
+| [017](017-replay-rollback-resistance.md) | Proposed | Replay/rollback resistance + JCS integer bound (red-team K1/JC1) |
 
 ## When to write an ADR
 
