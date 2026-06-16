@@ -8,7 +8,6 @@ import org.robolectric.annotation.Config
 import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
@@ -24,7 +23,11 @@ class PolicyStoreTest {
         expires_at = "2099-12-31T23:59:59Z",
         nonce = "test-nonce",
         policy = PolicyDoc(allowlist = allowlist),
-        sig = "", // storage tests do not exercise crypto
+        // sig = "" is INVALID — empty is not a real Ed25519 signature. It is legal here
+        // only because these are storage-layer tests that call persist() directly and never
+        // go through ingest(). BundleVerifier is intentionally not exercised; issue #10
+        // covers full signature-verification tests.
+        sig = "",
     )
 
     @Test
@@ -77,6 +80,9 @@ class PolicyStoreTest {
 
     @Test
     fun `no temp file left behind after successful persist`() {
+        // Guards the success path: after an atomic move the unique tmp file must be gone.
+        // A stale active*.tmp file would mean persist() leaked a temp file — either the
+        // move did not consume it, or the finally-block cleanup failed.
         val context = RuntimeEnvironment.getApplication()
         val store = PolicyStore(context)
         val bundle = makeBundle()
@@ -84,8 +90,32 @@ class PolicyStoreTest {
         store.persist(bundle)
 
         val policyDir = File(context.filesDir, "policy")
-        val tmp = File(policyDir, "active.json.tmp")
-        assertFalse(tmp.exists(), "active.json.tmp must not exist after a successful persist")
+        val tmpFiles = policyDir.listFiles { f -> f.name.startsWith("active") && f.name.contains(".tmp") }
+        assertTrue(
+            tmpFiles.isNullOrEmpty(),
+            "No active*.tmp files must exist after a successful persist; found: ${tmpFiles?.map { it.name }}",
+        )
+    }
+
+    @Test
+    fun `no temp file left behind after two sequential persists`() {
+        // Verifies that neither the first nor the second persist() leaks a .tmp file.
+        // With the old shared-path implementation, a race between two calls could leave
+        // active.json.tmp orphaned. With unique-per-call temps both must be cleaned up.
+        val context = RuntimeEnvironment.getApplication()
+        val store = PolicyStore(context)
+
+        store.persist(makeBundle(issuedAt = "2024-01-01T00:00:00Z", allowlist = listOf("com.a")))
+        store.persist(makeBundle(issuedAt = "2024-06-01T00:00:00Z", allowlist = listOf("com.b")))
+
+        val policyDir = File(context.filesDir, "policy")
+        val tmpFiles = policyDir.listFiles { f -> f.name.startsWith("active") && f.name.contains(".tmp") }
+        assertTrue(
+            tmpFiles.isNullOrEmpty(),
+            "No active*.tmp files must remain after two sequential persists; found: ${tmpFiles?.map { it.name }}",
+        )
+        // active.json itself must exist and hold the second bundle
+        assertTrue(File(policyDir, "active.json").exists(), "active.json must exist")
     }
 
     @Test

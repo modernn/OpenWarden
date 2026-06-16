@@ -18,7 +18,6 @@ class PolicyStore(private val context: Context) {
 
     private val dir get() = File(context.filesDir, "policy").apply { mkdirs() }
     private val activeFile get() = File(dir, "active.json")
-    private val tmpFile get() = File(dir, "active.json.tmp")
     private val pubkeyFile get() = File(dir, "parent.pub")
 
     sealed class LoadResult {
@@ -37,11 +36,19 @@ class PolicyStore(private val context: Context) {
 
     /**
      * Atomically persists [bundle] to internal storage.
-     * Writes to a temp file first, then renames over the active file so a power loss
-     * mid-write never leaves a partially-written active.json.
+     *
+     * Uses a unique temp file per call (via [File.createTempFile]) so concurrent calls
+     * can never collide on a shared ".tmp" path. The move sequence:
+     *   1. Primary: ATOMIC_MOVE + REPLACE_EXISTING — a single kernel rename(2), fail-closed.
+     *   2. Fallback (cross-fs edge): plain renameTo() WITHOUT pre-deleting the destination —
+     *      on Android same-filesystem rename(2) replaces atomically; deleting first would open
+     *      a fail-open window where active.json is gone but not yet replaced.
+     *   3. Last resort: Files.move with REPLACE_EXISTING (no ATOMIC guarantee, but safe).
+     * The finally block ensures the temp file is always cleaned up; after a successful move
+     * it no longer exists, so the delete is a harmless no-op.
      */
     fun persist(bundle: SignedBundle) {
-        val tmp = tmpFile
+        val tmp = File.createTempFile("active", ".tmp", dir)
         try {
             tmp.writeText(Json.encodeToString(SignedBundle.serializer(), bundle))
             try {
@@ -52,13 +59,16 @@ class PolicyStore(private val context: Context) {
                     StandardCopyOption.REPLACE_EXISTING,
                 )
             } catch (_: AtomicMoveNotSupportedException) {
-                // Fallback: delete dest then rename (same filesystem, so should not fail)
-                activeFile.delete()
-                tmp.renameTo(activeFile)
+                // Same-filesystem fallback: rename(2) atomically replaces — do NOT delete
+                // destination first (that delete→rename gap is the fail-open bug we closed).
+                if (!tmp.renameTo(activeFile)) {
+                    // Last resort: non-atomic but still overwrites the destination.
+                    Files.move(tmp.toPath(), activeFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
             }
-        } catch (e: Exception) {
-            tmp.delete()
-            throw e
+        } finally {
+            // After a successful move tmp no longer exists; this is a safe no-op then.
+            if (tmp.exists()) tmp.delete()
         }
     }
 
