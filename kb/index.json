@@ -1,0 +1,55 @@
+{
+  "$comment": "Hand-maintained digest of kb/ entries. Keep in sync with the files on every add/supersede/expire. Read first by the MCP get_session_context / search_kb tools.",
+  "version": 1,
+  "generated": "2026-06-15",
+  "entries": [
+    {
+      "id": "jdk21-build",
+      "path": "kb/gotchas/jdk21-build.md",
+      "title": "Build needs JDK 21 even though the default `java` may be 17",
+      "type": "gotcha",
+      "tags": ["build", "toolchain", "jdk", "gradle"],
+      "status": "active"
+    },
+    {
+      "id": "jcs-u64-bound",
+      "path": "kb/gotchas/jcs-u64-bound.md",
+      "title": "JCS / RFC 8785 numbers are exact only to 2^53-1 — cap seq & timestamps",
+      "type": "gotcha",
+      "tags": ["crypto", "protocol", "jcs", "rfc8785", "replay", "policy-seq", "fail-closed"],
+      "status": "active"
+    },
+    {
+      "id": "sealed-box-blake2b",
+      "path": "kb/gotchas/sealed-box-blake2b.md",
+      "title": "libsodium `crypto_box_seal` nonce is BLAKE2b, NOT BLAKE3",
+      "type": "gotcha",
+      "tags": ["crypto", "libsodium", "sealed-box", "blake2b", "event-log", "interop"],
+      "status": "active"
+    },
+    {
+      "id": "event-log-sealed-box-only",
+      "path": "kb/decisions/event-log-sealed-box-only.md",
+      "title": "Event log uses anonymous sealed-box only — child cannot read its own log",
+      "type": "decision",
+      "tags": ["crypto", "event-log", "sealed-box", "privacy", "parent-as-adversary"],
+      "status": "active"
+    },
+    {
+      "id": "fail-closed-dns-floor",
+      "path": "kb/decisions/fail-closed-dns-floor.md",
+      "title": "Private DNS is pinned to a public filtering resolver — never OFF/localhost",
+      "type": "decision",
+      "tags": ["dns", "fail-closed", "defense", "private-dns", "dot"],
+      "status": "active"
+    },
+    {
+      "id": "agent-ready-vs-blocked",
+      "path": "kb/design-memory/agent-ready-vs-blocked.md",
+      "title": "The agent-ready vs agent-blocked gating rule for autonomous contributors",
+      "type": "design-memory",
+      "tags": ["governance", "agents", "agent-ready", "agent-blocked", "codeowners", "contribution"],
+      "status": "active"
+    }
+  ]
+}
