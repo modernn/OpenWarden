@@ -47,15 +47,18 @@ class PolicyService : Service() {
         }
     }
 
+    // Network callbacks fire on a ConnectivityManager thread, not the main looper. Post the
+    // re-assert onto the same Handler the timer uses so all reassert() invocations serialize on
+    // one thread — no concurrent re-assert against the shared enforcer/store.
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             Log.i(TAG, "connectivity available — re-asserting policy")
-            watchdog.reassert()
+            watchdogHandler.post { watchdog.reassert() }
         }
 
         override fun onLost(network: Network) {
             Log.i(TAG, "connectivity lost — re-asserting policy")
-            watchdog.reassert()
+            watchdogHandler.post { watchdog.reassert() }
         }
     }
 

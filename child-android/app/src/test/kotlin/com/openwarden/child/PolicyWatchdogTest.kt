@@ -54,16 +54,50 @@ class PolicyWatchdogTest {
     }
 
     @Test
-    fun `reassert never propagates even when every surface throws`() {
+    fun `reassert attempts every surface and never propagates even when all throw`() {
+        var attempts = 0
         val wd = PolicyWatchdog(
-            reassertRestrictions = { throw RuntimeException("a") },
-            reassertAllowlist = { throw RuntimeException("b") },
-            reassertDnsFloor = { throw RuntimeException("c") },
+            reassertRestrictions = { attempts++; throw RuntimeException("a") },
+            reassertAllowlist = { attempts++; throw RuntimeException("b") },
+            reassertDnsFloor = { attempts++; throw RuntimeException("c") },
         )
 
-        // Reaching the assertion means no exception escaped — the FGS survives to retry.
-        wd.reassert()
-        assertTrue(true)
+        wd.reassert() // must not propagate
+
+        // All three attempted (no early-out on the first throw) AND nothing escaped — reaching
+        // this assertion at all proves no exception propagated out of reassert().
+        assertEquals(
+            3,
+            attempts,
+            "every surface must be attempted though each throws, with no exception propagated",
+        )
+    }
+
+    // ---------------------------------------------------------------------
+    // allowlistFor — fail-closed deny-all on a missing/corrupt bundle
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `allowlistFor returns the bundle allowlist when loaded`() {
+        val bundle = SignedBundle(
+            v = 1, issued_at = 1L, not_before = 1L, not_after = 2L, nonce = "00",
+            policy = PolicyDoc(allowlist = listOf("com.foo", "com.bar")),
+        )
+        assertEquals(
+            setOf("com.foo", "com.bar"),
+            PolicyWatchdog.allowlistFor(PolicyStore.LoadResult.Loaded(bundle)),
+        )
+    }
+
+    @Test
+    fun `allowlistFor denies all when the bundle is missing`() {
+        assertEquals(emptySet<String>(), PolicyWatchdog.allowlistFor(PolicyStore.LoadResult.Missing))
+    }
+
+    @Test
+    fun `allowlistFor denies all when the bundle is corrupt`() {
+        // Corrupt = the G2 storage-fill / tamper vector: deny-all, never freeze the allowlist.
+        assertEquals(emptySet<String>(), PolicyWatchdog.allowlistFor(PolicyStore.LoadResult.Corrupt))
     }
 
     @Test

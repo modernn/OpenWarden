@@ -24,13 +24,20 @@ on a timer**, and ADR-016 requires the DNS floor to be re-pinned **on connectivi
 
 ## Decision
 
-**D1 — One re-assert path: `PolicyWatchdog.reassert()`.** It re-applies every local policy
-surface — Day-One restrictions (fail-closed, ADR-020), the active bundle's allowlist, and the
-DNS floor — and is **fail-closed-but-alive**: each surface is guarded independently (a failure in
-one must not skip the others — re-asserting fewer surfaces is failing *open*), and the method
-**never propagates**. The Day-One enforcer already calls `lockNow()` on a verify gap; the
-watchdog's job is to keep retrying, so a throwing surface is logged, not fatal. The surfaces are
-injected as seams so this contract is unit-testable without a live Device Owner.
+**D1 — One re-assert path: `PolicyWatchdog.reassert()`.** It re-applies the local policy
+surfaces it owns today — the Day-One restriction baseline (fail-closed, ADR-020) and the app
+allowlist — plus a **wired-but-empty DNS-floor seam** (D3). It is **fail-closed-but-alive**: each
+surface is guarded independently (a failure in one must not skip the others — re-asserting fewer
+surfaces is failing *open*), and the method **never propagates**. The Day-One enforcer already
+calls `lockNow()` on a verify gap; the watchdog's job is to keep retrying, so a throwing surface
+is logged, not fatal. The surfaces are injected as seams so this contract is unit-testable
+without a live Device Owner.
+
+**D1a — Allowlist re-assert is fail-closed on a missing/corrupt bundle.** The allowlist surface
+branches on `PolicyStore.load()` (not `loadActive()`, which collapses `Missing`+`Corrupt` to
+`null`): a `Loaded` bundle → its allowlist; `Missing` **or** `Corrupt` → **deny-all** suspension
+(`applyAllowlist(emptySet())`). A corrupt bundle is the G2 storage-fill / tamper vector
+(DEFENSES.md G2, ATTACKS.md item 4) — it must yield *more* restriction, never a frozen allowlist.
 
 **D2 — Three triggers in `PolicyService`.**
 1. **Boot / service start** — `onStartCommand` (BootReceiver starts the FGS on boot).
@@ -42,15 +49,23 @@ injected as seams so this contract is unit-testable without a live Device Owner.
 
 **D3 — DNS-floor re-assert is a wired seam, body deferred to #19.** The connectivity/boot/timer
 triggers already call `reassertDnsFloor`; only its body (pin Private DNS to the public filtering
-resolver) lands with the DNS-floor issue, so no rewiring is needed then.
+resolver) lands with the DNS-floor issue, so no rewiring is needed then. **Be explicit: there is
+no DNS floor in the tree today** — no `setGlobalPrivateDnsMode` exists, and ADR-016 is still
+`Proposed`. So the connectivity trigger is **inert for DNS until #19**, and the DNS surface is
+**fail-open in the interim** (ADR-020 D5 records #19 as the blocking dependency; #19 must pin a
+*public filtering* resolver and never fall back to OFF/OPPORTUNISTIC/localhost — research/07 K3).
+The seam exists to avoid rewiring, not to imply ADR-016 is satisfied.
 
 ## Consequences
 
 Good:
-- Drift is reverted within at most one timer interval (~30 s) even with no broadcast, and
-  immediately on connectivity change — closing the "service alive, restriction cleared" hole.
+- Drift is **bounded** to at most one timer interval (~30 s) even with no broadcast, and
+  re-asserted immediately on connectivity change. The timer/connectivity are *triggers*; the
+  actual containment is the enforcer's `lockNow()`-on-verify-gap (ADR-020) that fires when the
+  next tick observes the gap. The watchdog bounds the window, it does not eliminate it.
 - The FGS survives a throwing re-assert surface (fail-closed-but-alive), so one failing surface
   cannot take the watchdog down.
+- A missing/corrupt active bundle re-asserts **deny-all** rather than freezing the allowlist (D1a).
 - The DNS-floor reassert plumbing is ready for #19 with no further wiring.
 
 Bad / accepted limits:
