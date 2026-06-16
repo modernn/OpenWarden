@@ -95,20 +95,35 @@ Behavioral (kid red team):
 4. **K1 (homework-needs-Discord lie)** — partial defense via cooldown + audit feed, but kid wins eventually.
 5. **Kid uses phone at age 13+ socially defeating supervision** — outside age window; teen mode = v3 feature.
 
-## New restrictions to ADD (not in current scaffold)
+## Day-One restriction baseline — SHIPPED (ADR-020, `PolicyEnforcer.requiredRestrictions`)
+
+These are applied fail-closed at provisioning and re-asserted on every boot / watchdog tick
+(verify-or-throw; see [ADR-020](adr/020-failclosed-dayone-restrictions.md)). This is the
+canonical DEFENSES.md row-2 set, reconciling the prior research/07 contradiction where these
+appeared under "to ADD" here while DEFENSES.md listed them as shipped.
 
 | Restriction | Closes |
 |---|---|
-| `DISALLOW_OEM_UNLOCK` | B1 defense-in-depth on Pixel 7 |
+| `DISALLOW_OEM_UNLOCK` | B1 — best-effort: reliable only on Pixel-class locked bootloaders; silent no-op on much of Tier-2 (research/07) |
 | `DISALLOW_USER_SWITCH` | E3 Guest user escape |
 | `DISALLOW_REMOVE_USER` | belt-and-suspenders w/ ADD_USER |
-| `DISALLOW_AIRPLANE_MODE` | J1 parent-sync isolation (harms genuine plane UX — flag) |
 | `DISALLOW_MOUNT_PHYSICAL_MEDIA` | B6 SD-card paths (n/a on Pixel 7 but safe) |
 | `DISALLOW_CONFIG_TETHERING` | lateral move via kid's hotspot |
 | `DISALLOW_CONFIG_MOBILE_NETWORKS` | eSIM removal |
 | `DISALLOW_APPS_CONTROL` | clear-data / force-stop / disable any DO-managed app |
+
+(Plus `FACTORY_RESET`, `SAFE_BOOT`, `DEBUGGING_FEATURES`, `CONFIG_VPN`, `MODIFY_ACCOUNTS`,
+`USB_FILE_TRANSFER`, `INSTALL_UNKNOWN_SOURCES_GLOBALLY`, `ADD_USER`, `CONFIG_DATE_TIME`,
+`OUTGOING_BEAM` — 17 total. `DISALLOW_OUTGOING_CALLS` is deliberately excluded so the
+emergency dialer remains reachable.)
+
+## New restrictions still to ADD (not in current scaffold)
+
+| Restriction | Closes |
+|---|---|
+| `DISALLOW_AIRPLANE_MODE` | J1 parent-sync isolation (harms genuine plane UX — flag before shipping) |
 | `DISALLOW_CONFIG_LOCATION` + `DISALLOW_CONFIG_BLUETOOTH` | adjacent escapes |
-| Force `setGlobalPrivateDnsMode(OpenWarden-resolver)` | C2 DoH-in-browser (pull DNS filter to v1) |
+| Force `setGlobalPrivateDnsMode(OpenWarden-resolver)` + `DISALLOW_CONFIG_PRIVATE_DNS` | C2 DoH-in-browser — owned by the DNS fail-closed floor (#19) |
 
 ## Restriction audit — what's blocked by what
 

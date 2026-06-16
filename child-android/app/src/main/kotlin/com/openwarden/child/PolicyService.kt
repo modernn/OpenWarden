@@ -29,6 +29,16 @@ class PolicyService : Service() {
         if (apiServer == null) {
             apiServer = ApiServer(this).also { it.start() }
         }
+        // Re-assert the Day-One restriction baseline on every tick. Fail-closed: if a
+        // restriction was cleared by a tampering attempt, applyDayOneRestrictions() re-applies
+        // it; if it cannot verify the full set it attempts lockNow() and throws (ADR-020). We
+        // catch so the service stays alive to retry on the next tick — the enforcer has already
+        // attempted to lock the device, so this is fail-closed-but-alive, not fail-open.
+        try {
+            PolicyEnforcer(this).applyDayOneRestrictions()
+        } catch (e: Exception) {
+            Log.e(TAG, "Day-one restriction re-assert failed (lock attempted, will retry next tick): ${e.message}")
+        }
         // Re-apply current cached bundle to recover from any tampering attempt
         try {
             val bundle = PolicyStore(this).loadActive()
