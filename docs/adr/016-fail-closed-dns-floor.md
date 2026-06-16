@@ -1,7 +1,7 @@
 # ADR-016: Fail-closed DNS floor — pin Private DNS to a public filtering resolver, not localhost
 
-Status: Proposed
-Date: 2026-06-16
+Status: Accepted
+Date: 2026-06-16 (ratified + implemented by #19 — `DnsFloor`)
 
 ## Context
 
@@ -47,6 +47,27 @@ This ties directly to the non-negotiable: every DNS error path now defaults to *
 - **Privacy tradeoff.** When the device is on the public floor, the upstream (Cloudflare) sees plaintext qnames for that window — the same exposure as the pre-resolver [`DNS_FILTER.md`](../DNS_FILTER.md) floor, and far smaller than the no-filter hole it replaces. Steady state (local resolver healthy) is unchanged: the local resolver still mediates and seals logs. We accept brief upstream visibility over zero filtering. Self-hosting parents (Pi-hole / AdGuard Home, [`DNS_FILTER.md:36`](../DNS_FILTER.md)) avoid even that by choosing their own floor host.
 - **Opt-out nuance.** The README frames Cloudflare 1.1.1.3 as an *optional, opt-out-able* convenience integration ([`README.md:23`](../../README.md), [`ADR-006:25`](006-privacy-no-server.md)). This ADR narrows that: the **specific upstream is user-choosable** among *filtering* resolvers (Cloudflare family, Quad9 family, NextDNS, CleanBrowsing, self-hosted — [`DNS_FILTER.md:34-41`](../DNS_FILTER.md)), but **"no filtering" is not a reachable state** on a managed child device. "Opt out of Cloudflare" means "pick a different filtering floor," not "turn filtering off." The [`DNS_FILTER.md:160`](../DNS_FILTER.md) "Off" preset must be reconciled (see below).
 - Slightly more upstream load on the public resolver during outages (negligible — outages are rare and brief).
+
+## v1 implementation scope (`DnsFloor`, #19)
+
+The ADR's choosable list is the *target*; the v1 `DnsFloor` narrows it deliberately:
+
+- **The curated floor set is adult+malware filtering only:** `family.cloudflare-dns.com`
+  (default) and `family-filter-dns.cleanbrowsing.org`. **Quad9 is excluded** — `dns.quad9.net`
+  blocks malware/phishing but **not adult content**, so failing over to it would leave adult
+  content unfiltered behind a "filtering" label. The floor must preserve *adult* filtering on
+  any outage, so a malware-only resolver is not an acceptable floor.
+- **A non-empty `private_dns` that is not in the curated set is silently mapped to the default
+  filtering host** (`resolveFilteringHost`). This is fail-closed (always a filtering host) but a
+  real narrowing: a parent who configures NextDNS / Pi-hole / AdGuard Home today is silently
+  moved to Cloudflare with no signal. **Follow-up:** a validated custom/self-hosted-resolver path
+  + a parent-visible "your resolver was overridden" notice (and/or rejecting an unlisted host at
+  admission so the parent learns immediately).
+- **Reassert points wired:** boot, connectivity change, and the periodic watchdog tick
+  (`PolicyWatchdog`, ADR-021) **and** on every policy-bundle apply (`DefaultPolicyApplier`), so a
+  new bundle's `private_dns` is re-pinned immediately, not only on the next tick. The toggle lock
+  (`DISALLOW_CONFIG_PRIVATE_DNS`) is part of the fail-closed verify — a pinned-but-unlocked floor
+  throws.
 
 ## Doc changes required
 

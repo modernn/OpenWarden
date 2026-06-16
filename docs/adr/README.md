@@ -41,7 +41,7 @@ What this means going forward (good + bad).
 | [013](013-decommission-trigger-authority.md) | Proposed | Decommission/self-wipe trigger authority (red-team R1) |
 | [014](014-on-device-ai-content-boundary.md) | Proposed | On-device AI content boundary, no content monitoring (red-team C1/C2) |
 | [015](015-event-log-crypto-primitives.md) | Proposed | Event-log crypto primitives normative: sealed-box only (red-team SB1/nonce/SG1) |
-| [016](016-fail-closed-dns-floor.md) | Proposed | Fail-closed DNS floor (red-team K3) |
+| [016](016-fail-closed-dns-floor.md) | Accepted | Fail-closed DNS floor (red-team K3) |
 | [017](017-replay-rollback-resistance.md) | Proposed | Replay/rollback resistance + JCS integer bound (red-team K1/JC1) |
 | [018](018-version-semantics-and-dynamic-roadmap.md) | Proposed | Version semantics (v0.x road → v1.0 public release), dynamic protected roadmap, tech-lead mode |
 | [019](019-canonical-signing-invariant.md) | Accepted | Canonical signing — sign-and-transmit-exact-bytes, verify over received bytes |

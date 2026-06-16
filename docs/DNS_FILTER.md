@@ -142,7 +142,7 @@ Real case: homework app legitimately needs a host that the strict preset blocks.
 In the OpenWarden parent app, the DNS Filter screen shows:
 
 - Current provider name and filtering level, plain language ("Cloudflare Family — strict").
-- Preset toggle: Strict / Moderate / Custom / Off.
+- Preset toggle: Strict / Moderate / Custom / Minimum floor. (No "Off" — "no DNS filtering at all" is not a reachable state, ADR-016.)
 - Custom inputs:
   - NextDNS — "your config URL" with paste-and-validate.
   - Pi-hole / AdGuard Home — hostname field plus a "Test connection" button that resolves a known-good host through DoT and confirms a sub-second response.
@@ -157,7 +157,7 @@ Onboarding includes one DNS step: "Pick your filter level."
 - **Strict** (default) — Cloudflare family DNS + Chrome SafeSites strict + browser blocklist.
 - **Moderate** — Cloudflare family DNS + Chrome SafeSites moderate + browser blocklist.
 - **Custom** — Parent enters NextDNS, Pi-hole, or AdGuard Home hostname.
-- **Off** — Strongly discouraged; shown with a warning explaining that disabling DNS filtering removes the only defense against D1 (in-app WebView). Requires recovery-phrase confirmation to enable.
+- **Minimum floor** (formerly "Off") — drops the curated blocklists + Chrome SafeSites but **keeps the public filtering resolver**. Per [`ADR-016`](adr/016-fail-closed-dns-floor.md), "no DNS filtering at all" is **not a reachable state** on a managed child device: `DnsFloor` always pins Private DNS to a *filtering* resolver and never sets OFF/OPPORTUNISTIC. "Opt out of Cloudflare" means "pick a different filtering floor," not "turn filtering off."
 
 ---
 
