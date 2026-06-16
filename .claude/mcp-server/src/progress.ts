@@ -15,7 +15,7 @@
  * isn't running. Pure ledger logic is factored out for unit tests.
  */
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 
 export type SessionStatus = "in_progress" | "paused" | "done";
@@ -148,13 +148,23 @@ function loadLedger(repoRoot: string, now: string): Ledger {
     if (!Array.isArray(parsed.sessions)) return emptyLedger(now);
     return parsed;
   } catch {
+    // Don't silently discard a corrupt ledger — preserve it for inspection, then start fresh.
+    try {
+      renameSync(p, `${p}.corrupt.${Date.now()}`);
+    } catch {
+      /* best effort */
+    }
     return emptyLedger(now);
   }
 }
 
 function saveLedger(repoRoot: string, ledger: Ledger): void {
   ledger.updated = ledger.updated || new Date().toISOString();
-  writeFileSync(ledgerPath(repoRoot), JSON.stringify(ledger, null, 2) + "\n", "utf8");
+  // Atomic write: temp file + rename, so a crash/concurrent run can't truncate the ledger.
+  const p = ledgerPath(repoRoot);
+  const tmp = `${p}.tmp.${process.pid}`;
+  writeFileSync(tmp, JSON.stringify(ledger, null, 2) + "\n", "utf8");
+  renameSync(tmp, p);
 }
 
 function nowIso(): string {
@@ -201,8 +211,11 @@ export function progressStart(repoRoot: string, input: StartInput) {
 export function progressStop(repoRoot: string, input: StopInput) {
   const now = nowIso();
   const worktree = currentWorktree(repoRoot);
+  const branch = currentBranch(repoRoot);
   const ledger = loadLedger(repoRoot, now);
-  const active = sessionsForWorktree(ledger, worktree)[0];
+  // Prefer the session for the current branch; fall back to the most-recent in this worktree.
+  const inWorktree = sessionsForWorktree(ledger, worktree);
+  const active = inWorktree.find((s) => s.branch === branch) ?? inWorktree[0];
   if (!active) {
     return { ok: false, message: `no active session in ${worktree}; run /openwarden start first.` };
   }
