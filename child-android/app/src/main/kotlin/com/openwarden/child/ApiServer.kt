@@ -32,8 +32,9 @@ class ApiServer(private val context: Context) {
                     val active = store.loadActive()
                     call.respond(mapOf(
                         "version" to BuildVersion,
-                        "policy_version" to (active?.issued_at ?: "none"),
-                        "policy_expires_at" to (active?.expires_at ?: "n/a"),
+                        // §2: issued_at / not_after are integer ms (u53-bounded), not ISO strings.
+                        "policy_version" to (active?.issued_at?.toString() ?: "none"),
+                        "policy_not_after" to (active?.not_after?.toString() ?: "n/a"),
                         "is_locked" to false   // TODO
                     ))
                 }

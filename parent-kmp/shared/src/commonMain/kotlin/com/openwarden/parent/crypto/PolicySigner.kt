@@ -28,11 +28,17 @@ class Identity(
 object PolicySigner {
     // encodeDefaults=true so `v` (and any other defaulted field) is part of the
     // signing input; `sig` is then stripped by Canonical.canonicalizeWithout.
-    private val json = Json { encodeDefaults = true }
+    // explicitNulls=false so optional fields left null (private_dns, frp_account_email)
+    // are OMITTED, not serialized as `null` — PROTOCOL.md §3.1 rule 6 forbids `null`.
+    private val json = Json {
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     /** The canonical signing input bytes for [bundle] (pure; no libsodium). */
     fun signingBytes(bundle: PolicyBundle): ByteArray {
         Canonical.requireJcsSafe(bundle.policySeq)
+        Canonical.requireJcsSafe(bundle.issuedAt)
         Canonical.requireJcsSafe(bundle.notBefore)
         Canonical.requireJcsSafe(bundle.notAfter)
         val obj = json.encodeToJsonElement(PolicyBundle.serializer(), bundle) as JsonObject

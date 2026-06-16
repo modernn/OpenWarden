@@ -62,8 +62,10 @@ class PolicyAdmissionTest {
         v = v,
         child_device_id = childId,
         policy_seq = policySeq,
-        issued_at = "2026-01-01T00:00:00Z",
-        expires_at = "2099-12-31T23:59:59Z",
+        // PROTOCOL.md §2: integer ms timestamps (u53-bounded), not ISO-8601 strings.
+        issued_at = 1_767_225_600_000L, // 2026-01-01T00:00:00Z
+        not_before = 1_767_225_600_000L,
+        not_after = 4_102_444_799_000L, // 2099-12-31T23:59:59Z
         nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
         policy = PolicyDoc(allowlist = allowlist),
         sig = "",
@@ -446,5 +448,160 @@ class PolicyAdmissionTest {
         )
         assertTrue(result is PolicyAdmission.Result.Rejected)
         assertTrue((result as PolicyAdmission.Result.Rejected).malformed)
+    }
+
+    // =========================================================================
+    // §2 conformance: the conformed field set verifies (the PR #50 fix)
+    // =========================================================================
+
+    @Test
+    fun exactProtocolSection2FieldSetVerifies() {
+        // A bundle whose field set is EXACTLY PROTOCOL.md §2 — every required field present
+        // (v, policy_seq, child_device_id, issued_at, not_before, not_after, nonce, policy{
+        // allowlist, blocklist, windows, restrictions}) plus optional policy fields — must
+        // verify and apply at the child. This is the conformed shape the parent now signs;
+        // before the fix the child schema lacked not_before/not_after/blocklist and carried a
+        // non-§2 ISO expires_at, so a real parent bundle never verified (SIG_FAIL).
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 10L)
+        val full = SignedBundle(
+            v = 1,
+            child_device_id = state.childDeviceId(),
+            policy_seq = 11L,
+            issued_at = 1_767_225_600_000L,
+            not_before = 1_767_225_600_000L,
+            not_after = 4_102_444_799_000L,
+            nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+            policy = PolicyDoc(
+                allowlist = listOf("com.android.chrome"),
+                blocklist = listOf("com.discord"),
+                windows = listOf(TimeWindow(pkg = "com.google.android.youtube", allow = "16:00-18:00", days = "Mon,Tue", tz = "America/Los_Angeles")),
+                restrictions = listOf("DISALLOW_CONFIG_VPN"),
+                private_dns = "openwarden.example.com",
+                frp_account_email = "parent@example.com",
+            ),
+            sig = "",
+        )
+        val signed = sign(full, kp)
+        val result = PolicyAdmission.admit(
+            bundle = signed, store = state, applier = RecordingApplier(),
+            pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
+        )
+        assertTrue(result is PolicyAdmission.Result.Applied, "exact §2 field set must verify + apply")
+        assertEquals(11L, (result as PolicyAdmission.Result.Applied).policySeq)
+    }
+
+    // =========================================================================
+    // CROSS-IMPLEMENTATION INTEROP VECTOR (the assertion that catches SIG_FAIL)
+    // =========================================================================
+
+    /**
+     * The child [Canonical] (ported) MUST produce the SAME canonical bytes for the fixed §2
+     * bundle as the proto [com.openwarden.proto.Canonical] (parent side). Both this and the
+     * proto CanonicalTest.interopGoldenCanonicalBytesAreStable() pin the SAME hardcoded hex.
+     * If the two canonicalizers ever diverge on the §2 schema, exactly one of these two
+     * tests fails against the shared constant — the PR #50 crux (parent/child signing
+     * different field sets) is then caught at unit-test time, not at runtime SIG_FAIL.
+     */
+    private val interopGoldenHex =
+        "7b226368696c645f6465766963655f6964223a226465762d31222c226973737565645f6174223a35302c" +
+            "226e6f6e6365223a223966316233633464356536663730383139613262336334643565366637303831" +
+            "222c226e6f745f6166746572223a3230302c226e6f745f6265666f7265223a3130302c22706f6c6963" +
+            "79223a7b22616c6c6f776c697374223a5b22636f6d2e61225d2c22626c6f636b6c697374223a5b5d2c" +
+            "227265737472696374696f6e73223a5b5d2c2277696e646f7773223a5b5d7d2c22706f6c6963795f73" +
+            "6571223a352c2276223a317d"
+
+    private fun interopBundle() = SignedBundle(
+        v = 1,
+        child_device_id = "dev-1",
+        policy_seq = 5L,
+        issued_at = 50L,
+        not_before = 100L,
+        not_after = 200L,
+        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+        policy = PolicyDoc(allowlist = listOf("com.a")),
+        sig = "",
+    )
+
+    @Test
+    fun interopGoldenCanonicalBytesMatchProto() {
+        // body := JCS canonical of the §2 bundle with "sig" removed (BundleVerifier.canonicalBody).
+        val body = BundleVerifier.canonicalBody(interopBundle())
+        val hex = body.joinToString("") { "%02x".format(it) }
+        assertEquals(interopGoldenHex, hex, "child Canonical must agree with proto on the §2 golden bundle")
+    }
+
+    @Test
+    fun interopLibsodiumSignatureVerifiesAtChild() {
+        // STRONGEST cross-impl assertion: a signature produced by libsodium crypto_sign
+        // (the PARENT's crypto) over the §2 golden canonical bytes is pinned below, and the
+        // child's net.i2p verifier MUST accept it. Both libsodium and net.i2p are RFC 8032
+        // Ed25519; this proves a real parent-signed §2 bundle verifies at the child — the exact
+        // path that was broken in PR #50 when the two sides signed different field sets.
+        val pubRaw = hex(KAT_PUB)
+        val signed = interopBundle().copy(sig = KAT_SIG_GOLDEN)
+        assertTrue(
+            BundleVerifier.verify(signed, pubRaw),
+            "libsodium signature over the §2 canonical bytes must verify under the child verifier",
+        )
+        // Tamper check: flipping the audience invalidates the (whole-object) signature.
+        assertFalse(
+            BundleVerifier.verify(signed.copy(child_device_id = "dev-2"), pubRaw),
+            "altering a signed field must break verification",
+        )
+    }
+
+    @Test
+    fun childSignThenVerifyRoundTripsOverSection2Bytes() {
+        // The child can also sign+verify the §2 canonical bytes itself (round-trip), confirming
+        // the verifier consumes exactly the bytes a signer produces over the conformed schema.
+        val kp = newKeypair()
+        val b = interopBundle()
+        val body = BundleVerifier.canonicalBody(b)
+        val engine = EdDSAEngine(MessageDigest.getInstance("SHA-512"))
+        engine.initSign(kp.privateKey)
+        engine.update(body)
+        val sig = engine.sign().joinToString("") { "%02x".format(it) }
+        assertTrue(BundleVerifier.verify(b.copy(sig = sig), kp.publicKeyRaw))
+    }
+
+    @Test
+    fun ed25519MatchesLibsodiumKat() {
+        // Known-answer test: the child's net.i2p Ed25519 over a FIXED seed must produce the
+        // SAME pubkey and the SAME signature (over the empty message) as libsodium crypto_sign
+        // (the parent's crypto). Both are RFC 8032, so they are byte-for-byte interoperable —
+        // a bundle the parent signs is one the child can verify. Pinned values below were
+        // produced by libsodium (PyNaCl) for seed = 00 01 02 ... 1f.
+        val seed = hex(KAT_SEED)
+        val privSpec = EdDSAPrivateKeySpec(seed, curve)
+        val priv = EdDSAPrivateKey(privSpec)
+        val pubRaw = EdDSAPublicKeySpec(privSpec.a, curve).a.toByteArray()
+        assertEquals(KAT_PUB, pubRaw.joinToString("") { "%02x".format(it) }, "Ed25519 pubkey must match libsodium")
+
+        val engine = EdDSAEngine(MessageDigest.getInstance("SHA-512"))
+        engine.initSign(priv)
+        engine.update(ByteArray(0)) // empty message
+        val sig = engine.sign().joinToString("") { "%02x".format(it) }
+        assertEquals(KAT_SIG_EMPTY, sig, "Ed25519 signature over empty message must match libsodium (RFC 8032)")
+    }
+
+    private fun hex(s: String): ByteArray =
+        s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    companion object {
+        // Cross-impl Ed25519 KAT. Values produced by libsodium (PyNaCl) — the parent's crypto —
+        // for the fixed seed below; libsodium and net.i2p both implement RFC 8032 Ed25519, so
+        // these must match byte-for-byte on the child side (proves interoperability).
+        const val KAT_SEED = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        const val KAT_PUB = "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+        const val KAT_SIG_EMPTY =
+            "9ca53579530654d5c3df77089ef45eda613e2fedf670e96bedac4639504e5845" +
+                "ef4b95d5793077233dd16817b2532e9c5525872a73a4ad74b759369a9e05c102"
+
+        // libsodium signature over the §2 GOLDEN canonical bytes (interopBundle, sig stripped),
+        // under KAT_SEED. The child must verify this exact parent-produced signature.
+        const val KAT_SIG_GOLDEN =
+            "389438b0038772a39ba2bcc203a20befcd905af4fb24169d1cfae0bef49b06fc" +
+                "ec28936a14447f15464491461407bb6ebedff060f1cbdcb347448bf61b9a1f09"
     }
 }

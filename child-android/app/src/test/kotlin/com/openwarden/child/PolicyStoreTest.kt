@@ -15,18 +15,19 @@ import kotlin.test.assertTrue
 class PolicyStoreTest {
 
     private fun makeBundle(
-        issuedAt: String = "2024-01-01T00:00:00Z",
+        issuedAt: Long = 1_704_067_200_000L, // 2024-01-01T00:00:00Z in ms (PROTOCOL.md §2 integer)
         allowlist: List<String> = listOf("com.example.app"),
     ) = SignedBundle(
         v = 1,
         issued_at = issuedAt,
-        expires_at = "2099-12-31T23:59:59Z",
-        nonce = "test-nonce",
+        not_before = issuedAt,
+        not_after = 4_102_444_799_000L, // 2099-12-31T23:59:59Z in ms
+        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
         policy = PolicyDoc(allowlist = allowlist),
         // sig = "" is INVALID — empty is not a real Ed25519 signature. It is legal here
         // only because these are storage-layer tests that call persist() directly and never
-        // go through ingest(). BundleVerifier is intentionally not exercised; issue #10
-        // covers full signature-verification tests.
+        // go through ingest(). BundleVerifier is intentionally not exercised; the
+        // PolicyAdmissionTest interop test covers full signature verification.
         sig = "",
     )
 
@@ -105,8 +106,8 @@ class PolicyStoreTest {
         val context = RuntimeEnvironment.getApplication()
         val store = PolicyStore(context)
 
-        store.persist(makeBundle(issuedAt = "2024-01-01T00:00:00Z", allowlist = listOf("com.a")))
-        store.persist(makeBundle(issuedAt = "2024-06-01T00:00:00Z", allowlist = listOf("com.b")))
+        store.persist(makeBundle(issuedAt = 1_704_067_200_000L, allowlist = listOf("com.a")))
+        store.persist(makeBundle(issuedAt = 1_717_200_000_000L, allowlist = listOf("com.b")))
 
         val policyDir = File(context.filesDir, "policy")
         val tmpFiles = policyDir.listFiles { f -> f.name.startsWith("active") && f.name.contains(".tmp") }
@@ -123,14 +124,14 @@ class PolicyStoreTest {
         val context = RuntimeEnvironment.getApplication()
         val store = PolicyStore(context)
 
-        val bundleA = makeBundle(issuedAt = "2024-01-01T00:00:00Z", allowlist = listOf("com.a"))
-        val bundleB = makeBundle(issuedAt = "2024-06-01T00:00:00Z", allowlist = listOf("com.b"))
+        val bundleA = makeBundle(issuedAt = 1_704_067_200_000L, allowlist = listOf("com.a"))
+        val bundleB = makeBundle(issuedAt = 1_717_200_000_000L, allowlist = listOf("com.b"))
 
         store.persist(bundleA)
         store.persist(bundleB)
 
         val loaded = store.loadActive()
         assertEquals(listOf("com.b"), loaded?.policy?.allowlist, "loadActive() must return bundle B after overwrite")
-        assertEquals("2024-06-01T00:00:00Z", loaded?.issued_at, "issued_at must be B's value")
+        assertEquals(1_717_200_000_000L, loaded?.issued_at, "issued_at must be B's value")
     }
 }

@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
             appendLine("")
             appendLine("Device Owner: ${if (isDO) "YES" else "NO — run dpm set-device-owner"}")
             appendLine("Parent pinned: ${if (store.parentPubkey() != null) "yes" else "no — pair with parent app"}")
-            appendLine("Active policy: ${active?.issued_at ?: "none"}")
+            appendLine("Active policy: ${active?.issued_at?.toString() ?: "none"}")
         }
     }
 }

@@ -26,7 +26,14 @@ import java.security.MessageDigest
  */
 object BundleVerifier {
 
-    private val json = Json { encodeDefaults = true }
+    // encodeDefaults=true so defaulted fields (empty blocklist/windows/restrictions) are part
+    // of the signed body; explicitNulls=false so optional fields left null (private_dns,
+    // frp_account_email) are OMITTED, not serialized as `null` — PROTOCOL.md §3.1 rule 6
+    // forbids `null`, and the parent signer omits them identically (byte-identical canonical).
+    private val json = Json {
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     fun verify(bundle: SignedBundle, pubkey: ByteArray): Boolean {
         return try {
