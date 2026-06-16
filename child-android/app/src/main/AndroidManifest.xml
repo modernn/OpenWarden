@@ -33,6 +33,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Kid Transparency screen — reachable from MainActivity and any "Why am I blocked?" link -->
+        <activity
+            android:name=".TransparencyActivity"
+            android:exported="false"
+            android:label="What does OpenWarden see?" />
+
         <!-- Device Owner / Device Admin receiver -->
         <receiver
             android:name=".AdminReceiver"

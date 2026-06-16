@@ -2,7 +2,10 @@ package com.openwarden.child
 
 import android.app.admin.DevicePolicyManager
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 
@@ -16,12 +19,30 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val text = TextView(this).apply {
-            textSize = 18f
-            text = renderStatus()
+
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(48, 96, 48, 48)
         }
-        setContentView(text)
+
+        column.addView(
+            TextView(this).apply {
+                textSize = 18f
+                text = renderStatus()
+            },
+        )
+
+        // Persistent "What does OpenWarden see?" link (docs/KID_TRANSPARENCY.md §2).
+        column.addView(
+            Button(this).apply {
+                text = "What does OpenWarden see?"
+                setOnClickListener {
+                    startActivity(Intent(this@MainActivity, TransparencyActivity::class.java))
+                }
+            },
+        )
+
+        setContentView(column)
     }
 
     private fun renderStatus(): String {
