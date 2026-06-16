@@ -25,7 +25,9 @@
 - [ ] BIP39 recovery phrase display (printable)
 - [ ] "Why am I blocked?" screen for kid
 
-### Parent app (Flutter, Android-only v1)
+### Parent app (Kotlin Multiplatform — Android v1, iOS later; ADR-011, ADR-002)
+
+- [x] **parent-kmp scaffold** — `:proto` + `:shared` + `:androidApp` build green (Android target); iOS host-gated to macOS, built on a Mac later. See `PARENT_KMP_STRUCTURE.md` and `parent-kmp/docs/BUILD.md`.
 - [ ] Pair via QR scan
 - [ ] Generate Ed25519 root key, show 24-word recovery phrase, force confirm
 - [ ] Dashboard: child online status, today's usage, recent blocks

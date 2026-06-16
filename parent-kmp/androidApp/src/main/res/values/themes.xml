@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws the UI; the Activity only needs a valid no-action-bar theme.
+         Built-in Material theme avoids an appcompat/material dependency. -->
+    <style name="Theme.OpenWarden" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
