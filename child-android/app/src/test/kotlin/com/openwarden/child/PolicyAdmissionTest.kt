@@ -140,6 +140,41 @@ class PolicyAdmissionTest {
         assertEquals(listOf("stage:1", "apply:1", "ack:1"), applier.calls)
     }
 
+    // =========================================================================
+    // concurrent-admission ordering (R5) — serialize the whole transaction
+    // =========================================================================
+
+    @Test
+    fun concurrentAdmitsNeverApplyAStaleLowerSeqAfterAHigherSeq() {
+        // R5: two /policy admissions racing on different threads must be serialized so a lower-seq
+        // bundle can NEVER apply after a higher-seq one advanced the floor (which would re-open a
+        // freshly-denied app). ADMIT_LOCK + the in-lock floor read/advance make the floor check
+        // atomic, so the second admit re-reads the advanced floor and rejects the stale bundle.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L) // floor starts at 9
+        val applier = RecordingApplier()
+        val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val barrier = java.util.concurrent.CountDownLatch(1)
+        val threads = listOf(b11, b10).map { b ->
+            Thread {
+                barrier.await()
+                PolicyAdmission.admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+            }
+        }
+        threads.forEach { it.start() }
+        barrier.countDown() // release both as near-simultaneously as the scheduler allows
+        threads.forEach { it.join() }
+
+        // Whatever the interleaving, the floor ends at the highest seq...
+        assertEquals(11L, state.atRestFloor(), "floor must end at the highest applied seq")
+        // ...and the apply order is non-decreasing: seq 10 is NEVER applied after seq 11.
+        val appliedSeqs = applier.calls.filter { it.startsWith("apply:") }.map { it.substringAfter(":").toLong() }
+        assertEquals(appliedSeqs.sorted(), appliedSeqs, "applies must be monotonic — no stale lower seq after a higher one")
+        assertTrue(11L in appliedSeqs, "the higher seq must have applied")
+    }
+
     @Test
     fun genesisSeqZeroRejectedNeverLivePolicy() {
         val kp = newKeypair()

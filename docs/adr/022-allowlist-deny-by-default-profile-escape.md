@@ -123,11 +123,16 @@ Good:
   profile that appears anyway is detected **and contained with `lockNow()`** by the watchdog.
 - Reuses ADR-020's verify-or-throw + `lockNow` idiom and ADR-021's watchdog seam, so the new
   surfaces inherit the same deterministic, seam-injected test coverage.
-- **Application is serialized across threads (Codex-review hardening, R4).** The watchdog tick and
-  the Ktor `/policy` endpoint both apply policy from different threads. A process-wide `APPLY_LOCK`
-  now serializes every apply, and the watchdog reads the active allowlist *inside* the lock
-  (`reassertActiveAllowlist`) — so a stale watchdog snapshot can no longer interleave with, and
-  re-open a freshly-denied app after, a newer stricter `/policy` apply.
+- **Application is serialized across threads (Codex-review hardening, R4 + R5).** The watchdog tick
+  and the Ktor `/policy` endpoint apply policy from different threads. Two locks close the races:
+  - `APPLY_LOCK` (`PolicyEnforcer`) serializes every apply, and the watchdog reads the active
+    allowlist *inside* the lock (`reassertActiveAllowlist`) — so a stale watchdog snapshot can't
+    interleave with, and re-open a freshly-denied app after, a newer `/policy` apply (R4).
+  - `ADMIT_LOCK` (`PolicyAdmission`) serializes the **whole admission transaction** — floor read →
+    decide → stage → apply → advance → ack — so two concurrent `/policy` admissions can't both read
+    the same floor and apply out of order; the second re-reads the advanced floor and is rejected
+    as a replay (R5). This tightens ADR-017's commit ordering under concurrency. Lock ordering is
+    cycle-free: `/policy` takes `ADMIT_LOCK` then `APPLY_LOCK`; the watchdog takes only `APPLY_LOCK`.
 - **Read-error and ordering paths fail closed too (Codex-review hardening, three rounds).** Every
   point where enforcement could be silently skipped or could relax access on a failure now locks
   the device (`lockNow()`) instead — closing the fail-OPEN paths two adversarial Codex passes

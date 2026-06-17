@@ -223,6 +223,16 @@ object PolicyAdmission {
     }
 
     /**
+     * Process-wide lock serializing the WHOLE admission transaction (R5). `/policy` admissions on
+     * different Ktor threads must not interleave: the floor is read inside this lock and advanced
+     * inside it, so a second concurrent admit re-reads the just-advanced floor and `decide()`
+     * rejects an out-of-order (older-seq) bundle as a replay — instead of applying it after a newer
+     * one and re-opening a freshly-denied app. (The watchdog takes only `PolicyEnforcer.APPLY_LOCK`,
+     * never this one, so there is no lock-ordering cycle.)
+     */
+    private val ADMIT_LOCK = Any()
+
+    /**
      * Stateful admission entry point. Reads floor/marker/id from [store], decides,
      * and on accept runs the two-phase commit via [applier], pinning the parent key
      * + writing the marker first on a genesis accept. Floor advances LAST.
@@ -237,7 +247,10 @@ object PolicyAdmission {
         pinParentKey: (ByteArray) -> Unit,
         pinnedParentPubkey: ByteArray?,
         genesisPubkey: ByteArray? = null,
-    ): Result {
+    ): Result = synchronized(ADMIT_LOCK) {
+        // R5: the floor read below and the advanceFloor in the commit must be one critical section,
+        // or two concurrent admits both read the same floor and apply out of order. Inside the lock,
+        // the second admit re-reads the advanced floor and decide() rejects the stale (older) bundle.
         val myId = store.childDeviceId()
         val provisioned = store.isProvisioned()
         val floor = store.effectiveFloor()
@@ -254,7 +267,7 @@ object PolicyAdmission {
             floorAnomaly = anomaly,
         )
 
-        return when (outcome) {
+        when (outcome) {
             is Outcome.RejectMalformed -> Result.Rejected(malformed = true, reason = outcome.reason)
             is Outcome.RejectStrict -> Result.Rejected(malformed = false, reason = outcome.reason)
             is Outcome.Accept -> {
@@ -267,9 +280,9 @@ object PolicyAdmission {
                         // with no pubkey, or a sig that does not verify against it, is
                         // fail-closed — never pin an unverified key.
                         val pub = genesisPubkey
-                            ?: return Result.Rejected(false, "genesis accept without a pubkey to pin (fail-closed)")
+                            ?: return@synchronized Result.Rejected(false, "genesis accept without a pubkey to pin (fail-closed)")
                         if (!BundleVerifier.verify(bundle, pub)) {
-                            return Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
+                            return@synchronized Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
                         }
                         // Pin the parent key + mark provisioned BEFORE seeding floor.
                         pinParentKey(pub)
