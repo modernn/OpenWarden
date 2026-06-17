@@ -102,7 +102,50 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
     override fun advanceFloor(policySeq: Long) {
         val current = atRestFloor()
         if (current != null && policySeq <= current) return // never lower; idempotent
-        prefs.edit().putLong(KEY_FLOOR, policySeq).commit() // commit() = synchronous durable write
+        // R6: commit() returns false on a failed durable write. Ignoring it would let
+        // PolicyAdmission ack + report Applied while the persisted floor stayed old — so after a
+        // restart a stale lower-seq bundle above the old floor could re-admit and undo a newer
+        // deny, despite the R5 lock. Fail closed: throw, so admit()'s two-phase commit treats it as
+        // a durable-apply failure (Rejected, no ack) and the floor is never silently behind reality.
+        check(prefs.edit().putLong(KEY_FLOOR, policySeq).commit()) {
+            "replay floor commit() failed for seq=$policySeq (fail-closed)"
+        }
+        val readback = prefs.getLong(KEY_FLOOR, ReplayFloor.GENESIS_FLOOR)
+        check(readback == policySeq) {
+            "replay floor readback ($readback) != $policySeq after commit (fail-closed)"
+        }
+    }
+
+    /**
+     * High-water of the highest applied `policy_seq` rollback-witness (R7/R10/R11), or `null` if
+     * never staged. Backed by the **durable** [KEY_STAGED] field in [EncryptedSharedPreferences]:
+     * `/policy` constructs a fresh [ReplayFloorStore] per request, AND the witness must survive a
+     * process restart — a restart in the window between staging and the floor-advance must not
+     * re-open the staged rollback — so it is persisted at-rest, not held in memory. ([noteApplied]
+     * writes it before the bundle is made active, with the same commit+readback fail-closed
+     * contract as [advanceFloor].)
+     */
+    override fun appliedHighWater(): Long? =
+        if (prefs.contains(KEY_STAGED)) prefs.getLong(KEY_STAGED, ReplayFloor.GENESIS_FLOOR) else null
+
+    override fun noteApplied(policySeq: Long) {
+        val cur = appliedHighWater()
+        if (cur != null && policySeq <= cur) return
+        // R10/R11: the rollback witness MUST be durable BEFORE the bundle is made active (admit()
+        // calls this before stage()). A failed commit is fail-closed — throw so admit() rejects and
+        // never stages, rather than make the bundle active with only an in-memory witness a restart
+        // would lose (which would re-open the staged-but-failed rollback). No silent memory fallback.
+        check(prefs.edit().putLong(KEY_STAGED, policySeq).commit()) {
+            "staged rollback-witness commit() failed for seq=$policySeq (fail-closed)"
+        }
+        // R10/R11: same readback authority as advanceFloor — a commit() that returns true but did
+        // not durably land would let admit() stage a bundle whose rollback-witness a restart loses.
+        // Verify the persisted value before treating the witness as durable; throw (fail-closed) so
+        // admit() rejects and never stages on a silent write divergence.
+        val readback = appliedHighWater()
+        check(readback == policySeq) {
+            "staged rollback-witness readback ($readback) != $policySeq after commit (fail-closed)"
+        }
     }
 
     /** True iff this child has been provisioned (pairing marker written). ADR-017 part 4. */
@@ -114,7 +157,11 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
      * never genesis (ADR-017 part 4).
      */
     override fun markProvisioned() {
-        prefs.edit().putBoolean(KEY_PROVISIONED, true).commit()
+        // R6: same fail-closed contract as advanceFloor — a silently-failed provisioning write would
+        // leave the child looking never-provisioned, re-opening the genesis (TOFU) path on restart.
+        check(prefs.edit().putBoolean(KEY_PROVISIONED, true).commit()) {
+            "provisioning marker commit() failed (fail-closed)"
+        }
     }
 
     /**
@@ -127,7 +174,11 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
     override fun childDeviceId(): String {
         prefs.getString(KEY_CHILD_ID, null)?.let { return it }
         val generated = DeviceIdentity.generateStableId()
-        prefs.edit().putString(KEY_CHILD_ID, generated).commit()
+        // R6: if this write silently fails the next read regenerates a DIFFERENT id, breaking
+        // audience binding. Fail closed rather than proceed with an unpersisted id.
+        check(prefs.edit().putString(KEY_CHILD_ID, generated).commit()) {
+            "child device id commit() failed (fail-closed)"
+        }
         return generated
     }
 
@@ -136,5 +187,8 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
         const val KEY_FLOOR = "policy_seq_floor"
         const val KEY_PROVISIONED = "provisioned"
         const val KEY_CHILD_ID = "child_device_id"
+
+        /** R10/R11: durable stage witness — the highest applied seq, persisted so it survives a restart. */
+        const val KEY_STAGED = "staged_high_water"
     }
 }

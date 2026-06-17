@@ -78,6 +78,8 @@ class PolicyAdmissionTest {
         var provisioned: Boolean = false,
         var atRest: Long? = null,
         var chain: Long? = null,
+        // R6: simulate a failed durable floor write (commit() == false => advanceFloor throws).
+        var failAdvance: Boolean = false,
     ) : PolicyAdmission.FloorState {
         val acks = mutableListOf<Long>()
         override fun childDeviceId() = myId
@@ -92,14 +94,26 @@ class PolicyAdmissionTest {
             else -> maxOf(atRest!!, chain!!)
         }
         override fun advanceFloor(policySeq: Long) {
+            if (failAdvance) throw IllegalStateException("simulated floor commit() failure (fail-closed)")
             val cur = atRest
             if (cur != null && policySeq <= cur) return // never lower; idempotent
             atRest = policySeq
         }
+
+        // Rollback witness — instance-scoped here so each test is isolated. failNote simulates a
+        // failed durable witness commit (R11): noteApplied throws fail-closed.
+        var highWater: Long? = null
+        var failNote: Boolean = false
+        override fun appliedHighWater(): Long? = highWater
+        override fun noteApplied(policySeq: Long) {
+            if (failNote) throw IllegalStateException("simulated staged-witness commit failure (fail-closed)")
+            val cur = highWater
+            if (cur == null || policySeq > cur) highWater = policySeq
+        }
     }
 
     /** Records the two-phase commit calls in order. */
-    private class RecordingApplier(val failApply: Boolean = false) : PolicyAdmission.Applier {
+    private class RecordingApplier(var failApply: Boolean = false) : PolicyAdmission.Applier {
         val calls = mutableListOf<String>()
         override fun stage(bundle: SignedBundle) { calls += "stage:${bundle.policy_seq}" }
         override fun applyAndFsync(bundle: SignedBundle) {
@@ -138,6 +152,211 @@ class PolicyAdmissionTest {
         assertTrue(pinned!!.contentEquals(kp.publicKeyRaw), "parent key must be pinned at genesis")
         // Ordering: pin/mark happen, then stage -> apply -> ack; floor advanced between apply and ack.
         assertEquals(listOf("stage:1", "apply:1", "ack:1"), applier.calls)
+    }
+
+    // =========================================================================
+    // concurrent-admission ordering (R5) — serialize the whole transaction
+    // =========================================================================
+
+    @Test
+    fun concurrentAdmitsNeverApplyAStaleLowerSeqAfterAHigherSeq() {
+        // R5: two /policy admissions racing on different threads must be serialized so a lower-seq
+        // bundle can NEVER apply after a higher-seq one advanced the floor (which would re-open a
+        // freshly-denied app). ADMIT_LOCK + the in-lock floor read/advance make the floor check
+        // atomic, so the second admit re-reads the advanced floor and rejects the stale bundle.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L) // floor starts at 9
+        val applier = RecordingApplier()
+        val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val barrier = java.util.concurrent.CountDownLatch(1)
+        val threads = listOf(b11, b10).map { b ->
+            Thread {
+                barrier.await()
+                PolicyAdmission.admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+            }
+        }
+        threads.forEach { it.start() }
+        barrier.countDown() // release both as near-simultaneously as the scheduler allows
+        threads.forEach { it.join() }
+
+        // Whatever the interleaving, the floor ends at the highest seq...
+        assertEquals(11L, state.atRestFloor(), "floor must end at the highest applied seq")
+        // ...and the apply order is non-decreasing: seq 10 is NEVER applied after seq 11.
+        val appliedSeqs = applier.calls.filter { it.startsWith("apply:") }.map { it.substringAfter(":").toLong() }
+        assertEquals(appliedSeqs.sorted(), appliedSeqs, "applies must be monotonic — no stale lower seq after a higher one")
+        assertTrue(11L in appliedSeqs, "the higher seq must have applied")
+    }
+
+    @Test
+    fun durableFloorWriteFailureFailsClosedWithNoAck() {
+        // R6: if the durable floor write fails (advanceFloor throws on commit()==false), admit() must
+        // NOT ack or report Applied — it must fail closed (Rejected). Otherwise a success is reported
+        // while the persisted floor stays old, letting a stale lower-seq bundle re-admit after restart
+        // and undo a newer deny, defeating the R5 lock.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L, failAdvance = true)
+        val applier = RecordingApplier()
+        val b = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+
+        val result = PolicyAdmission.admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable floor write must be Rejected, not Applied")
+        assertFalse(applier.calls.any { it.startsWith("ack:") }, "no ack may be emitted when the floor write fails")
+        assertEquals(9L, state.atRestFloor(), "the floor must remain at its old value (not advanced)")
+    }
+
+    @Test
+    fun appliedHighWaterBlocksRollbackAfterAFailedFloorWrite() {
+        // R7: seq 11 applies but advanceFloor fails (R6 => Rejected, no ack) — yet the apply landed
+        // and the durable floor stayed at 9. A same-process replay of an older VALID seq 10 (signed,
+        // 9 < 10 < 11) must NOT be admitted, or it would roll the policy back to v10. The in-memory
+        // applied high-water (=11) raises the effective floor so seq 10 is rejected.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L, failAdvance = true)
+        val applier = RecordingApplier()
+
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+        val r11 = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r11 is PolicyAdmission.Result.Rejected, "the failed floor write is Rejected (R6)")
+        assertTrue(applier.calls.contains("apply:11"), "but seq 11 was actually applied (the dangerous partial state)")
+        assertEquals(11L, state.appliedHighWater(), "the applied high-water must record seq 11")
+
+        // The floor store recovers; an attacker replays the older valid seq 10.
+        state.failAdvance = false
+        val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+        val r10 = PolicyAdmission.admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(r10 is PolicyAdmission.Result.Rejected, "seq 10 must be rejected — the high-water (11) blocks the rollback")
+        assertFalse(applier.calls.contains("apply:10"), "the older bundle must never be applied")
+    }
+
+    @Test
+    fun retryingTheSameSeqRepairsTheStaleDurableFloorAfterTransientFailure() {
+        // R8: seq 11 applies but advanceFloor fails transiently (R6 => Rejected; high-water = 11,
+        // durable floor still 9). A retry of the SAME seq 11 must be admitted so it can re-advance
+        // the durable floor — the high-water blocks only STRICTLY-LOWER seqs (the rollback), not the
+        // equal one. Otherwise the durable floor stays stale until a higher seq arrives, widening
+        // the cross-restart rollback window unnecessarily.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L, failAdvance = true)
+        val applier = RecordingApplier()
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val first = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(first is PolicyAdmission.Result.Rejected, "the transient floor-write failure is Rejected (R6)")
+        assertEquals(9L, state.atRestFloor(), "durable floor is still stale after the failed write")
+        assertEquals(11L, state.appliedHighWater(), "high-water recorded the applied seq 11")
+
+        // The store recovers; the parent retries the SAME bundle.
+        state.failAdvance = false
+        val retry = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair the floor, not be rejected")
+        assertEquals(11L, state.atRestFloor(), "the durable floor is now advanced (repaired)")
+    }
+
+    @Test
+    fun stagedButFailedApplyStillBlocksALowerSeqRollback() {
+        // R9: stage() persists the candidate as the active bundle, and applyAndFsync() can mutate
+        // live/durable state before throwing (e.g. allowlist verify -> lockNow + throw). The rollback
+        // witness must be recorded at STAGE — else a throwing apply leaves the staged newer policy
+        // with no witness, and a lower valid seq could overwrite (roll back) it.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L)
+        val applier = RecordingApplier(failApply = true) // applyAndFsync throws after stage
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val first = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(first is PolicyAdmission.Result.Rejected, "a throwing apply is Rejected (fail-closed)")
+        assertTrue(applier.calls.contains("stage:11"), "but the bundle was staged — now the active policy")
+        assertEquals(11L, state.appliedHighWater(), "the witness must be recorded at stage, even though apply threw")
+
+        // A lower valid seq must not roll back the staged newer policy.
+        val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+        val r10 = PolicyAdmission.admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r10 is PolicyAdmission.Result.Rejected, "seq 10 must be rejected — staged seq 11 blocks the rollback")
+        assertFalse(applier.calls.contains("stage:10"), "the older bundle must never even be staged")
+
+        // The transient apply failure clears; retrying the same seq repairs (applies + advances floor).
+        applier.failApply = false
+        val retry = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair once apply succeeds")
+        assertEquals(11L, state.atRestFloor(), "the durable floor advanced after the successful retry")
+    }
+
+    @Test
+    fun durableStageWitnessSurvivesRestartAndStillBlocksRollback() {
+        // R10: the stage witness must be DURABLE. seq 11 stages then applyAndFsync throws (Rejected,
+        // durable floor stays 9). After a process RESTART the in-memory witness would be gone, so a
+        // replayed valid seq 10 could roll back the staged newer policy. Production persists the
+        // witness (ReplayFloorStore KEY_STAGED); here we carry it to a fresh store to model restart.
+        val kp = newKeypair()
+        val state1 = FakeFloorState(provisioned = true, atRest = 9L)
+        val applier1 = RecordingApplier(failApply = true)
+        val b11 = sign(bundle(policySeq = 11L, childId = state1.childDeviceId()), kp)
+        assertTrue(PolicyAdmission.admit(b11, state1, applier1, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw) is PolicyAdmission.Result.Rejected)
+        assertEquals(11L, state1.appliedHighWater(), "stage witness recorded")
+
+        // Simulate restart: a fresh store with only the DURABLE state (floor 9, stage witness 11).
+        val state2 = FakeFloorState(provisioned = true, atRest = 9L)
+        state2.highWater = state1.appliedHighWater() // models the persisted KEY_STAGED surviving reboot
+        val applier2 = RecordingApplier()
+
+        val b10 = sign(bundle(policySeq = 10L, childId = state2.childDeviceId()), kp)
+        val r10 = PolicyAdmission.admit(b10, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r10 is PolicyAdmission.Result.Rejected, "after restart the durable witness still blocks seq 10")
+        assertFalse(applier2.calls.contains("stage:10"), "the older bundle must not be staged after restart")
+
+        // seq 11 still repairs the durable floor after restart.
+        val r11 = PolicyAdmission.admit(b11, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r11 is PolicyAdmission.Result.Applied, "seq 11 repairs the durable floor after restart")
+        assertEquals(11L, state2.atRestFloor())
+    }
+
+    @Test
+    fun witnessWriteFailureRejectsBeforeMakingTheBundleActive() {
+        // R11: the durable witness is written BEFORE stage() makes the bundle active. If the witness
+        // can't be persisted, admit fails closed WITHOUT staging — so there is no active newer bundle
+        // for a later lower seq to roll back to (the staged-but-failed window never opens).
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L).apply { failNote = true }
+        val applier = RecordingApplier()
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val result = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable witness write must be Rejected")
+        assertFalse(applier.calls.contains("stage:11"), "the bundle must NOT be staged when the witness can't be persisted")
+        assertEquals(9L, state.atRestFloor(), "floor unchanged; nothing became active")
+    }
+
+    @Test
+    fun genesisWitnessFailureLeavesACleanIdempotentlyRetryableState() {
+        // R12: on genesis the durable witness is written BEFORE pin/mark. If it fails, nothing is
+        // pinned/marked/staged, so the device is NOT stranded provisioned-but-floorless — the same
+        // signed genesis bundle repairs cleanly on retry.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = false, atRest = null).apply { failNote = true }
+        val applier = RecordingApplier()
+        var pinned: ByteArray? = null
+        val b1 = sign(bundle(policySeq = 1L, childId = state.childDeviceId()), kp)
+
+        val first = PolicyAdmission.admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
+        assertTrue(first is PolicyAdmission.Result.Rejected, "genesis witness-write failure is Rejected")
+        assertFalse(state.isProvisioned(), "must NOT mark provisioned when the witness failed")
+        assertEquals(null, pinned, "must NOT pin the key when the witness failed")
+        assertFalse(applier.calls.contains("stage:1"), "must not stage")
+
+        // Storage recovers; retry the SAME signed genesis bundle — must repair as a clean genesis.
+        state.failNote = false
+        val retry = PolicyAdmission.admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
+        assertTrue(retry is PolicyAdmission.Result.Applied, "retry must repair as a clean genesis, not strand as an anomaly")
+        assertTrue((retry as PolicyAdmission.Result.Applied).genesis)
+        assertEquals(1L, state.atRestFloor())
+        assertTrue(state.isProvisioned())
+        assertTrue(pinned!!.contentEquals(kp.publicKeyRaw), "the parent key is pinned on the repaired genesis")
     }
 
     @Test
