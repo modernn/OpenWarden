@@ -92,8 +92,8 @@ profile.
 > over-claim full-user coverage.
 
 **D3 — Honest scope: block + detect + lock now; remove + parent-alert deferred.** There is no
-event log or parent transport yet (the chain floor is a stub), so the acceptance's "blocked/**
-alerted**" is met as: creation is **blocked** by the restriction, and an extra profile is
+event log or parent transport yet (the chain floor is a stub), so the acceptance's
+"blocked / **alerted**" is met as: creation is **blocked** by the restriction, and an extra profile is
 **detected, logged, and contained with `lockNow()`** locally on each tick. A parent-facing alert
 is deferred to the event log — the same staged honesty as ADR-020 D4 ("FRP implemented, not yet
 wired"). We also do **not** attempt to *remove* a rogue profile via DPM: Private Space removal
