@@ -38,7 +38,8 @@ Three further gaps surfaced while fixing this (issue #8, research/07):
   restrictions, leaving *more* surfaces open than necessary (fails toward less restriction).
 - **C. Apply all, then verify by readback, then throw on any gap (chosen).** Applies every
   restriction (fails toward *more* restriction even if one entry errors), reads the actual
-  state back via `UserManager`, and throws if anything is missing. Never returns partial.
+  state back via the DO-authoritative `DevicePolicyManager.getUserRestrictions(admin)` (see D2),
+  and throws if anything is missing. Never returns partial.
 
 ## Decision
 
@@ -59,8 +60,13 @@ This list *is* the strict baseline; there is no relaxed variant in v1. It is pin
 > `connectedAndroidTest` harness (#30) before this is trusted on hardware. See ADR-022 Consequences.
 
 **D2 — Verify-or-throw, never return partial.** `applyDayOneRestrictions()` applies the full
-set, then `verifyOrThrow()` reads each restriction back via `UserManager.hasUserRestriction`
-and throws `RestrictionEnforcementException(missing)` if any required restriction is not set.
+set, then `verifyOrThrow()` reads each restriction back via the **Device-Owner-authoritative**
+`DevicePolicyManager.getUserRestrictions(admin)` — **not** `UserManager.hasUserRestriction`. The
+distinction is load-bearing: `hasUserRestriction` reports the *effective union from any source*,
+so it can falsely report success when *our* `addUserRestriction(admin, …)` did not actually stick
+(e.g. another component set the same key); `getUserRestrictions(admin)` reflects only the
+restrictions *this admin* set, which is what the contract must verify. It throws
+`RestrictionEnforcementException(missing)` if any required restriction is not set.
 On that throw it calls `DevicePolicyManager.lockNow()` as last-resort containment so a
 half-locked device is not left usable. The method is idempotent — safe to call on first
 provision and on every boot / watchdog tick.

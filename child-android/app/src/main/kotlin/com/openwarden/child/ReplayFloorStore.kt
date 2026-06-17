@@ -117,10 +117,13 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
     }
 
     /**
-     * In-memory high-water of the highest applied `policy_seq` this process (R7). Backed by a
-     * **companion-scoped** field because `/policy` constructs a fresh [ReplayFloorStore] per
-     * request — an instance field would not survive between requests. Resets on process restart
-     * (the durable cross-restart witness is the not-yet-built event-log chain mirror).
+     * High-water of the highest applied `policy_seq` rollback-witness (R7/R10/R11), or `null` if
+     * never staged. Backed by the **durable** [KEY_STAGED] field in [EncryptedSharedPreferences]:
+     * `/policy` constructs a fresh [ReplayFloorStore] per request, AND the witness must survive a
+     * process restart — a restart in the window between staging and the floor-advance must not
+     * re-open the staged rollback — so it is persisted at-rest, not held in memory. ([noteApplied]
+     * writes it before the bundle is made active, with the same commit+readback fail-closed
+     * contract as [advanceFloor].)
      */
     override fun appliedHighWater(): Long? =
         if (prefs.contains(KEY_STAGED)) prefs.getLong(KEY_STAGED, ReplayFloor.GENESIS_FLOOR) else null
@@ -134,6 +137,14 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
         // would lose (which would re-open the staged-but-failed rollback). No silent memory fallback.
         check(prefs.edit().putLong(KEY_STAGED, policySeq).commit()) {
             "staged rollback-witness commit() failed for seq=$policySeq (fail-closed)"
+        }
+        // R10/R11: same readback authority as advanceFloor — a commit() that returns true but did
+        // not durably land would let admit() stage a bundle whose rollback-witness a restart loses.
+        // Verify the persisted value before treating the witness as durable; throw (fail-closed) so
+        // admit() rejects and never stages on a silent write divergence.
+        val readback = appliedHighWater()
+        check(readback == policySeq) {
+            "staged rollback-witness readback ($readback) != $policySeq after commit (fail-closed)"
         }
     }
 

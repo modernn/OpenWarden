@@ -16,6 +16,16 @@ import android.util.Log
  * containment warning **and locks the device** ([contain]), the same fail-closed `lockNow()`
  * response every other surface uses on a gap (ADR-020 / ADR-022 D2).
  *
+ * **Detection scope (HIGH-1, PR #56 review).** [forContext] counts [UserManager.getUserProfiles],
+ * which enumerates only the *calling (primary) user's* profiles — managed (work) profiles and, on
+ * API 35+, the Private Space. It does **not** include full **secondary users** or the **guest**
+ * user (those are `UserManager.getUsers()`, a privileged call). So this guard backstops a rogue
+ * managed/private *profile*; it does **not** detect a pre-existing secondary/guest *user*. Those
+ * are blocked at *creation* by the Day-One baseline (`DISALLOW_ADD_USER`, `DISALLOW_USER_SWITCH`,
+ * `DISALLOW_REMOVE_USER`); a secondary/guest user that pre-dated Device Owner is an accepted
+ * residual (full-user enumeration needs a privileged path) tracked in the per-OEM hardening
+ * backlog (#57). The docs (ADR-022 D2/D4, DEFENSES B1) state this scope rather than over-claim it.
+ *
  * Honest scope (ADR-022 D3): with no event log / parent transport yet, there is no parent-facing
  * alert and we do **not** attempt to *remove* the rogue profile (Private Space removal under
  * Device Owner is unverified and potentially destructive). Containment is local: log + lock, on
@@ -37,7 +47,11 @@ class ProfileGuard(
                 "pending the event log.",
         )
     },
-    private val contain: () -> Unit = {},
+    // HIGH-2 (PR #56 review): NO default. A defaulted `contain = {}` would be a silent
+    // "detect-but-don't-contain" — the fail-OPEN direction ADR-022 D2 explicitly rejects — and
+    // would compile even if a caller forgot to wire the lock. Required so containment can never be
+    // omitted; [forContext] wires the real fail-closed `lockNow()`, tests inject their own seam.
+    private val contain: () -> Unit,
 ) {
 
     /**

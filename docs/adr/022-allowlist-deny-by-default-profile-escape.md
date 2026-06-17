@@ -70,15 +70,26 @@ first boot, before any allowlist exists:
 
 **D2 — Watchdog gains a profile-escape detection + containment backstop.** ADR-021's watchdog
 re-asserts restrictions/allowlist/DNS each tick; it now also runs `ProfileGuard.check()` last. The
-guard compares the current profile count to the baseline (1 = primary user only) and, on an
-increase, **logs a containment warning and calls `lockNow()`** — the same fail-closed response
-every other surface uses on a gap. A live second profile is a *full allowlist bypass* (anything
-runs inside it), so detection is treated as fail-closed-with-lock, not log-only; the asymmetry of
-"detect but don't contain" would be failing open relative to the restriction and allowlist
-surfaces. The *creation* block is the D0 restriction; this guard catches a profile that exists
-anyway (pre-existing, or a narrow window before the restriction stuck) and contains it. It locks
-on **every** tick the extra profile persists (the device stays contained while compromised);
-recovery is the parent removing the profile.
+guard compares the current **managed/private profile** count (`UserManager.getUserProfiles` — the
+primary user's work profile and, on API 35+, the Private Space) to the baseline (1 = the primary
+user with no extra profiles) and, on an increase, **logs a containment warning and calls
+`lockNow()`** — the same fail-closed response every other surface uses on a gap. A live second
+profile is a *full allowlist bypass* (anything runs inside it), so detection is treated as
+fail-closed-with-lock, not log-only; the asymmetry of "detect but don't contain" would be failing
+open relative to the restriction and allowlist surfaces. The *creation* block is the D0
+restriction; this guard catches a profile that exists anyway (pre-existing, or a narrow window
+before the restriction stuck) and contains it. It locks on **every** tick the extra profile
+persists (the device stays contained while compromised); recovery is the parent removing the
+profile.
+
+> **Scope (HIGH-1, PR #56 review): managed/private *profiles* only — not full secondary/guest
+> *users*.** `getUserProfiles` returns only the calling (primary) user's profiles; full **secondary
+> users** and the **guest** user are a different namespace (`getUserManager().getUsers()`, a
+> privileged call) and do **not** increment this count. They are blocked at *creation* by the
+> Day-One baseline (`DISALLOW_ADD_USER`, `DISALLOW_USER_SWITCH`, `DISALLOW_REMOVE_USER`), but a
+> secondary/guest user that **pre-dated** Device Owner is **not** detected by this watchdog. That
+> residual is recorded in D4 and owned by the per-OEM hardening backlog (#57); the guard does not
+> over-claim full-user coverage.
 
 **D3 — Honest scope: block + detect + lock now; remove + parent-alert deferred.** There is no
 event log or parent transport yet (the chain floor is a stub), so the acceptance's "blocked/**
@@ -115,6 +126,15 @@ on a real Android 15 device. Containment (lock) is the v1 response; removal + al
   separately, not silently accepted here. Codex and the dual adversarial review both confirmed
   "exempt all system apps" as the correct v1 posture (non-bricking; DNS covers the worst case) on
   the explicit condition that this residual is documented, which it now is.
+- **A pre-existing full *secondary user* / *guest* user is not watchdog-detected (HIGH-1, PR #56
+  review).** D2's `ProfileGuard` counts `getUserProfiles` (managed/private profiles of the primary
+  user) — full secondary users and the guest user are a separate, privileged namespace
+  (`getUsers()`) and do not trip it. Their *creation* is blocked by the Day-One baseline
+  (`DISALLOW_ADD_USER`, `DISALLOW_USER_SWITCH`, `DISALLOW_REMOVE_USER`), so the live attack surface
+  is a user that **pre-dated** Device Owner provisioning (or a device shipped with guest enabled).
+  Detecting that needs full-user enumeration via a privileged path; it is deferred to the per-OEM
+  hardening backlog (#57), not silently claimed. DEFENSES B1 and the `ProfileGuard` KDoc state this
+  scope explicitly.
 
 ## Consequences
 
