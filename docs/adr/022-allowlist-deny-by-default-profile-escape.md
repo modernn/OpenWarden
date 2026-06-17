@@ -148,8 +148,11 @@ Good:
   apply can't leave the staged newer policy rollbackable by a lower seq. It guards seqs *strictly
   below* the applied one, so a retry of the
   *same* seq is still admitted and can re-advance a durable floor a transient write failure left
-  stale (R8) — the high-water blocks rollback without blocking self-repair. The high-water survives
-  a failed floor write but **not a restart** —
+  stale (R8) — the high-water blocks rollback without blocking self-repair. The witness is
+  **persisted durably** (`ReplayFloorStore` `KEY_STAGED`, R10) so it **survives a restart** —
+  closing the staged-but-failed-apply rollback across reboot, since `stage()` succeeding means
+  storage works. Only if that durable write *also* fails (storage pressure) does it fall back to
+  in-memory + the documented chain-mirror gap —
   the durable cross-restart witness is the not-yet-built event-log chain mirror (ADR-017 part 1);
   a whole-snapshot rollback is still caught by the parent on next sync (ADR-017 part 2), the
   documented pre-existing limitation.

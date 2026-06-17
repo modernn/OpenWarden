@@ -284,6 +284,35 @@ class PolicyAdmissionTest {
     }
 
     @Test
+    fun durableStageWitnessSurvivesRestartAndStillBlocksRollback() {
+        // R10: the stage witness must be DURABLE. seq 11 stages then applyAndFsync throws (Rejected,
+        // durable floor stays 9). After a process RESTART the in-memory witness would be gone, so a
+        // replayed valid seq 10 could roll back the staged newer policy. Production persists the
+        // witness (ReplayFloorStore KEY_STAGED); here we carry it to a fresh store to model restart.
+        val kp = newKeypair()
+        val state1 = FakeFloorState(provisioned = true, atRest = 9L)
+        val applier1 = RecordingApplier(failApply = true)
+        val b11 = sign(bundle(policySeq = 11L, childId = state1.childDeviceId()), kp)
+        assertTrue(PolicyAdmission.admit(b11, state1, applier1, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw) is PolicyAdmission.Result.Rejected)
+        assertEquals(11L, state1.appliedHighWater(), "stage witness recorded")
+
+        // Simulate restart: a fresh store with only the DURABLE state (floor 9, stage witness 11).
+        val state2 = FakeFloorState(provisioned = true, atRest = 9L)
+        state2.highWater = state1.appliedHighWater() // models the persisted KEY_STAGED surviving reboot
+        val applier2 = RecordingApplier()
+
+        val b10 = sign(bundle(policySeq = 10L, childId = state2.childDeviceId()), kp)
+        val r10 = PolicyAdmission.admit(b10, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r10 is PolicyAdmission.Result.Rejected, "after restart the durable witness still blocks seq 10")
+        assertFalse(applier2.calls.contains("stage:10"), "the older bundle must not be staged after restart")
+
+        // seq 11 still repairs the durable floor after restart.
+        val r11 = PolicyAdmission.admit(b11, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r11 is PolicyAdmission.Result.Applied, "seq 11 repairs the durable floor after restart")
+        assertEquals(11L, state2.atRestFloor())
+    }
+
+    @Test
     fun genesisSeqZeroRejectedNeverLivePolicy() {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = false, atRest = null)
