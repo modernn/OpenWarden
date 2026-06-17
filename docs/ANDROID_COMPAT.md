@@ -2,6 +2,15 @@
 
 > **Status:** v2+ scoping note. Directly relitigates [`SIMPLIFY.md`](openwarden/docs/SIMPLIFY.md) §3 *"One target device family — Pixel 7/7a/7 Pro for v1."* This document is the cost-and-shape sketch for what "works on any modern Android" would require, so the maintainers can decide whether to spend the budget. It does not change v1 scope.
 > **Companion docs:** [`ATTACKS.md`](openwarden/docs/ATTACKS.md), [`DEFENSES.md`](openwarden/docs/DEFENSES.md), [`CRYPTO.md`](openwarden/docs/CRYPTO.md), [`PROVISIONING_V2.md`](openwarden/docs/PROVISIONING_V2.md), [`SIMPLIFY.md`](openwarden/docs/SIMPLIFY.md).
+>
+> **Superseded for current scope by [ADR-023](adr/023-enforcement-floor-tiers.md).** That ADR is the
+> **canonical, committed enforcement-tier definition.** Everything in *this* doc — the broader Tier-2
+> device list below (incl. Xiaomi / Sony / ASUS / Fairphone), the per-OEM tables, the sample parent
+> /marketing copy ("works on … major brands"), and the proposed "Tier 2 (major OEMs)" rule — is
+> **v2+ aspirational scoping, NOT a current support or marketing claim.** For any present-day tier
+> classification or parent-facing wording, use ADR-023's **model-scoped** list: **Tier 2 = Samsung
+> Galaxy S22+/A55+/Note, OnePlus 11+, Motorola Edge 50+, Nothing Phone 2+**; everything else —
+> including Xiaomi and untested models of those brands — is **Tier 3** best-effort.
 
 The user's ask: keep Pixel as the best-supported target, but stop refusing non-Pixel Androids. The mechanical reason OpenWarden said no until now is that every defense in `DEFENSES.md` and every assumption in `CRYPTO.md` §3/§10 is rooted in Google's hardware attestation chain + Titan M2 StrongBox + a fully predictable AOSP DPC surface. None of those generalize cleanly. They generalize *with caveats*, and the caveats are exactly what this doc enumerates.
 
@@ -27,6 +36,7 @@ Three tiers, with explicit "what works, what's weaker, what's broken" for each. 
 
 ### Tier 2 — Works with documented caveats
 
+*(v2+ aspiration — superseded for current scope by ADR-023; the committed Tier 2 is only Samsung Galaxy S22+/A55+/Note, OnePlus 11+, Motorola Edge 50+, Nothing Phone 2+. The rest below are Tier 3 today.)*
 Samsung Galaxy S22+ / Galaxy A55+ (2024-on) / Note series; OnePlus 11+; Xiaomi 13+/14+/HyperOS flagships; Sony Xperia 1 V+; Nothing Phone 2+; Motorola Edge 50+; ASUS ROG Phone 8+; Fairphone 5+.
 
 **Works:**
