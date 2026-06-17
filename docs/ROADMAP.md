@@ -68,7 +68,7 @@ keeps us on the right side of the stalkerware boundary.
 - [x] Lock-screen / QuickSettings / camera lockdown *(#17)*
 - [x] PolicyService FGS watchdog — reassert on boot/connectivity/timer/apply *(#11, ADR-021)*
 - [x] DNS floor — pin Private DNS to a public *filtering* resolver, fail-closed, never OFF *(#19, ADR-016)*
-- [ ] App allowlist via `setPackagesSuspended` (visible + grayed + admin message); allowlist-only launch, deny-by-default *(#12)*
+- [x] App allowlist via `setPackagesSuspended` (visible + grayed + admin message); allowlist-only launch, deny-by-default *(#12, ADR-022)*
 - [ ] Progressive ratchet to strict baseline after N hours no-contact *(#18)*
 
 ### v0.3 — parent app MVP (Android)
