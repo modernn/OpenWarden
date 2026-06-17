@@ -19,9 +19,11 @@ capture, and the degradation is now concrete:
 
 - **Launch allowlist (ADR-022 / #12).** The deny-by-default allowlist exempts all `FLAG_SYSTEM`
   apps (suspending system components bricks the device). On a Tier-1 Pixel the system image is
-  AOSP+Google-clean, so this is tight. On Tier 2 (Samsung, Xiaomi, …) the OEM **preloads**
-  `FLAG_SYSTEM` apps — e.g. Samsung Internet, Galaxy Store — that the allowlist therefore cannot
-  suspend. A kid can launch the OEM-preloaded browser/store past the allowlist.
+  AOSP+Google-clean, so this is tight. On Tier 2 (Samsung / OnePlus / Motorola / Nothing — ADR-001's
+  named list) the OEM **preloads** `FLAG_SYSTEM` apps — e.g. Samsung Internet, Galaxy Store — that
+  the allowlist therefore cannot suspend. A kid can launch the OEM-preloaded browser/store past the
+  allowlist. (Heavier-customization OEMs such as Xiaomi MIUI are **Tier 3**, not committed Tier 2 —
+  see SIMPLIFY.)
 - **Factory-reset / OEM-unlock (ADR-020 D4/D5).** FRP and `DISALLOW_OEM_UNLOCK` are reliable only
   on Pixel-class hardware with a locked bootloader; on much of Tier 2 they are bypassable via
   vendor unlock tools (research/07 S1: Xiaomi Mi-Unlock, OnePlus toggle).
@@ -54,6 +56,11 @@ the truth about *enforcement*, not only attestation.
 is extended with the **enforcement matrix** below. A device's tier is the *weakest* row it
 satisfies; a tier claim is only honest if every enforcement guarantee at that tier holds.
 
+**Canonical Tier-2 device list (= ADR-001's, used everywhere in this ADR):** Samsung Galaxy
+S22+ / A55+ / Note, OnePlus 11+, Motorola Edge 50+, Nothing Phone 2+. Heavier-customization OEMs
+(e.g. Xiaomi MIUI) are **Tier 3**, not committed Tier 2 (SIMPLIFY). The matrix rows, the Context
+examples, and the D4 hardening backlog all use this one list — no drift.
+
 | Enforcement surface | Tier 1 (Pixel 6+, A14+ stock) | Tier 2 (Samsung/OnePlus/Moto/Nothing, named) | Tier 3 (any A13+ DPC) |
 |---|---|---|---|
 | Launch allowlist (deny-by-default) | Tight — clean system image | **Gap: OEM-preloaded `FLAG_SYSTEM` apps (browser/store) stay launchable** (ADR-022 D4) | Gap, unaudited |
@@ -61,7 +68,7 @@ satisfies; a tier claim is only honest if every enforcement guarantee at that ti
 | Day-One `DISALLOW_*` baseline | Full, verify-or-throw | Full where the OEM honors the keys; some keys may no-op | Best-effort |
 | Profile-escape block + containment | Full (ADR-022) | Full where the OEM honors the keys | Best-effort |
 | DNS fail-closed floor (ADR-016) | Pinned + locked | Pinned; per-OEM Private DNS UI variance | Best-effort |
-| **Watchdog / FGS liveness (ADR-021)** | Reliable — no aggressive battery killer | **Contingent on a per-OEM battery-optimization exemption / provisioning** — Xiaomi/OnePlus/Samsung can kill the foreground service, which stops the re-assert that bounds drift (ANDROID_COMPAT) | Best-effort |
+| **Watchdog / FGS liveness (ADR-021)** | Reliable — no aggressive battery killer | **Contingent on a per-OEM battery-optimization exemption / provisioning** — OnePlus/Samsung (and heavier OEMs like Xiaomi MIUI, a Tier-3 case) can kill the foreground service, which stops the re-assert that bounds drift (ANDROID_COMPAT) | Best-effort |
 | Hardware key storage | StrongBox | TEE fallback (no StrongBox guarantee) | TEE / none |
 
 **D2 — Honest tier language (replaces ADR-001's attestation-only descriptions).**
@@ -77,8 +84,10 @@ satisfies; a tier claim is only honest if every enforcement guarantee at that ti
 **D3 — Tier 2/3 stay SUPPORTED with these caveats.** This amendment does **not** drop Tier 2/3
 (that was option B). The broad-Android decision of ADR-001 stands; what changes is that the
 *enforcement* limits are now first-class and **must be disclosed** (D5), mitigated where possible
-(e.g. the DNS floor still filters the OEM browser's web egress; install-approval still gates the
-OEM store).
+(e.g. the DNS floor still filters the OEM browser's web egress; an app *installed* via the OEM
+store is itself a non-allowlisted user app the deny-by-default allowlist suspends within a tick).
+**Install-approval is NOT a current mitigation** — it is frozen/future scope, not implemented, and
+must not be cited as a present defense.
 
 **D4 — Per-OEM enforcement hardening is a tracked backlog item, gated before any "Tier 2 fully
 hardened" / marketing claim.** Scope: a curated per-OEM system **sub-allowlist** (suspend/hide
