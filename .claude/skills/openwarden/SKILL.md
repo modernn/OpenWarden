@@ -59,11 +59,14 @@ CLI fallback `node .claude/mcp-server/dist/progress.js <cmd>` if the server isn'
   uncommitted/unpushed state); with no session here, shows a dashboard across all worktrees.
 - **`/openwarden finish`** → **review open PR(s) and complete them when ready.** Enumerate
   open PRs (`gh pr list --state open`) — or just the current worktree branch's PR if scoped.
-  For each: gather the diff and **review it with a `cavecrew-reviewer` subagent and/or Codex
-  (`/codex-second-opinion`)**, depth scaled to risk (full for code/security/build; light for
-  pure docs). Fix any blocker by dispatching the matching role agent and re-pushing. Then
-  **complete (merge)** the PR per the autonomy ceiling and run the Completion-protocol
-  cleanup. See the dedicated finish step below.
+  For each: gather the diff and **review it — a Codex review runs automatically** (not "if
+  warranted") alongside the matching in-repo reviewer(s) (`cavecrew-reviewer`, plus
+  `crypto-reviewer` for `agent-blocked`/fail-closed PRs), depth scaled to risk. Fix any blocker
+  by dispatching the matching role agent and re-pushing. Then **present the operator with options
+  for how to proceed** (merge / fix-then-merge / hold / more review / close) via AskUserQuestion —
+  never silently merge or hold — complete the chosen PRs per the autonomy ceiling, and run the
+  Completion-protocol cleanup (incl. deleting the merged **remote** branch). See the dedicated
+  finish step below.
 
 **Run `resume` first** when continuing prior work. Bare **`start`** is the zero-thought
 entrypoint: it decides *and* begins. Want fan-out across several issues at once instead of one?
@@ -240,9 +243,17 @@ Run a cleanup pass after every completed line of work:
 2. **Merged local branches.** After removing a merged worktree, delete the local
    branch: `git branch -d <branch>` (use `-D` only if the remote already deleted it
    and the branch is confirmed merged).
-3. **Prune stale refs.** `git worktree prune` to forget any hand-deleted worktree
-   folders. `git fetch --prune` to drop refs to deleted remote branches.
-4. **Temp scratch files.** Delete any ephemeral files the run created — diff bundles,
+3. **Merged remote branch.** Delete the branch on the remote too, so a completed PR's
+   branch never lingers on GitHub. `gh pr merge --delete-branch` already removes it when
+   *we* merge — but when a PR is completed any other way (web UI, a maintainer merge, or
+   `gh pr merge` without the flag), **explicitly delete it**:
+   `git push origin --delete <branch>` (or `gh api -X DELETE
+   repos/:owner/:repo/git/refs/heads/<branch>`). **Only after the PR is merged/closed** —
+   never delete the remote branch of a still-open PR. Confirm with `git ls-remote --heads
+   origin <branch>` returning nothing.
+4. **Prune stale refs.** `git worktree prune` to forget any hand-deleted worktree
+   folders. `git fetch --prune` to drop local refs to now-deleted remote branches.
+5. **Temp scratch files.** Delete any ephemeral files the run created — diff bundles,
    patch files, JSON scratch dumps — typically under the OS temp dir or a run-local
    `tmp/` folder. Do NOT delete anything that belongs to the source tree or a still-open
    PR branch.
@@ -328,24 +339,45 @@ complete → cleanup. `start` picks + implements + opens the PR; `finish` review
 
 1. **Enumerate.** `gh pr list --state open` (or the current branch's PR if scoped). Skip
    drafts (`--draft` state).
-2. **Review each PR.** Scale depth to risk. **For `agent-blocked` / fail-closed PRs run the
-   dual adversarial pass** (§ "Dual adversarial review"): `cavecrew-reviewer` (diff) **and**
-   `crypto-reviewer` (fail-closed semantics) in parallel, plus `/codex-second-opinion` if
-   warranted. Single reviewer/Codex for ordinary code; light pass for pure docs/typo PRs.
-   Collect severity-tagged findings; **HIGH/blocker gates**.
+2. **Review each PR — Codex is automatic, not "if warranted".** For **every** non-trivial PR,
+   run a **Codex review** (the `codex-rescue` agent / `/codex-second-opinion`) **automatically**,
+   in parallel with the matching in-repo reviewer(s): the **dual adversarial pass**
+   (§ "Dual adversarial review" — `cavecrew-reviewer` + `crypto-reviewer`) for `agent-blocked` /
+   fail-closed / security-adjacent PRs; a single `cavecrew-reviewer` for ordinary code; a light
+   pass for pure docs/typo PRs (Codex still runs unless the diff is a one-line typo). Send the
+   review dispatches in **one message** so they run concurrently. Each reviewer gets the PR diff
+   (`git -C <worktree> diff origin/main...HEAD`) + the relevant canon. Collect severity-tagged
+   findings; **HIGH/blocker gates.**
 3. **Fix blockers.** For any blocker/high-severity finding, dispatch the matching role agent
    (right-sized model, inside that PR's worktree) to fix it; re-push; re-review until clean.
-4. **Gate check before completing.** A PR is completable only if: CI green + review-clean
-   (no open blocker) + its diff touches **no `agent-blocked` surface**
-   (crypto/`proto`/policy-enforcement/provisioning/CI).
-5. **Complete.** If completable → merge per the autonomy ceiling (§ "Unattended / AFK mode")
-   with `gh pr merge --merge --delete-branch`. If the PR's diff **touches an `agent-blocked`
-   surface**, do NOT silent-merge: surface the review verdict + the specific gated hunk and
-   **require an explicit human confirm** (AskUserQuestion) before completing — even when an
-   operator is running `finish` unattended (the agent-blocked hard floor holds).
-6. **Cleanup + report.** Run the Completion-protocol self-clean for each merged PR (remove
-   worktree/branch, `git worktree prune`, `git fetch --prune`, temp files). Emit a per-PR
-   result (merged / fixed-then-merged / human-gated) and the standard `**Next:**` line.
+4. **Gate check.** A PR is *merge-eligible* only if: CI green + review-clean (no open blocker) +
+   its diff touches **no `agent-blocked` surface** (crypto/`proto`/policy-enforcement/
+   provisioning/CI). An `agent-blocked`-surface PR is **never** merge-eligible without an explicit
+   human confirm (the hard floor), even green.
+5. **Present options for how to proceed — ALWAYS surface a choice; never silently merge or
+   silently hold.** Once Codex + the reviewers report, summarize each PR's verdict (Codex read +
+   reviewer findings + CI + gate status), then present the operator with explicit options via
+   **AskUserQuestion** — per PR, or batched across several PRs. Standard options (recommend the
+   one that fits the verdict, list it first):
+   - **Merge now** — only offered when the PR is merge-eligible (step 4).
+   - **Fix findings first, then merge** — dispatch the matching role agent, re-push, re-review.
+   - **Hold / leave open** — park it (waiting on a human, a dependency, or more thought).
+   - **More review** — another Codex pass, a different reviewer lens, or a deeper dual pass.
+   - **Close** — abandon the PR.
+   **Autonomy ceiling still binds:** an `agent-blocked`-surface PR's only "merge" path is an
+   explicit human confirm chosen *here*. **Unattended/AFK with no operator present:** skip the
+   prompt and apply the autonomy ceiling directly (§ "Unattended / AFK mode") — auto-merge a
+   green + review-clean **non**-`agent-blocked` PR, STOP and hand back on any `agent-blocked` PR
+   or unresolved blocker.
+6. **Complete the chosen PRs.** For each PR the operator chose to merge (and that passes the
+   gate), `gh pr merge --merge --delete-branch` — the `--delete-branch` flag removes **both** the
+   local and the **remote** branch on merge.
+7. **Cleanup + report.** Run the Completion-protocol self-clean for each merged PR (§ 2): remove
+   the worktree, delete the local **and remote** branch (if a merge path other than
+   `--delete-branch` left the remote branch behind, `git push origin --delete <branch>`),
+   `git worktree prune`, `git fetch --prune`, temp files. Verify no orphan remote branch remains
+   (`git ls-remote --heads origin <branch>` → empty). Emit a per-PR result (merged /
+   fixed-then-merged / held / human-gated / closed) and the standard `**Next:**` line.
 
 ## Unattended / AFK mode
 

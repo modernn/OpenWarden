@@ -3,7 +3,7 @@ Status: Accepted
 Date: 2026-06-16
 Relates: ADR-001 (one device tier), ADR-020 (fail-closed Day-One + FRP/OEM-unlock), ADR-022 (allowlist deny-by-default), ADR-016 (DNS floor); docs/ANDROID_COMPAT.md, docs/research/07
 Amends: ADR-001 (tier definitions + Consequences)
-Depends on: **ADR-022 / PR #56 must land first.** This ADR's enforcement matrix and Tier-2 rows cite ADR-022 (esp. D4, the `FLAG_SYSTEM` residual). This branch was cut before #56 merged, so `docs/adr/` has no `022` file yet and the index skips 021→023 — merge #56 before #58 so every citation resolves and the matrix is auditable.
+Depends on: **ADR-022 / PR #56 (landed first, as required).** This ADR's enforcement matrix and Tier-2 rows cite ADR-022 (esp. D4, the `FLAG_SYSTEM` residual). PR #56 was merged ahead of this PR, so the `022` file exists, every citation resolves, and the index is contiguous (021 → 022 → 023) and auditable.
 
 ## Context
 

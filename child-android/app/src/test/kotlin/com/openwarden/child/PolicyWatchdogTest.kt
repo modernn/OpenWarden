@@ -28,12 +28,14 @@ class PolicyWatchdogTest {
             reassertRestrictions = { calls += "restrictions" },
             reassertAllowlist = { calls += "allowlist" },
             reassertDnsFloor = { calls += "dns" },
+            checkProfiles = { calls += "profiles" },
         )
 
         wd.reassert()
 
-        // Restrictions first (the fail-closed floor), then allowlist, then the DNS hook.
-        assertEquals(listOf("restrictions", "allowlist", "dns"), calls)
+        // Restrictions first (the fail-closed floor), then allowlist, the DNS hook, and finally
+        // the profile-escape detection backstop (ADR-022).
+        assertEquals(listOf("restrictions", "allowlist", "dns", "profiles"), calls)
     }
 
     @Test
@@ -60,14 +62,15 @@ class PolicyWatchdogTest {
             reassertRestrictions = { attempts++; throw RuntimeException("a") },
             reassertAllowlist = { attempts++; throw RuntimeException("b") },
             reassertDnsFloor = { attempts++; throw RuntimeException("c") },
+            checkProfiles = { attempts++; throw RuntimeException("d") },
         )
 
         wd.reassert() // must not propagate
 
-        // All three attempted (no early-out on the first throw) AND nothing escaped — reaching
+        // All four attempted (no early-out on the first throw) AND nothing escaped — reaching
         // this assertion at all proves no exception propagated out of reassert().
         assertEquals(
-            3,
+            4,
             attempts,
             "every surface must be attempted though each throws, with no exception propagated",
         )

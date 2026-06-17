@@ -45,8 +45,9 @@ What this means going forward (good + bad).
 | [017](017-replay-rollback-resistance.md) | Proposed | Replay/rollback resistance + JCS integer bound (red-team K1/JC1) |
 | [018](018-version-semantics-and-dynamic-roadmap.md) | Proposed | Version semantics (v0.x road → v1.0 public release), dynamic protected roadmap, tech-lead mode |
 | [019](019-canonical-signing-invariant.md) | Accepted | Canonical signing — sign-and-transmit-exact-bytes, verify over received bytes |
-| [020](020-failclosed-dayone-restrictions.md) | Accepted | Day-One restriction baseline applied fail-closed (verify-or-throw) + FRP |
+| [020](020-failclosed-dayone-restrictions.md) | Accepted (amended by 022) | Day-One restriction baseline applied fail-closed (verify-or-throw) + FRP |
 | [021](021-policy-watchdog-reassert-triggers.md) | Accepted | Policy watchdog re-asserts on boot, connectivity, and a periodic timer |
+| [022](022-allowlist-deny-by-default-profile-escape.md) | Accepted | Allowlist-only launch deny-by-default + fail-closed; baseline blocks profile escapes (red-team B1) |
 | [023](023-enforcement-floor-tiers.md) | Accepted | Device tiers defined by enforcement floor, not just attestation (amends ADR-001) |
 
 ## When to write an ADR

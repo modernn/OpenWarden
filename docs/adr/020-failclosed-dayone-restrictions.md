@@ -38,7 +38,8 @@ Three further gaps surfaced while fixing this (issue #8, research/07):
   restrictions, leaving *more* surfaces open than necessary (fails toward less restriction).
 - **C. Apply all, then verify by readback, then throw on any gap (chosen).** Applies every
   restriction (fails toward *more* restriction even if one entry errors), reads the actual
-  state back via `UserManager`, and throws if anything is missing. Never returns partial.
+  state back via the DO-authoritative `DevicePolicyManager.getUserRestrictions(admin)` (see D2),
+  and throws if anything is missing. Never returns partial.
 
 ## Decision
 
@@ -46,9 +47,26 @@ Three further gaps surfaced while fixing this (issue #8, research/07):
 This list *is* the strict baseline; there is no relaxed variant in v1. It is pinned in
 `PolicyEnforcer.requiredRestrictions` and independently re-asserted by a test witness.
 
+> **Amended by ADR-022 (2026-06-16):** the baseline is no longer a fixed "exactly 17". ADR-022
+> adds the always-on **profile-escape block** (`DISALLOW_ADD_MANAGED_PROFILE` always;
+> `DISALLOW_ADD_PRIVATE_PROFILE` on API 35+), so `requiredRestrictions` is now API-aware (18 on
+> API ≤ 34, 19 on API ≥ 35). The verify-or-throw *mechanism* (D2) is unchanged; only the
+> *contents* of the required set grew, and the witness test is split by `@Config(sdk=...)`.
+> **Caveat (not purely additive):** the contract now depends on a new assumption — that a Device
+> Owner setting the Java-`@Deprecated` `DISALLOW_ADD_MANAGED_PROFILE` key still records and reads
+> back the restriction bit. If that were false on some OS, verify would *false-trip and brick*
+> (fail-closed direction, but an incident). That readback, and the API-35 private-profile branch,
+> are **not** covered by the (sub-35) Robolectric suite and must be proven by the
+> `connectedAndroidTest` harness (#30) before this is trusted on hardware. See ADR-022 Consequences.
+
 **D2 — Verify-or-throw, never return partial.** `applyDayOneRestrictions()` applies the full
-set, then `verifyOrThrow()` reads each restriction back via `UserManager.hasUserRestriction`
-and throws `RestrictionEnforcementException(missing)` if any required restriction is not set.
+set, then `verifyOrThrow()` reads each restriction back via the **Device-Owner-authoritative**
+`DevicePolicyManager.getUserRestrictions(admin)` — **not** `UserManager.hasUserRestriction`. The
+distinction is load-bearing: `hasUserRestriction` reports the *effective union from any source*,
+so it can falsely report success when *our* `addUserRestriction(admin, …)` did not actually stick
+(e.g. another component set the same key); `getUserRestrictions(admin)` reflects only the
+restrictions *this admin* set, which is what the contract must verify. It throws
+`RestrictionEnforcementException(missing)` if any required restriction is not set.
 On that throw it calls `DevicePolicyManager.lockNow()` as last-resort containment so a
 half-locked device is not left usable. The method is idempotent — safe to call on first
 provision and on every boot / watchdog tick.

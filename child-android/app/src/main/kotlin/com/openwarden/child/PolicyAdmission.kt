@@ -220,7 +220,30 @@ object PolicyAdmission {
         fun chainFloor(): Long?
         fun effectiveFloor(): Long?
         fun advanceFloor(policySeq: Long)
+
+        /**
+         * In-memory witness (R7) of the highest `policy_seq` this process has *applied*, even when
+         * the durable [advanceFloor] for it failed. [admit] folds this into the admission floor so a
+         * partial transaction — applied but un-floored (R6 made it Rejected, but the apply already
+         * landed) — cannot be rolled back by a lower *valid* bundle in the same process. It survives
+         * a failed floor write (its whole point); it does NOT survive a process restart — the durable
+         * cross-restart witness is the not-yet-built event-log chain mirror ([chainFloor] / ADR-017
+         * part 1), which is also why a whole-snapshot rollback is caught by the parent on next sync
+         * (ADR-017 part 2), not locally. Defaulted so non-witness fakes need not implement it.
+         */
+        fun appliedHighWater(): Long? = null
+        fun noteApplied(policySeq: Long) {}
     }
+
+    /**
+     * Process-wide lock serializing the WHOLE admission transaction (R5). `/policy` admissions on
+     * different Ktor threads must not interleave: the floor is read inside this lock and advanced
+     * inside it, so a second concurrent admit re-reads the just-advanced floor and `decide()`
+     * rejects an out-of-order (older-seq) bundle as a replay — instead of applying it after a newer
+     * one and re-opening a freshly-denied app. (The watchdog takes only `PolicyEnforcer.APPLY_LOCK`,
+     * never this one, so there is no lock-ordering cycle.)
+     */
+    private val ADMIT_LOCK = Any()
 
     /**
      * Stateful admission entry point. Reads floor/marker/id from [store], decides,
@@ -237,10 +260,21 @@ object PolicyAdmission {
         pinParentKey: (ByteArray) -> Unit,
         pinnedParentPubkey: ByteArray?,
         genesisPubkey: ByteArray? = null,
-    ): Result {
+    ): Result = synchronized(ADMIT_LOCK) {
+        // R5: the floor read below and the advanceFloor in the commit must be one critical section,
+        // or two concurrent admits both read the same floor and apply out of order. Inside the lock,
+        // the second admit re-reads the advanced floor and decide() rejects the stale (older) bundle.
         val myId = store.childDeviceId()
         val provisioned = store.isProvisioned()
-        val floor = store.effectiveFloor()
+        // R7/R8: fold the in-memory applied high-water into the floor, so a partial transaction
+        // (applied but un-floored, after an advanceFloor failure) cannot be rolled back by a lower
+        // valid bundle in the same process. It guards anything STRICTLY BELOW the applied seq (the
+        // rollback, R7) — but NOT the *equal* seq, because a retry of the just-applied bundle must
+        // be allowed back in to re-advance a durable floor a transient write failure left stale
+        // (R8). So fold (highWater − 1): `seq > floor` then means `seq > durableFloor && seq >=
+        // highWater`. Normally this equals the at-rest floor; it only bites after a failed write.
+        val highWaterGuard = store.appliedHighWater()?.minus(1)
+        val floor = listOfNotNull(store.effectiveFloor(), highWaterGuard).maxOrNull()
         val anomaly = store.atRestFloor()?.let { atRest ->
             store.chainFloor()?.let { chain -> atRest < chain }
         } ?: false
@@ -254,29 +288,38 @@ object PolicyAdmission {
             floorAnomaly = anomaly,
         )
 
-        return when (outcome) {
+        when (outcome) {
             is Outcome.RejectMalformed -> Result.Rejected(malformed = true, reason = outcome.reason)
             is Outcome.RejectStrict -> Result.Rejected(malformed = false, reason = outcome.reason)
             is Outcome.Accept -> {
                 try {
                     // Two-phase commit. Order is load-bearing (ADR-017 commit ordering).
-                    if (outcome.genesis) {
-                        // Genesis (TOFU): the pure decide() could not verify the signature
-                        // (no key material), so we MUST verify the bundle here against the
-                        // key we are about to pin, BEFORE pinning/marking. A genesis accept
-                        // with no pubkey, or a sig that does not verify against it, is
-                        // fail-closed — never pin an unverified key.
-                        val pub = genesisPubkey
-                            ?: return Result.Rejected(false, "genesis accept without a pubkey to pin (fail-closed)")
-                        if (!BundleVerifier.verify(bundle, pub)) {
-                            return Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
-                        }
-                        // Pin the parent key + mark provisioned BEFORE seeding floor.
-                        pinParentKey(pub)
-                        store.markProvisioned()
+                    // Genesis (TOFU): the pure decide() could not verify the signature (no key
+                    // material), so we MUST verify the bundle here against the key we are about to
+                    // pin, BEFORE pinning. A genesis accept with no pubkey, or a sig that does not
+                    // verify against it, is fail-closed — never pin an unverified key.
+                    val genesisPub: ByteArray? = if (outcome.genesis) {
+                        genesisPubkey
+                            ?.takeIf { BundleVerifier.verify(bundle, it) }
+                            ?: return@synchronized Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
+                    } else {
+                        null
                     }
-                    applier.stage(bundle)             // 12. stage
-                    applier.applyAndFsync(bundle)     // 13. apply + fsync (durable)
+                    // R9/R11/R12: record the DURABLE rollback witness FIRST — before ANY durable
+                    // provisioning (pin/mark) or active-bundle state (stage). stage() makes the
+                    // candidate active and applyAndFsync() can mutate live/durable state before
+                    // throwing, so the witness must already be durable or a staged-but-failed apply
+                    // could be rolled back (even across a restart). It is fail-closed: if it can't
+                    // persist it throws here, leaving a CLEAN state — nothing pinned/marked/staged —
+                    // so the same signed bundle repairs idempotently on retry (R12: a genesis whose
+                    // witness failed must not strand the device pinned-but-floorless).
+                    store.noteApplied(outcome.policySeq)
+                    if (genesisPub != null) {
+                        pinParentKey(genesisPub)      // 11c. pin the verified parent key
+                        store.markProvisioned()       //      + mark provisioned, before seeding floor
+                    }
+                    applier.stage(bundle)             // 12. stage — the candidate is now the persisted active bundle
+                    applier.applyAndFsync(bundle)     // 13. apply + fsync (durable; may throw)
                     store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
                     applier.ack(outcome.policySeq)    // 15. ack (chain witness)
                     Result.Applied(outcome.policySeq, outcome.genesis)
