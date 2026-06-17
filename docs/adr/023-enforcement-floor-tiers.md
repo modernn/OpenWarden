@@ -3,6 +3,7 @@ Status: Accepted
 Date: 2026-06-16
 Relates: ADR-001 (one device tier), ADR-020 (fail-closed Day-One + FRP/OEM-unlock), ADR-022 (allowlist deny-by-default), ADR-016 (DNS floor); docs/ANDROID_COMPAT.md, docs/research/07
 Amends: ADR-001 (tier definitions + Consequences)
+Depends on: **ADR-022 / PR #56 must land first.** This ADR's enforcement matrix and Tier-2 rows cite ADR-022 (esp. D4, the `FLAG_SYSTEM` residual). This branch was cut before #56 merged, so `docs/adr/` has no `022` file yet and the index skips 021→023 — merge #56 before #58 so every citation resolves and the matrix is auditable.
 
 ## Context
 
@@ -60,30 +61,41 @@ satisfies; a tier claim is only honest if every enforcement guarantee at that ti
 | Day-One `DISALLOW_*` baseline | Full, verify-or-throw | Full where the OEM honors the keys; some keys may no-op | Best-effort |
 | Profile-escape block + containment | Full (ADR-022) | Full where the OEM honors the keys | Best-effort |
 | DNS fail-closed floor (ADR-016) | Pinned + locked | Pinned; per-OEM Private DNS UI variance | Best-effort |
+| **Watchdog / FGS liveness (ADR-021)** | Reliable — no aggressive battery killer | **Contingent on a per-OEM battery-optimization exemption / provisioning** — Xiaomi/OnePlus/Samsung can kill the foreground service, which stops the re-assert that bounds drift (ANDROID_COMPAT) | Best-effort |
 | Hardware key storage | StrongBox | TEE fallback (no StrongBox guarantee) | TEE / none |
 
 **D2 — Honest tier language (replaces ADR-001's attestation-only descriptions).**
 - **Tier 1 — full support:** every enforcement guarantee above holds.
 - **Tier 2 — supported with *disclosed enforcement gaps*:** DPC works and most `DISALLOW_*` apply,
   **but** the launch allowlist can be bypassed via OEM-preloaded apps, reset/unlock protection is
-  best-effort, and there is no StrongBox guarantee. These gaps are **disclosed to the parent at
-  setup**, not hidden.
+  best-effort, watchdog liveness depends on a per-OEM battery exemption, and there is no StrongBox
+  guarantee. These gaps **must be disclosed to the parent at setup** — that disclosure is a
+  *required, not-yet-complete* propagation into the parent-facing docs (see D5), not a claim that
+  it is already in place.
 - **Tier 3 — best-effort, community-supported, *no anti-bypass warranty*.**
 
 **D3 — Tier 2/3 stay SUPPORTED with these caveats.** This amendment does **not** drop Tier 2/3
 (that was option B). The broad-Android decision of ADR-001 stands; what changes is that the
-*enforcement* limits are now first-class and disclosed, mitigated where possible (e.g. the DNS
-floor still filters the OEM browser's web egress; install-approval still gates the OEM store).
+*enforcement* limits are now first-class and **must be disclosed** (D5), mitigated where possible
+(e.g. the DNS floor still filters the OEM browser's web egress; install-approval still gates the
+OEM store).
 
 **D4 — Per-OEM enforcement hardening is a tracked backlog item, gated before any "Tier 2 fully
 hardened" / marketing claim.** Scope: a curated per-OEM system **sub-allowlist** (suspend/hide
 OEM-preloaded browser/store while keeping launcher/SystemUI/dialer exempt), per-OEM FRP/unlock
-verification, and per-OEM provisioning. Filed as **issue #57** (`area:child-android`,
-`agent-blocked`). Until it lands, Tier 2 ships with the D2 disclosure, not a hardened guarantee.
+verification, **per-OEM watchdog/battery-optimization verification**, and per-OEM provisioning.
+Filed as **issue #57** (`area:child-android`, `agent-blocked`). Until it lands, Tier 2 ships with
+the D2 disclosure, not a hardened guarantee.
 
-**D5 — Marketing / SIMPLIFY implication.** Any "works on most Androids" claim must carry the
-Tier-2/3 enforcement caveat (no silent over-promise — the no-SaaS-style honesty bar applies to
-protection claims too). Actual copy is downstream and deferred; this ADR only sets the constraint.
+**D5 — Marketing / docs disclosure is a REQUIRED follow-up, not done here.** This ADR is the
+decision; the parent-facing docs do **not** yet reflect it, and some actively contradict it — so
+the "disclosure" of D2/D3 is **not in place yet**. Before any Tier-2/3 marketing or beta, the
+following must be reconciled to carry the Tier-2/3 enforcement caveat (no silent over-promise —
+the no-SaaS honesty bar applies to protection claims too): `README.md` (currently lists OEMs as
+supported and says "best on Pixel, works on most" without the enforcement caveat), `docs/SIMPLIFY.md`
+(still describes v1 as Pixel-only — stale vs ADR-001's tier system and this ADR; reconcile), and
+the setup/onboarding flow (must surface the Tier-2 gaps at provisioning). Tracked alongside #57's
+gating; this ADR sets the constraint and records that the doc work is outstanding.
 
 ## Consequences
 
