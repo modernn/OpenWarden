@@ -10,7 +10,7 @@ package com.openwarden.child
  */
 object Ratchet {
 
-    /** Silence ≥ this ⇒ STALE (deny-all launch; bundle still trusted for DNS/windows). 24h. */
+    /** Silence ≥ this ⇒ STALE (deny-all launch; bundle still trusted for its DNS resolver). 24h. */
     const val RATCHET_STALE_MS = 24L * 60 * 60 * 1000
 
     /** Silence ≥ this ⇒ STRICT (distrust the frozen bundle entirely; hard default floor). 48h. */
