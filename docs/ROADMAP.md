@@ -55,7 +55,7 @@ else in child-android works until this lands.
   `DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY`, `DISALLOW_MODIFY_ACCOUNTS`,
   `DISALLOW_ADD_USER`, `setFactoryResetProtectionPolicy(parent account)` *(#8 — canonical 17, DEFENSES row 2)*
 
-### v0.2 — child enforcement surface *(current)*
+### v0.2 — child enforcement surface ✅ *(complete)*
 
 The restrictions a parent actually feels, plus the transparency screen that
 keeps us on the right side of the stalkerware boundary.
@@ -69,9 +69,9 @@ keeps us on the right side of the stalkerware boundary.
 - [x] PolicyService FGS watchdog — reassert on boot/connectivity/timer/apply *(#11, ADR-021)*
 - [x] DNS floor — pin Private DNS to a public *filtering* resolver, fail-closed, never OFF *(#19, ADR-016)*
 - [x] App allowlist via `setPackagesSuspended` (visible + grayed + admin message); allowlist-only launch, deny-by-default *(#12, ADR-022)*
-- [ ] Progressive ratchet to strict baseline after N hours no-contact *(#18)*
+- [x] Progressive ratchet to strict baseline after N hours no-contact *(#18, ADR-024)*
 
-### v0.3 — parent app MVP (Android)
+### v0.3 — parent app MVP (Android) *(current)*
 
 A parent can pair, see state, and push a policy — from a phone.
 
