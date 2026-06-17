@@ -26,7 +26,7 @@ What this means going forward (good + bad).
 
 | # | Status | Title |
 |---|---|---|
-| [001](001-one-device-tier.md) | Accepted | One device tier, not one device family |
+| [001](001-one-device-tier.md) | Accepted (amended by 023) | One device tier, not one device family |
 | [002](002-ios-parent-v1.md) | Accepted | iOS parent app in v1 |
 | [003](003-dns-video-tracking.md) | Accepted | DNS-based video tracking, no titles |
 | [004](004-multi-child-schema-v1.md) | Accepted | Multi-child data model v1, UI v2 |
@@ -47,6 +47,7 @@ What this means going forward (good + bad).
 | [019](019-canonical-signing-invariant.md) | Accepted | Canonical signing — sign-and-transmit-exact-bytes, verify over received bytes |
 | [020](020-failclosed-dayone-restrictions.md) | Accepted | Day-One restriction baseline applied fail-closed (verify-or-throw) + FRP |
 | [021](021-policy-watchdog-reassert-triggers.md) | Accepted | Policy watchdog re-asserts on boot, connectivity, and a periodic timer |
+| [023](023-enforcement-floor-tiers.md) | Accepted | Device tiers defined by enforcement floor, not just attestation (amends ADR-001) |
 
 ## When to write an ADR
 

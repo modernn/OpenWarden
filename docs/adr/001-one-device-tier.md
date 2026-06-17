@@ -23,6 +23,16 @@ Adopt **option 2: tier system**.
 
 Amend SIMPLIFY.md §3 from "one device family" to "one device tier."
 
+> **Amended by ADR-023 (2026-06-16):** the tiers above were defined mostly by *attestation /
+> crypto strength*. ADR-023 redefines them by their **enforcement floor** (anti-bypass) too —
+> because the launch allowlist (ADR-022), reset/OEM-unlock resistance (ADR-020), and StrongBox
+> availability degrade on Tier 2/3 in ways this table did not capture (e.g. OEM-preloaded
+> `FLAG_SYSTEM` browser/store stay launchable past the allowlist on Samsung/Xiaomi). The tier
+> system and broad-Android reach **stand**; what changes is that Tier 2's enforcement gaps are now
+> first-class, disclosed to the parent, and owned by a per-OEM hardening backlog. See ADR-023 for
+> the per-tier enforcement matrix and the honest Tier-2/3 language that supersedes the
+> attestation-only descriptions here.
+
 ## Consequences
 
 **Good:**
