@@ -225,6 +225,22 @@ class PolicyEnforcerTest {
     }
 
     @Test
+    fun `applyDayOneRestrictions fails closed and locks when the restriction readback throws`() {
+        // R3: a readback-seam throw (e.g. getUserRestrictions failing) is itself a "can't prove the
+        // baseline" gap — it must lock + propagate, not bypass containment as a generic exception.
+        var locked = 0
+        val enforcer = PolicyEnforcer(
+            context,
+            isRestrictionSet = { throw RuntimeException("getUserRestrictions failed") },
+            lock = { locked++ },
+        )
+        assertFailsWith<RuntimeException>("a readback throw must propagate after containment") {
+            enforcer.applyDayOneRestrictions()
+        }
+        assertEquals(1, locked, "a restriction readback failure must lock the device, not skip containment")
+    }
+
+    @Test
     fun `applyDayOneRestrictions verifies the full set via the DO-authoritative readback`() {
         // Round-trip against the DO-authoritative reader (dpm.getUserRestrictions(admin)). Gate
         // on the shadow actually persisting DO-set restrictions; skip (never vacuously pass) if
@@ -361,6 +377,42 @@ class PolicyEnforcerTest {
             enforcer.applyAllowlist(emptySet())
         }
         assertEquals(1, locked, "a package-enumeration failure must lock the device, not silently skip")
+    }
+
+    @Test
+    fun `applyAllowlist fails closed and locks when the exempt-set read throws`() {
+        // R2: resolving the active launcher (alwaysExempt) is a read that can throw; it must fail
+        // closed (lock) like the package enumeration, not skip suspend/verify/lock outside the guard.
+        var locked = 0
+        val enforcer = PolicyEnforcer(
+            context,
+            installedApps = { listOf(InstalledApp("com.game", isSystem = false)) },
+            isLaunchBlocked = { false },
+            alwaysExempt = { throw RuntimeException("launcher resolve failed") },
+            lock = { locked++ },
+        )
+        assertFailsWith<AllowlistEnforcementException>("exempt-set read failure must fail closed") {
+            enforcer.applyAllowlist(emptySet())
+        }
+        assertEquals(1, locked, "an exempt-set read failure must lock the device, not silently skip")
+    }
+
+    @Test
+    fun `applyAllowlist locks before relaxing allowlisted apps when a deny target is uncontainable`() {
+        // R1: an allowlisted app present must not suppress the fail-closed deny gate. The device
+        // locks and throws; the allowlist-restore step is physically AFTER the throw, so a failed
+        // apply never relaxes (widens) access.
+        var locked = 0
+        val installed = listOf(
+            InstalledApp("com.school", isSystem = false), // allowlisted
+            InstalledApp("com.evil", isSystem = false), // deny target, uncontainable (launchBlocked stays false)
+        )
+        val ex = assertFailsWith<AllowlistEnforcementException> {
+            allowlistEnforcer(installed, launchBlocked = emptySet(), onLock = { locked++ })
+                .applyAllowlist(setOf("com.school"))
+        }
+        assertEquals(listOf("com.evil"), ex.stillLaunchable, "only the uncontainable deny target is reported")
+        assertEquals(1, locked, "must lock on the uncontainable deny target even with an allowlisted app present")
     }
 
     @Test

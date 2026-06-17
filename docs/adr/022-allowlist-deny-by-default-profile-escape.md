@@ -123,11 +123,17 @@ Good:
   profile that appears anyway is detected **and contained with `lockNow()`** by the watchdog.
 - Reuses ADR-020's verify-or-throw + `lockNow` idiom and ADR-021's watchdog seam, so the new
   surfaces inherit the same deterministic, seam-injected test coverage.
-- **Read-error paths fail closed too (Codex-review hardening).** A failure to *enumerate* installed
-  packages (`applyAllowlist`) or to *read the profile count* (`ProfileGuard`) now locks the device
-  rather than silently skipping — closing two fail-OPEN-on-read-error paths the review caught (the
-  watchdog would otherwise swallow the bare throw and leave the prior state usable). The
-  containment lock is routed through an injected seam so the lock half of the contract is tested.
+- **Read-error and ordering paths fail closed too (Codex-review hardening, two rounds).** Every
+  point where enforcement could be silently skipped or could relax access on a failure now locks
+  the device (`lockNow()`) instead — closing the fail-OPEN paths two adversarial Codex passes
+  caught (the watchdog would otherwise swallow a bare throw and leave the prior state usable):
+  - a failure to *enumerate installed packages* or to *resolve the exempt set* (`applyAllowlist`),
+  - a failure to *read the profile count* (`ProfileGuard`),
+  - a *restriction-readback throw* in `applyDayOneRestrictions` (previously only the typed
+    `RestrictionEnforcementException` triggered containment; now any verify exception does).
+  And `applyAllowlist` now **verifies the deny set is contained BEFORE relaxing any allowlisted
+  app**, so a failed apply can never widen access (it locks while everything is still locked down).
+  Containment is routed through an injected `lock` seam so the lock half of the contract is tested.
 
 Bad / accepted limits:
 - `setPackagesSuspended` / `setApplicationHidden` round-tripping depends on the platform; under

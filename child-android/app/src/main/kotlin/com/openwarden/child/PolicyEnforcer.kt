@@ -92,10 +92,12 @@ class PolicyEnforcer(
 
         try {
             verifyOrThrow()
-        } catch (e: RestrictionEnforcementException) {
-            // Last-resort containment: a partially-unrestricted device must not stay usable.
-            // runCatching so a lockNow failure can never mask the real enforcement exception.
-            runCatching { dpm.lockNow() }
+        } catch (e: Exception) {
+            // Last-resort containment: a partially-unrestricted device must not stay usable. Catch
+            // ANY exception, not just RestrictionEnforcementException (R3) — a readback-seam throw
+            // (e.g. getUserRestrictions failing) is itself a "can't prove the baseline" gap and must
+            // also lock, not propagate uncontained. runCatching so a lock failure can't mask it.
+            runCatching { lock() }
                 .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
             throw e
         }
@@ -138,30 +140,56 @@ class PolicyEnforcer(
             "Not Device Owner — cannot enforce the app allowlist"
         }
 
-        // (1) Enumerate. If we cannot read the installed-package list we cannot prove the deny set
-        // is contained — that is a fail-OPEN read error, so contain (lockNow) and throw rather than
-        // silently skip enforcement (the watchdog would otherwise swallow a bare throw and leave
-        // the prior launch state in place). Same fail-closed shape as a verify gap.
-        val apps = try {
-            installedApps()
+        // (1) Read inputs under a fail-closed wrapper. If we cannot read the installed-package list
+        // OR resolve the exempt set (active launcher), we cannot prove the deny set is contained —
+        // a fail-OPEN read error — so contain (lockNow) and throw rather than silently skip (the
+        // watchdog would otherwise swallow a bare throw and leave the prior launch state usable).
+        val apps: List<InstalledApp>
+        val exempt: Set<String>
+        try {
+            apps = installedApps()
+            // Re-evaluate the exempt set every call (F3): the active launcher can change between
+            // ticks, and a now-non-default launcher must NOT keep a stale exemption.
+            exempt = apps.filter { it.isSystem }.map { it.pkg }.toSet() + alwaysExempt() + context.packageName
         } catch (e: Exception) {
             runCatching { lock() }.onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
             throw AllowlistEnforcementException(
                 emptyList(),
-                "could not enumerate installed packages — cannot prove allowlist containment: ${e.message}",
+                "could not read inputs (installed packages / launcher exemption) — cannot prove allowlist containment: ${e.message}",
             )
         }
         val pkgs = apps.map { it.pkg }
-        // Re-evaluate the exempt set every call (F3): the active launcher can change between ticks,
-        // and a now-non-default launcher must NOT keep a stale exemption.
-        val exempt = apps.filter { it.isSystem }.map { it.pkg }.toSet() + alwaysExempt() + context.packageName
-
         val denyTargets = pkgs.filterNot { it in allowlist }.filterNot { it in exempt }
         val allowTargets = pkgs.filter { it in allowlist }
 
-        // (2) Restore allowlisted apps — a previously-blocked app that is now allowed must launch.
-        // setPackagesSuspended(false) returns the packages it could NOT un-suspend; surface them so
-        // a now-allowed app silently stuck blocked is at least visible (over-restriction, not a leak).
+        // (2) Deny-by-default FIRST — suspend the deny set, escalate to hide whatever resists. We do
+        // NOT relax any allowlisted app until the deny set is proven contained (R1), so a failed
+        // apply can never widen access. setPackagesSuspended returns the packages it could NOT
+        // suspend; a wholesale throw treats all deny targets as un-contained (fail toward more).
+        val failedSuspend: List<String> =
+            runCatching { dpm.setPackagesSuspended(admin, denyTargets.toTypedArray(), true).toList() }
+                .getOrElse {
+                    Log.e(TAG, "setPackagesSuspended threw: ${it.message}")
+                    denyTargets
+                }
+        failedSuspend.forEach { pkg ->
+            runCatching { dpm.setApplicationHidden(admin, pkg, true) }
+                .onFailure { Log.e(TAG, "hide escalation failed for $pkg: ${it.message}") }
+        }
+
+        // (3) Verify-or-throw — BEFORE relaxing anything. Any deny target neither suspended nor
+        // hidden can still launch: lock and throw while the allowlisted apps are still locked down,
+        // so a failed apply leaves the device strictly more restricted, never less.
+        val stillLaunchable = denyTargets.filterNot { isLaunchBlocked(it) }
+        if (stillLaunchable.isNotEmpty()) {
+            runCatching { lock() }
+                .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
+            throw AllowlistEnforcementException(stillLaunchable)
+        }
+
+        // (4) Deny set verified contained — only NOW restore allowlisted apps so they launch again.
+        // setPackagesSuspended(false) returns packages it could NOT un-suspend; surface them (a
+        // now-allowed app stuck blocked is over-restriction, not a leak).
         val failedUnsuspend =
             runCatching { dpm.setPackagesSuspended(admin, allowTargets.toTypedArray(), false).toList() }
                 .getOrElse { Log.e(TAG, "unsuspend allowlisted threw: ${it.message}"); emptyList() }
@@ -169,30 +197,6 @@ class PolicyEnforcer(
         allowTargets.forEach { pkg ->
             runCatching { dpm.setApplicationHidden(admin, pkg, false) }
                 .onFailure { Log.e(TAG, "unhide allowlisted $pkg failed: ${it.message}") }
-        }
-
-        // (3) Deny-by-default: suspend the deny set. setPackagesSuspended returns the packages it
-        // could NOT suspend; if the whole call throws, treat all deny targets as un-contained so
-        // the escalation + verify path still runs (fail toward more restriction).
-        val failedSuspend: List<String> =
-            runCatching { dpm.setPackagesSuspended(admin, denyTargets.toTypedArray(), true).toList() }
-                .getOrElse {
-                    Log.e(TAG, "setPackagesSuspended threw: ${it.message}")
-                    denyTargets
-                }
-
-        // Escalate: a cloned/sideloaded app that ignores suspension must not stay launchable.
-        failedSuspend.forEach { pkg ->
-            runCatching { dpm.setApplicationHidden(admin, pkg, true) }
-                .onFailure { Log.e(TAG, "hide escalation failed for $pkg: ${it.message}") }
-        }
-
-        // (4) Verify-or-throw. Any deny target neither suspended nor hidden can still launch.
-        val stillLaunchable = denyTargets.filterNot { isLaunchBlocked(it) }
-        if (stillLaunchable.isNotEmpty()) {
-            runCatching { lock() }
-                .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
-            throw AllowlistEnforcementException(stillLaunchable)
         }
 
         return AllowlistResult(blocked = denyTargets, exempt = pkgs.filter { it in exempt })
