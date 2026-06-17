@@ -70,7 +70,9 @@ class PolicyWatchdog(
             val store = PolicyStore(context)
             return PolicyWatchdog(
                 reassertRestrictions = { enforcer.applyDayOneRestrictions() },
-                reassertAllowlist = { enforcer.applyAllowlist(allowlistFor(store.load())) },
+                // R4: load the active allowlist INSIDE the apply lock (reassertActiveAllowlist), so a
+                // watchdog tick never applies a stale snapshot that a newer /policy apply superseded.
+                reassertAllowlist = { enforcer.reassertActiveAllowlist { allowlistFor(store.load()) } },
                 // Pin the fail-closed DNS floor (ADR-016). The parent's chosen resolver comes
                 // from the active bundle's private_dns; a missing/corrupt bundle (null) or any
                 // non-filtering host resolves to the default filtering host — never OFF. Re-pinned

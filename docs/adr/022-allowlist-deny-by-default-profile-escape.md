@@ -123,7 +123,12 @@ Good:
   profile that appears anyway is detected **and contained with `lockNow()`** by the watchdog.
 - Reuses ADR-020's verify-or-throw + `lockNow` idiom and ADR-021's watchdog seam, so the new
   surfaces inherit the same deterministic, seam-injected test coverage.
-- **Read-error and ordering paths fail closed too (Codex-review hardening, two rounds).** Every
+- **Application is serialized across threads (Codex-review hardening, R4).** The watchdog tick and
+  the Ktor `/policy` endpoint both apply policy from different threads. A process-wide `APPLY_LOCK`
+  now serializes every apply, and the watchdog reads the active allowlist *inside* the lock
+  (`reassertActiveAllowlist`) — so a stale watchdog snapshot can no longer interleave with, and
+  re-open a freshly-denied app after, a newer stricter `/policy` apply.
+- **Read-error and ordering paths fail closed too (Codex-review hardening, three rounds).** Every
   point where enforcement could be silently skipped or could relax access on a failure now locks
   the device (`lockNow()`) instead — closing the fail-OPEN paths two adversarial Codex passes
   caught (the watchdog would otherwise swallow a bare throw and leave the prior state usable):

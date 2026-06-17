@@ -73,7 +73,7 @@ class PolicyEnforcer(
      * @throws IllegalArgumentException if this app is not Device Owner.
      * @throws RestrictionEnforcementException if any required restriction is not verifiably set.
      */
-    fun applyDayOneRestrictions() {
+    fun applyDayOneRestrictions() = synchronized(APPLY_LOCK) {
         require(dpm.isDeviceOwnerApp(context.packageName)) {
             "Not Device Owner — cannot enforce restrictions"
         }
@@ -135,7 +135,20 @@ class PolicyEnforcer(
      * @throws IllegalArgumentException if this app is not Device Owner.
      * @throws AllowlistEnforcementException if any deny-target app is still launchable after apply.
      */
-    fun applyAllowlist(allowlist: Set<String>): AllowlistResult {
+    fun applyAllowlist(allowlist: Set<String>): AllowlistResult =
+        synchronized(APPLY_LOCK) { applyAllowlistLocked(allowlist) }
+
+    /**
+     * Load + apply the active allowlist atomically under [APPLY_LOCK] (R4). The loader runs INSIDE
+     * the critical section, so the watchdog reads the *current* persisted allowlist rather than a
+     * stale pre-loaded snapshot a newer `/policy` apply could have superseded — a stale restore
+     * could otherwise re-open a freshly-denied app. Use this from the watchdog; `/policy` applies a
+     * specific admitted bundle via [applyAllowlist].
+     */
+    fun reassertActiveAllowlist(loadAllowlist: () -> Set<String>): AllowlistResult =
+        synchronized(APPLY_LOCK) { applyAllowlistLocked(loadAllowlist()) }
+
+    private fun applyAllowlistLocked(allowlist: Set<String>): AllowlistResult {
         require(dpm.isDeviceOwnerApp(context.packageName)) {
             "Not Device Owner — cannot enforce the app allowlist"
         }
@@ -247,6 +260,16 @@ class PolicyEnforcer(
 
     companion object {
         const val TAG = "OpenWardenEnforcer"
+
+        /**
+         * Process-wide lock serializing ALL policy application (R4). Both the `PolicyService`
+         * watchdog tick and the Ktor `/policy` endpoint (via `DefaultPolicyApplier`) mutate the same
+         * DPM launch/restriction state from different threads; without serialization a stale apply
+         * could interleave with a newer one and re-open a freshly-denied app. A single shared monitor
+         * (companion-scoped, so it spans the many short-lived `PolicyEnforcer` instances the apply
+         * path creates) makes every apply atomic with respect to every other.
+         */
+        private val APPLY_LOCK = Any()
 
         /**
          * `DISALLOW_OEM_UNLOCK` is a `@SystemApi`/hidden [UserManager] constant — not

@@ -459,6 +459,37 @@ class PolicyEnforcerTest {
     }
 
     @Test
+    fun `reassertActiveAllowlist applies the allowlist loaded at apply time, not a stale snapshot`() {
+        // R4: the watchdog must read the *current* active allowlist inside the apply, so a newer
+        // stricter bundle is never overwritten by a stale pre-loaded snapshot. The loader reads a
+        // mutable "active" set; after it changes, the next apply must reflect the new value.
+        var active = setOf("com.old")
+        val installed = listOf(
+            InstalledApp("com.old", isSystem = false),
+            InstalledApp("com.new", isSystem = false),
+        )
+        // Whatever is NOT currently allowlisted reads back as launch-blocked (suspension stuck).
+        val enforcer = PolicyEnforcer(
+            context,
+            installedApps = { installed },
+            isLaunchBlocked = { it !in active },
+            alwaysExempt = { emptySet() },
+        )
+
+        val first = enforcer.reassertActiveAllowlist { active }
+        assertEquals(setOf("com.new"), first.blocked.toSet(), "old allowlist allows com.old, denies com.new")
+
+        // A newer, stricter bundle becomes active BEFORE the next apply.
+        active = setOf("com.new")
+        val second = enforcer.reassertActiveAllowlist { active }
+        assertEquals(
+            setOf("com.old"),
+            second.blocked.toSet(),
+            "must apply the freshly-loaded allowlist (com.old now denied), not the stale snapshot",
+        )
+    }
+
+    @Test
     fun `applyAllowlist throws when app is NOT device owner`() {
         Shadows.shadowOf(dpm).setDeviceOwner(null)
         assertFailsWith<IllegalArgumentException>("must refuse to enforce the allowlist when not Device Owner") {
