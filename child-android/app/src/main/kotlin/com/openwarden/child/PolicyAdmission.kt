@@ -266,11 +266,15 @@ object PolicyAdmission {
         // the second admit re-reads the advanced floor and decide() rejects the stale (older) bundle.
         val myId = store.childDeviceId()
         val provisioned = store.isProvisioned()
-        // R7: fold the in-memory applied high-water into the floor, so a partial transaction
+        // R7/R8: fold the in-memory applied high-water into the floor, so a partial transaction
         // (applied but un-floored, after an advanceFloor failure) cannot be rolled back by a lower
-        // valid bundle in the same process. Normally this equals the at-rest floor; it only matters
-        // when a durable floor write failed after the apply already landed.
-        val floor = listOfNotNull(store.effectiveFloor(), store.appliedHighWater()).maxOrNull()
+        // valid bundle in the same process. It guards anything STRICTLY BELOW the applied seq (the
+        // rollback, R7) — but NOT the *equal* seq, because a retry of the just-applied bundle must
+        // be allowed back in to re-advance a durable floor a transient write failure left stale
+        // (R8). So fold (highWater − 1): `seq > floor` then means `seq > durableFloor && seq >=
+        // highWater`. Normally this equals the at-rest floor; it only bites after a failed write.
+        val highWaterGuard = store.appliedHighWater()?.minus(1)
+        val floor = listOfNotNull(store.effectiveFloor(), highWaterGuard).maxOrNull()
         val anomaly = store.atRestFloor()?.let { atRest ->
             store.chainFloor()?.let { chain -> atRest < chain }
         } ?: false

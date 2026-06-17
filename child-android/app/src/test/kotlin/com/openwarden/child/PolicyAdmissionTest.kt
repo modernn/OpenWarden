@@ -230,6 +230,31 @@ class PolicyAdmissionTest {
     }
 
     @Test
+    fun retryingTheSameSeqRepairsTheStaleDurableFloorAfterTransientFailure() {
+        // R8: seq 11 applies but advanceFloor fails transiently (R6 => Rejected; high-water = 11,
+        // durable floor still 9). A retry of the SAME seq 11 must be admitted so it can re-advance
+        // the durable floor — the high-water blocks only STRICTLY-LOWER seqs (the rollback), not the
+        // equal one. Otherwise the durable floor stays stale until a higher seq arrives, widening
+        // the cross-restart rollback window unnecessarily.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L, failAdvance = true)
+        val applier = RecordingApplier()
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val first = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(first is PolicyAdmission.Result.Rejected, "the transient floor-write failure is Rejected (R6)")
+        assertEquals(9L, state.atRestFloor(), "durable floor is still stale after the failed write")
+        assertEquals(11L, state.appliedHighWater(), "high-water recorded the applied seq 11")
+
+        // The store recovers; the parent retries the SAME bundle.
+        state.failAdvance = false
+        val retry = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair the floor, not be rejected")
+        assertEquals(11L, state.atRestFloor(), "the durable floor is now advanced (repaired)")
+    }
+
+    @Test
     fun genesisSeqZeroRejectedNeverLivePolicy() {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = false, atRest = null)

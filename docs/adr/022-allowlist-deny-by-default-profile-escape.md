@@ -143,7 +143,10 @@ Good:
   ack); `markProvisioned`/`childDeviceId` got the same guard. (R7) a *successful* apply whose floor
   write then failed left an applied-but-un-floored policy that a lower valid bundle could roll back;
   `admit()` now folds an **in-memory applied high-water** into the floor, so a same-process replay
-  of a lower seq is rejected. The high-water survives a failed floor write but **not a restart** —
+  of a lower seq is rejected. It guards seqs *strictly below* the applied one, so a retry of the
+  *same* seq is still admitted and can re-advance a durable floor a transient write failure left
+  stale (R8) — the high-water blocks rollback without blocking self-repair. The high-water survives
+  a failed floor write but **not a restart** —
   the durable cross-restart witness is the not-yet-built event-log chain mirror (ADR-017 part 1);
   a whole-snapshot rollback is still caught by the parent on next sync (ADR-017 part 2), the
   documented pre-existing limitation.
