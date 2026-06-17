@@ -26,7 +26,7 @@ What this means going forward (good + bad).
 
 | # | Status | Title |
 |---|---|---|
-| [001](001-one-device-tier.md) | Accepted | One device tier, not one device family |
+| [001](001-one-device-tier.md) | Accepted (amended by 023) | One device tier, not one device family |
 | [002](002-ios-parent-v1.md) | Accepted | iOS parent app in v1 |
 | [003](003-dns-video-tracking.md) | Accepted | DNS-based video tracking, no titles |
 | [004](004-multi-child-schema-v1.md) | Accepted | Multi-child data model v1, UI v2 |
@@ -48,6 +48,7 @@ What this means going forward (good + bad).
 | [020](020-failclosed-dayone-restrictions.md) | Accepted (amended by 022) | Day-One restriction baseline applied fail-closed (verify-or-throw) + FRP |
 | [021](021-policy-watchdog-reassert-triggers.md) | Accepted | Policy watchdog re-asserts on boot, connectivity, and a periodic timer |
 | [022](022-allowlist-deny-by-default-profile-escape.md) | Accepted | Allowlist-only launch deny-by-default + fail-closed; baseline blocks profile escapes (red-team B1) |
+| [023](023-enforcement-floor-tiers.md) | Accepted | Device tiers defined by enforcement floor, not just attestation (amends ADR-001) |
 
 ## When to write an ADR
 
