@@ -61,7 +61,7 @@ For ages 5-17. Defaults shift per life stage (5-7 tight, 8-10 standard, 11-13 ea
 - You don't want a SaaS subscription
 - You don't trust Google / Bark / Qustodio with your kid's data
 - You're comfortable provisioning a phone via USB (or willing to use the desktop provisioner v2)
-- You're OK with "best on Pixel, works on most" tier system
+- You're OK with the enforcement-tier model: **full anti-bypass enforcement on Pixel-class (Tier 1)**, **named Tier-2 OEMs (Samsung/OnePlus/Motorola/Nothing) supported with documented gaps**, and **other Android best-effort with no anti-bypass warranty** ([ADR-023](docs/adr/023-enforcement-floor-tiers.md))
 
 ## Don't pick OpenWarden if
 
