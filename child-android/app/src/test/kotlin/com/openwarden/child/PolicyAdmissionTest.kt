@@ -110,7 +110,7 @@ class PolicyAdmissionTest {
     }
 
     /** Records the two-phase commit calls in order. */
-    private class RecordingApplier(val failApply: Boolean = false) : PolicyAdmission.Applier {
+    private class RecordingApplier(var failApply: Boolean = false) : PolicyAdmission.Applier {
         val calls = mutableListOf<String>()
         override fun stage(bundle: SignedBundle) { calls += "stage:${bundle.policy_seq}" }
         override fun applyAndFsync(bundle: SignedBundle) {
@@ -252,6 +252,35 @@ class PolicyAdmissionTest {
 
         assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair the floor, not be rejected")
         assertEquals(11L, state.atRestFloor(), "the durable floor is now advanced (repaired)")
+    }
+
+    @Test
+    fun stagedButFailedApplyStillBlocksALowerSeqRollback() {
+        // R9: stage() persists the candidate as the active bundle, and applyAndFsync() can mutate
+        // live/durable state before throwing (e.g. allowlist verify -> lockNow + throw). The rollback
+        // witness must be recorded at STAGE — else a throwing apply leaves the staged newer policy
+        // with no witness, and a lower valid seq could overwrite (roll back) it.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L)
+        val applier = RecordingApplier(failApply = true) // applyAndFsync throws after stage
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val first = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(first is PolicyAdmission.Result.Rejected, "a throwing apply is Rejected (fail-closed)")
+        assertTrue(applier.calls.contains("stage:11"), "but the bundle was staged — now the active policy")
+        assertEquals(11L, state.appliedHighWater(), "the witness must be recorded at stage, even though apply threw")
+
+        // A lower valid seq must not roll back the staged newer policy.
+        val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+        val r10 = PolicyAdmission.admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r10 is PolicyAdmission.Result.Rejected, "seq 10 must be rejected — staged seq 11 blocks the rollback")
+        assertFalse(applier.calls.contains("stage:10"), "the older bundle must never even be staged")
+
+        // The transient apply failure clears; retrying the same seq repairs (applies + advances floor).
+        applier.failApply = false
+        val retry = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair once apply succeeds")
+        assertEquals(11L, state.atRestFloor(), "the durable floor advanced after the successful retry")
     }
 
     @Test

@@ -143,7 +143,10 @@ Good:
   ack); `markProvisioned`/`childDeviceId` got the same guard. (R7) a *successful* apply whose floor
   write then failed left an applied-but-un-floored policy that a lower valid bundle could roll back;
   `admit()` now folds an **in-memory applied high-water** into the floor, so a same-process replay
-  of a lower seq is rejected. It guards seqs *strictly below* the applied one, so a retry of the
+  of a lower seq is rejected. The witness is recorded the moment the bundle is **staged** (R9) —
+  before `applyAndFsync`, which can mutate live/durable state before it throws — so even a throwing
+  apply can't leave the staged newer policy rollbackable by a lower seq. It guards seqs *strictly
+  below* the applied one, so a retry of the
   *same* seq is still admitted and can re-advance a durable floor a transient write failure left
   stale (R8) — the high-water blocks rollback without blocking self-repair. The high-water survives
   a failed floor write but **not a restart** —
