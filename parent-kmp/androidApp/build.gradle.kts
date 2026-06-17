@@ -38,4 +38,10 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.navigation)
     implementation(libs.androidx.activity.compose)
+    // QR / barcode scanning (ML Kit + CameraX) — PARENT_KMP_STRUCTURE.md §5
+    implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
 }
