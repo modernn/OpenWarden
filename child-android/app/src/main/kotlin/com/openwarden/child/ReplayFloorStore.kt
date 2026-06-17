@@ -116,6 +116,19 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
         }
     }
 
+    /**
+     * In-memory high-water of the highest applied `policy_seq` this process (R7). Backed by a
+     * **companion-scoped** field because `/policy` constructs a fresh [ReplayFloorStore] per
+     * request — an instance field would not survive between requests. Resets on process restart
+     * (the durable cross-restart witness is the not-yet-built event-log chain mirror).
+     */
+    override fun appliedHighWater(): Long? = appliedHighWaterMem
+
+    override fun noteApplied(policySeq: Long) {
+        val cur = appliedHighWaterMem
+        if (cur == null || policySeq > cur) appliedHighWaterMem = policySeq
+    }
+
     /** True iff this child has been provisioned (pairing marker written). ADR-017 part 4. */
     override fun isProvisioned(): Boolean = prefs.getBoolean(KEY_PROVISIONED, false)
 
@@ -155,5 +168,14 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
         const val KEY_FLOOR = "policy_seq_floor"
         const val KEY_PROVISIONED = "provisioned"
         const val KEY_CHILD_ID = "child_device_id"
+
+        /**
+         * R7 in-memory applied high-water, process-global so it survives the fresh
+         * [ReplayFloorStore] that `/policy` builds per request. Mutated only under
+         * `PolicyAdmission.ADMIT_LOCK` (every `noteApplied` call is inside `admit`), so plain
+         * `@Volatile` visibility is enough — no separate lock needed.
+         */
+        @Volatile
+        private var appliedHighWaterMem: Long? = null
     }
 }

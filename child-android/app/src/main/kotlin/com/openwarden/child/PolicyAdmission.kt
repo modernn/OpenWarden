@@ -220,6 +220,19 @@ object PolicyAdmission {
         fun chainFloor(): Long?
         fun effectiveFloor(): Long?
         fun advanceFloor(policySeq: Long)
+
+        /**
+         * In-memory witness (R7) of the highest `policy_seq` this process has *applied*, even when
+         * the durable [advanceFloor] for it failed. [admit] folds this into the admission floor so a
+         * partial transaction — applied but un-floored (R6 made it Rejected, but the apply already
+         * landed) — cannot be rolled back by a lower *valid* bundle in the same process. It survives
+         * a failed floor write (its whole point); it does NOT survive a process restart — the durable
+         * cross-restart witness is the not-yet-built event-log chain mirror ([chainFloor] / ADR-017
+         * part 1), which is also why a whole-snapshot rollback is caught by the parent on next sync
+         * (ADR-017 part 2), not locally. Defaulted so non-witness fakes need not implement it.
+         */
+        fun appliedHighWater(): Long? = null
+        fun noteApplied(policySeq: Long) {}
     }
 
     /**
@@ -253,7 +266,11 @@ object PolicyAdmission {
         // the second admit re-reads the advanced floor and decide() rejects the stale (older) bundle.
         val myId = store.childDeviceId()
         val provisioned = store.isProvisioned()
-        val floor = store.effectiveFloor()
+        // R7: fold the in-memory applied high-water into the floor, so a partial transaction
+        // (applied but un-floored, after an advanceFloor failure) cannot be rolled back by a lower
+        // valid bundle in the same process. Normally this equals the at-rest floor; it only matters
+        // when a durable floor write failed after the apply already landed.
+        val floor = listOfNotNull(store.effectiveFloor(), store.appliedHighWater()).maxOrNull()
         val anomaly = store.atRestFloor()?.let { atRest ->
             store.chainFloor()?.let { chain -> atRest < chain }
         } ?: false
@@ -290,6 +307,7 @@ object PolicyAdmission {
                     }
                     applier.stage(bundle)             // 12. stage
                     applier.applyAndFsync(bundle)     // 13. apply + fsync (durable)
+                    store.noteApplied(outcome.policySeq)  // 13b. R7: record in-memory high-water BEFORE the durable floor advance, so a failed advance can't be rolled back this process
                     store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
                     applier.ack(outcome.policySeq)    // 15. ack (chain witness)
                     Result.Applied(outcome.policySeq, outcome.genesis)

@@ -99,6 +99,14 @@ class PolicyAdmissionTest {
             if (cur != null && policySeq <= cur) return // never lower; idempotent
             atRest = policySeq
         }
+
+        // R7 in-memory applied high-water — instance-scoped here so each test is isolated.
+        var highWater: Long? = null
+        override fun appliedHighWater(): Long? = highWater
+        override fun noteApplied(policySeq: Long) {
+            val cur = highWater
+            if (cur == null || policySeq > cur) highWater = policySeq
+        }
     }
 
     /** Records the two-phase commit calls in order. */
@@ -194,6 +202,31 @@ class PolicyAdmissionTest {
         assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable floor write must be Rejected, not Applied")
         assertFalse(applier.calls.any { it.startsWith("ack:") }, "no ack may be emitted when the floor write fails")
         assertEquals(9L, state.atRestFloor(), "the floor must remain at its old value (not advanced)")
+    }
+
+    @Test
+    fun appliedHighWaterBlocksRollbackAfterAFailedFloorWrite() {
+        // R7: seq 11 applies but advanceFloor fails (R6 => Rejected, no ack) — yet the apply landed
+        // and the durable floor stayed at 9. A same-process replay of an older VALID seq 10 (signed,
+        // 9 < 10 < 11) must NOT be admitted, or it would roll the policy back to v10. The in-memory
+        // applied high-water (=11) raises the effective floor so seq 10 is rejected.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L, failAdvance = true)
+        val applier = RecordingApplier()
+
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+        val r11 = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        assertTrue(r11 is PolicyAdmission.Result.Rejected, "the failed floor write is Rejected (R6)")
+        assertTrue(applier.calls.contains("apply:11"), "but seq 11 was actually applied (the dangerous partial state)")
+        assertEquals(11L, state.appliedHighWater(), "the applied high-water must record seq 11")
+
+        // The floor store recovers; an attacker replays the older valid seq 10.
+        state.failAdvance = false
+        val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+        val r10 = PolicyAdmission.admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(r10 is PolicyAdmission.Result.Rejected, "seq 10 must be rejected — the high-water (11) blocks the rollback")
+        assertFalse(applier.calls.contains("apply:10"), "the older bundle must never be applied")
     }
 
     @Test

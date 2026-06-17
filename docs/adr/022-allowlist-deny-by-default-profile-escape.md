@@ -136,6 +136,17 @@ Good:
     the same floor and apply out of order; the second re-reads the advanced floor and is rejected
     as a replay (R5). This tightens ADR-017's commit ordering under concurrency. Lock ordering is
     cycle-free: `/policy` takes `ADMIT_LOCK` then `APPLY_LOCK`; the watchdog takes only `APPLY_LOCK`.
+- **Durable floor writes + rollback witness (Codex-review hardening, R6 + R7).** Two more replay-
+  layer fail-opens: (R6) `ReplayFloorStore.advanceFloor` ignored `commit()`'s boolean, so a failed
+  durable write still reported `Applied`/acked while the floor stayed stale — now it `check()`s
+  `commit()` + verifies the readback and throws, which `admit()`'s catch turns into `Rejected` (no
+  ack); `markProvisioned`/`childDeviceId` got the same guard. (R7) a *successful* apply whose floor
+  write then failed left an applied-but-un-floored policy that a lower valid bundle could roll back;
+  `admit()` now folds an **in-memory applied high-water** into the floor, so a same-process replay
+  of a lower seq is rejected. The high-water survives a failed floor write but **not a restart** —
+  the durable cross-restart witness is the not-yet-built event-log chain mirror (ADR-017 part 1);
+  a whole-snapshot rollback is still caught by the parent on next sync (ADR-017 part 2), the
+  documented pre-existing limitation.
 - **Read-error and ordering paths fail closed too (Codex-review hardening, three rounds).** Every
   point where enforcement could be silently skipped or could relax access on a failure now locks
   the device (`lockNow()`) instead — closing the fail-OPEN paths two adversarial Codex passes
