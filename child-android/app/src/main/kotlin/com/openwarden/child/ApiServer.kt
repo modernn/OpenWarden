@@ -57,14 +57,34 @@ class ApiServer(private val context: Context) {
                         pinnedParentPubkey = store.parentPubkey(),
                     )
                     when (result) {
-                        is PolicyAdmission.Result.Applied ->
+                        is PolicyAdmission.Result.Applied -> {
+                            // ADR-024: a successful authenticated bundle apply IS parent contact —
+                            // reset the no-contact ratchet. Best-effort: a failed marker write must
+                            // not fail the (already durable) apply; a missed reset only tightens later.
+                            runCatching { ContactClock.forContext(ctx).recordContact() }
                             call.respond(HttpStatusCode.OK, mapOf("status" to "applied", "policy_seq" to result.policySeq))
+                        }
                         is PolicyAdmission.Result.Rejected ->
                             // Fail-closed: the previous (or strict baseline) policy stays in force.
                             call.respond(
                                 HttpStatusCode.BadRequest,
                                 mapOf("error" to if (result.malformed) "MALFORMED" else "REJECTED", "reason" to result.reason),
                             )
+                    }
+                }
+                post("/heartbeat") {
+                    // ADR-024 D4: a minimal authenticated keep-alive. Verifies the signed heartbeat
+                    // against the pinned parent key (+ audience + monotonic replay floor) and, on
+                    // success, resets the no-contact ratchet — without re-issuing a policy bundle.
+                    val hb = call.receive<SignedHeartbeat>()
+                    val ctx = this@ApiServer.context
+                    val pinned = PolicyStore(ctx).parentPubkey()
+                    val admitted = ContactClock.forContext(ctx).admitHeartbeat(hb, pinned)
+                    if (admitted) {
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
+                    } else {
+                        // Fail-closed: an unverified/replayed/mis-addressed heartbeat changes nothing.
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "REJECTED"))
                     }
                 }
                 post("/lock") {

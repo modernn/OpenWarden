@@ -50,6 +50,29 @@ paths:
         '401':
           description: HMAC failed
 
+  /heartbeat:
+    post:
+      summary: Authenticated parent keep-alive (ADR-024)
+      description: |
+        A minimal signed parent liveness ping that resets the child's no-contact ratchet
+        (ADR-024) WITHOUT re-issuing a policy bundle. The child verifies the Ed25519 signature
+        against the pinned parent key, audience-binds child_device_id, and enforces a monotonic
+        issued_at replay floor before resetting the ratchet timer. issued_at is the replay floor
+        only — silence is measured by the child's own monotonic clock, not the parent's time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Heartbeat'
+      responses:
+        '200':
+          description: Verified — ratchet reset
+        '400':
+          description: Signature invalid, wrong audience, or replayed (issued_at <= floor)
+        '401':
+          description: HMAC failed
+
   /usage:
     get:
       summary: App usage stats
@@ -150,6 +173,27 @@ components:
             frp_account:
               type: string
               nullable: true
+        sig:
+          type: string
+          description: Ed25519 signature (hex) over RFC 8785 JCS of all fields except 'sig'
+      # NOTE: this PolicyBundle block is drifted vs the implemented PROTOCOL.md §2 / child
+      # SignedBundle schema (which uses integer-ms issued_at/not_before/not_after, child_device_id,
+      # policy_seq, and allow/days/tz windows). Reconciling it is tracked separately; the Heartbeat
+      # below matches the implemented child schema exactly.
+
+    Heartbeat:
+      type: object
+      required: [v, child_device_id, issued_at, sig]
+      description: ADR-024 authenticated parent keep-alive. Resets the child no-contact ratchet.
+      properties:
+        v: {type: integer, enum: [1]}
+        child_device_id:
+          type: string
+          description: Audience — the addressed child's pinned id. The child rejects a heartbeat for any other id.
+        issued_at:
+          type: integer
+          format: int64
+          description: Parent send time, ms (u53-bounded 0..2^53-1). Used ONLY as the monotonic replay floor.
         sig:
           type: string
           description: Ed25519 signature (hex) over RFC 8785 JCS of all fields except 'sig'

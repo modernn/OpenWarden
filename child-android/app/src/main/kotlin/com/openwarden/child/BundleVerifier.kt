@@ -2,11 +2,6 @@ package com.openwarden.child
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import net.i2p.crypto.eddsa.EdDSAEngine
-import net.i2p.crypto.eddsa.EdDSAPublicKey
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
-import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
-import java.security.MessageDigest
 
 /**
  * Ed25519 verification over RFC 8785 JCS canonicalized JSON.
@@ -35,19 +30,11 @@ object BundleVerifier {
         explicitNulls = false
     }
 
-    fun verify(bundle: SignedBundle, pubkey: ByteArray): Boolean {
-        return try {
-            val canonical = canonicalBody(bundle)
-            val sig = bundle.sig.hexToBytes()
-            val spec = EdDSAPublicKeySpec(pubkey, EdDSANamedCurveTable.getByName("Ed25519"))
-            val key = EdDSAPublicKey(spec)
-            val engine = EdDSAEngine(MessageDigest.getInstance("SHA-512"))
-            engine.initVerify(key)
-            engine.update(canonical)
-            engine.verify(sig)
-        } catch (e: Exception) {
-            false
-        }
+    fun verify(bundle: SignedBundle, pubkey: ByteArray): Boolean = try {
+        Ed25519.verify(canonicalBody(bundle), bundle.sig, pubkey)
+    } catch (e: Exception) {
+        // canonicalBody can throw (canonicalization failure) — fail-closed.
+        false
     }
 
     /**
@@ -60,7 +47,4 @@ object BundleVerifier {
         val full = json.encodeToJsonElement(SignedBundle.serializer(), bundle) as JsonObject
         return Canonical.canonicalizeWithout(full, "sig").encodeToByteArray()
     }
-
-    private fun String.hexToBytes(): ByteArray =
-        chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }

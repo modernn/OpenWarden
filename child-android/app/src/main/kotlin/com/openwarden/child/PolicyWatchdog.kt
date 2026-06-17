@@ -64,22 +64,54 @@ class PolicyWatchdog(
             else -> emptySet()
         }
 
+        /**
+         * ADR-024 no-contact ratchet — the allowlist to enforce given the current [tier]:
+         *   - [Ratchet.Tier.FRESH] → the bundle's allowlist ([allowlistFor]).
+         *   - [Ratchet.Tier.STALE] / [Ratchet.Tier.STRICT] → **deny-all** (`emptySet`): once the
+         *     parent has been silent past the stale threshold the frozen bundle's allowlist is no
+         *     longer trusted, so every non-allowlisted (i.e. every) app is suspended.
+         * Pure so the ratchet wiring is unit-testable without a device.
+         */
+        fun ratchetAllowlist(tier: Ratchet.Tier, result: PolicyStore.LoadResult): Set<String> =
+            if (tier == Ratchet.Tier.FRESH) allowlistFor(result) else emptySet()
+
+        /**
+         * ADR-024 — the DNS resolver to pin given the current [tier]:
+         *   - [Ratchet.Tier.STRICT] → `null`: distrust the frozen bundle entirely, so the DNS floor
+         *     falls to its default filtering resolver (the Missing/Corrupt path) — the stale
+         *     bundle's `private_dns` choice is ignored.
+         *   - otherwise → the bundle's `private_dns` (still trusted at FRESH/STALE).
+         * The floor itself never resolves to OFF/OPPORTUNISTIC regardless (ADR-016).
+         */
+        fun ratchetDns(tier: Ratchet.Tier, result: PolicyStore.LoadResult): String? =
+            if (tier == Ratchet.Tier.STRICT) {
+                null
+            } else {
+                (result as? PolicyStore.LoadResult.Loaded)?.bundle?.policy?.private_dns
+            }
+
         /** Wire the watchdog to the real on-device policy surfaces. */
         fun forContext(context: Context): PolicyWatchdog {
             val enforcer = PolicyEnforcer(context)
             val store = PolicyStore(context)
+            val ratchet = ContactClock.forContext(context)
             return PolicyWatchdog(
                 reassertRestrictions = { enforcer.applyDayOneRestrictions() },
                 // R4: load the active allowlist INSIDE the apply lock (reassertActiveAllowlist), so a
                 // watchdog tick never applies a stale snapshot that a newer /policy apply superseded.
-                reassertAllowlist = { enforcer.reassertActiveAllowlist { allowlistFor(store.load()) } },
+                // ADR-024: the *tier* (silence-based, bundle-independent) is read outside the lock;
+                // the bundle load stays inside it, so deny-all on STALE/STRICT still honors R4.
+                reassertAllowlist = {
+                    val tier = ratchet.currentTier()
+                    enforcer.reassertActiveAllowlist { ratchetAllowlist(tier, store.load()) }
+                },
                 // Pin the fail-closed DNS floor (ADR-016). The parent's chosen resolver comes
                 // from the active bundle's private_dns; a missing/corrupt bundle (null) or any
                 // non-filtering host resolves to the default filtering host — never OFF. Re-pinned
                 // on every trigger (boot / connectivity / timer), incl. airplane-mode toggles.
+                // ADR-024: at STRICT the bundle's resolver is ignored (default filtering host).
                 reassertDnsFloor = {
-                    val requested = (store.load() as? PolicyStore.LoadResult.Loaded)
-                        ?.bundle?.policy?.private_dns
+                    val requested = ratchetDns(ratchet.currentTier(), store.load())
                     DnsFloor(context).applyFloor(requested)
                 },
                 // ADR-022 profile-escape backstop: the restrictions above already BLOCK

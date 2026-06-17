@@ -25,7 +25,7 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 | 5 | **Sealed-box envelope (libsodium) on event log to parent pubkey** | Kid w/ root reads logs about themself | M | ionspin KMP libsodium |
 | 6 | Signed policy bundle: Ed25519 + `policy_seq` monotonic + `not_before/not_after` + reject regressions | C8, H1 (replay) | S | Ed25519 |
 | 7 | Append-only signed event log w/ hash chain (`prev_hash || event_data`) | Tamper-evident, fork detect | M | None |
-| 8 | Heartbeat 5min over LAN (v1) / Iroh (v2); parent escalating silence alarms (15min/1h/6h/24h) | J1, N1, factory-reset detect | M | Transport |
+| 8 | Heartbeat 5min over LAN (v1) / Iroh (v2); parent escalating silence alarms (15min/1h/6h/24h). **Child-side: signed `Heartbeat` (authenticated keep-alive) + no-contact ratchet to strict baseline — STALE 24h → STRICT 48h, independent of `not_after`** *(#18, ADR-024, red-team O1)* | J1, N1, O1, factory-reset detect | M | Transport |
 | 9 | AVB runtime check via Key Attestation cert chain; refuse to operate if `verifiedBootState != VERIFIED` | rooted/tampered boot | M | StrongBox |
 | 10 | FGS watchdog + secondary `:watchdog` process + AlarmManager `setExactAndAllowWhileIdle` | OOM kills, battery saver, N1 | M | None |
 | 11 | Lock-task "lock now" w/ only OpenWarden activity allowlisted | K-class tantrum mitigation | S | DO `setLockTaskPackages` |
@@ -63,7 +63,7 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 | C2 | DoH in browser | 17 (force private DNS) | Tech |
 | C4 | VPN slot hijack | 18 (setAlwaysOnVpnPackage) | Tech |
 | C5 | Hotspot to escape parent LAN | local enforcement already independent | Tech (design) |
-| C6 | Block parent sync | 8 (heartbeat silence alarms) + policy expiry → strict baseline | Tech |
+| C6 | Block parent sync | 8 (heartbeat silence alarms) + child no-contact ratchet → strict baseline (ADR-024/#18, red-team O1) | Tech |
 | C7 | mDNS spoof | 6 (Ed25519 sig verify) | Tech |
 | C8 | Bundle replay | 6 (policy_seq + not_before/not_after) | Tech |
 | D1 | In-app WebView (Discord/Roblox) | 17 (DNS filter) + parent blocklist guidance | Tech + Procedural |
