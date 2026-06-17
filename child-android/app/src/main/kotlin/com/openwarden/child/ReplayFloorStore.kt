@@ -32,7 +32,7 @@ import androidx.security.crypto.MasterKey
  * The floor is **device-global** and NOT keyed by parent pubkey: a `RotateKey`
  * carries it forward and never lowers it (ADR-017 K2 / §Carried-forward).
  */
-class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
+class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactStore {
 
     private val prefs: SharedPreferences by lazy { open(context) }
 
@@ -182,6 +182,80 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
         return generated
     }
 
+    // ---- ContactStore (ADR-024): no-contact ratchet markers + heartbeat replay floor ----
+
+    /** Last authenticated-contact wall-clock ms, or null if never contacted. */
+    override fun lastContactWallMs(): Long? =
+        if (prefs.contains(KEY_CONTACT_WALL)) prefs.getLong(KEY_CONTACT_WALL, 0L) else null
+
+    /** Last authenticated-contact `elapsedRealtime()` ms (same boot session only), or null. */
+    override fun lastContactElapsedMs(): Long? =
+        if (prefs.contains(KEY_CONTACT_ELAPSED)) prefs.getLong(KEY_CONTACT_ELAPSED, 0L) else null
+
+    /** Highest wall-clock ms ever observed — a later reading below it is a backward roll (ADR-024 D2). */
+    override fun wallHighWaterMs(): Long? =
+        if (prefs.contains(KEY_WALL_HW)) prefs.getLong(KEY_WALL_HW, 0L) else null
+
+    /**
+     * Record an authenticated contact at ([wallMs], [elapsedMs]) and advance the wall high-water to
+     * at least [wallMs], in one durable commit. Fail-closed (commit()-checked + readback): if it
+     * can't persist it throws, so a missed reset only ever leaves the ratchet *tighter*, never looser.
+     */
+    override fun recordContact(wallMs: Long, elapsedMs: Long) {
+        val hw = maxOf(wallHighWaterMs() ?: wallMs, wallMs)
+        check(
+            prefs.edit()
+                .putLong(KEY_CONTACT_WALL, wallMs)
+                .putLong(KEY_CONTACT_ELAPSED, elapsedMs)
+                .putLong(KEY_WALL_HW, hw)
+                .commit(),
+        ) { "contact marker commit() failed (fail-closed)" }
+        check(
+            prefs.getLong(KEY_CONTACT_WALL, Long.MIN_VALUE) == wallMs &&
+                prefs.getLong(KEY_CONTACT_ELAPSED, Long.MIN_VALUE) == elapsedMs &&
+                prefs.getLong(KEY_WALL_HW, Long.MIN_VALUE) == hw,
+        ) { "contact marker readback mismatch after commit (fail-closed)" }
+    }
+
+    /**
+     * Advance the wall high-water to `max(current, wallMs)`. Called every watchdog tick so a
+     * backward clock roll between contacts is still caught. A no-op when [wallMs] ≤ current. Durable
+     * + checked — a failed advance would let a later rollback below the true high-water go
+     * undetected (fail-OPEN), so it throws (caught + retried next tick by the fail-closed watchdog).
+     */
+    override fun advanceWallHighWater(wallMs: Long) {
+        val current = wallHighWaterMs()
+        if (current != null && wallMs <= current) return
+        check(prefs.edit().putLong(KEY_WALL_HW, wallMs).commit()) {
+            "wall high-water commit() failed (fail-closed)"
+        }
+        check(prefs.getLong(KEY_WALL_HW, Long.MIN_VALUE) == wallMs) {
+            "wall high-water readback mismatch after commit (fail-closed)"
+        }
+    }
+
+    /** Highest heartbeat `issued_at` admitted, or null if none — the replay floor (ADR-024 D4.5). */
+    override fun heartbeatFloor(): Long? =
+        if (prefs.contains(KEY_HB_FLOOR)) prefs.getLong(KEY_HB_FLOOR, 0L) else null
+
+    override fun admitHeartbeatContact(issuedAt: Long, wallMs: Long, elapsedMs: Long) {
+        val hw = maxOf(wallHighWaterMs() ?: wallMs, wallMs)
+        check(
+            prefs.edit()
+                .putLong(KEY_HB_FLOOR, issuedAt)
+                .putLong(KEY_CONTACT_WALL, wallMs)
+                .putLong(KEY_CONTACT_ELAPSED, elapsedMs)
+                .putLong(KEY_WALL_HW, hw)
+                .commit(),
+        ) { "heartbeat contact commit() failed (fail-closed)" }
+        check(
+            prefs.getLong(KEY_HB_FLOOR, Long.MIN_VALUE) == issuedAt &&
+                prefs.getLong(KEY_CONTACT_WALL, Long.MIN_VALUE) == wallMs &&
+                prefs.getLong(KEY_CONTACT_ELAPSED, Long.MIN_VALUE) == elapsedMs &&
+                prefs.getLong(KEY_WALL_HW, Long.MIN_VALUE) == hw,
+        ) { "heartbeat contact readback mismatch after commit (fail-closed)" }
+    }
+
     companion object {
         const val PREFS_NAME = "openwarden_replay_floor"
         const val KEY_FLOOR = "policy_seq_floor"
@@ -190,5 +264,11 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
 
         /** R10/R11: durable stage witness — the highest applied seq, persisted so it survives a restart. */
         const val KEY_STAGED = "staged_high_water"
+
+        // ADR-024 no-contact ratchet markers.
+        const val KEY_CONTACT_WALL = "contact_wall_ms"
+        const val KEY_CONTACT_ELAPSED = "contact_elapsed_ms"
+        const val KEY_WALL_HW = "wall_high_water_ms"
+        const val KEY_HB_FLOOR = "heartbeat_floor"
     }
 }

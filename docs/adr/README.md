@@ -49,6 +49,7 @@ What this means going forward (good + bad).
 | [021](021-policy-watchdog-reassert-triggers.md) | Accepted | Policy watchdog re-asserts on boot, connectivity, and a periodic timer |
 | [022](022-allowlist-deny-by-default-profile-escape.md) | Accepted | Allowlist-only launch deny-by-default + fail-closed; baseline blocks profile escapes (red-team B1) |
 | [023](023-enforcement-floor-tiers.md) | Accepted | Device tiers defined by enforcement floor, not just attestation (amends ADR-001) |
+| [024](024-no-contact-ratchet-strict-baseline.md) | Accepted | Progressive no-contact ratchet to strict baseline + signed Heartbeat (implements ADR-017 §7) |
 
 ## When to write an ADR
 
