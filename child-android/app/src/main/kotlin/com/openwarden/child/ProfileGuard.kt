@@ -42,12 +42,21 @@ class ProfileGuard(
 
     /**
      * Check the current profile count against the baseline. On an extra profile, fire
-     * [onExtraProfile] (record) then [contain] (lock), and return true. Returns false when the
-     * device is at the single-user baseline. A failure to read the count propagates to the caller,
-     * which the watchdog guards with `runCatching` like every surface.
+     * [onExtraProfile] (record) then [contain] (lock), and return true. Returns false only when the
+     * device is *verifiably* at the single-user baseline.
+     *
+     * Fail-closed on a read error (F2): if [profileCount] throws we cannot prove the device is at
+     * the baseline, so we **contain** (lock) rather than let an unknown — possibly extra — profile
+     * stay usable. The watchdog would otherwise just swallow-and-log the throw, leaving it usable.
      */
     fun check(): Boolean {
-        val count = profileCount()
+        val count = try {
+            profileCount()
+        } catch (e: Exception) {
+            Log.e(TAG, "profile count read failed — cannot prove baseline, containing: ${e.message}")
+            contain()
+            return true
+        }
         if (count <= baseline) return false
         onExtraProfile(count)
         contain()

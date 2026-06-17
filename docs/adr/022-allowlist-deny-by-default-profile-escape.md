@@ -123,6 +123,11 @@ Good:
   profile that appears anyway is detected **and contained with `lockNow()`** by the watchdog.
 - Reuses ADR-020's verify-or-throw + `lockNow` idiom and ADR-021's watchdog seam, so the new
   surfaces inherit the same deterministic, seam-injected test coverage.
+- **Read-error paths fail closed too (Codex-review hardening).** A failure to *enumerate* installed
+  packages (`applyAllowlist`) or to *read the profile count* (`ProfileGuard`) now locks the device
+  rather than silently skipping — closing two fail-OPEN-on-read-error paths the review caught (the
+  watchdog would otherwise swallow the bare throw and leave the prior state usable). The
+  containment lock is routed through an injected seam so the lock half of the contract is tested.
 
 Bad / accepted limits:
 - `setPackagesSuspended` / `setApplicationHidden` round-tripping depends on the platform; under

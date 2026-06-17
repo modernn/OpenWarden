@@ -295,16 +295,18 @@ class PolicyEnforcerTest {
     // connectedAndroidTest harness (#30); the fail-closed contract is proven here.
     // ---------------------------------------------------------------------
 
-    /** Enforcer whose installed set, launch-blocked readback, and exempt set are test-controlled. */
+    /** Enforcer whose installed set, launch-blocked readback, exempt set, and lock are controlled. */
     private fun allowlistEnforcer(
         installed: List<InstalledApp>,
         launchBlocked: Set<String>,
         exempt: Set<String> = emptySet(),
+        onLock: () -> Unit = {},
     ): PolicyEnforcer = PolicyEnforcer(
         context,
         installedApps = { installed },
         isLaunchBlocked = { it in launchBlocked },
-        alwaysExempt = exempt,
+        alwaysExempt = { exempt },
+        lock = onLock,
     )
 
     @Test
@@ -327,17 +329,38 @@ class PolicyEnforcerTest {
     }
 
     @Test
-    fun `applyAllowlist fails closed when a non-allowlisted user app stays launchable`() {
+    fun `applyAllowlist fails closed and locks when a non-allowlisted user app stays launchable`() {
         val installed = listOf(InstalledApp("com.evil.clone", isSystem = false))
+        var locked = 0
         // launchBlocked is EMPTY: the app resisted both suspend and hide -> still launchable.
         val ex = assertFailsWith<AllowlistEnforcementException>("must fail closed on an un-contained deny app") {
-            allowlistEnforcer(installed, launchBlocked = emptySet()).applyAllowlist(emptySet())
+            allowlistEnforcer(installed, launchBlocked = emptySet(), onLock = { locked++ }).applyAllowlist(emptySet())
         }
         assertEquals(
             listOf("com.evil.clone"),
             ex.stillLaunchable,
             "The exception must name exactly the app that stayed launchable",
         )
+        // F4: prove the lock half of the fail-closed contract, not just the throw.
+        assertEquals(1, locked, "the device must be locked before the fail-closed exception is thrown")
+    }
+
+    @Test
+    fun `applyAllowlist fails closed and locks when package enumeration throws`() {
+        // F1: if we can't even read the installed-package list we can't prove containment — that is
+        // a fail-OPEN read error, so contain (lock) + throw rather than silently skip enforcement.
+        var locked = 0
+        val enforcer = PolicyEnforcer(
+            context,
+            installedApps = { throw RuntimeException("PackageManager enumeration failed") },
+            isLaunchBlocked = { false },
+            alwaysExempt = { emptySet() },
+            lock = { locked++ },
+        )
+        assertFailsWith<AllowlistEnforcementException>("enumeration failure must fail closed") {
+            enforcer.applyAllowlist(emptySet())
+        }
+        assertEquals(1, locked, "a package-enumeration failure must lock the device, not silently skip")
     }
 
     @Test

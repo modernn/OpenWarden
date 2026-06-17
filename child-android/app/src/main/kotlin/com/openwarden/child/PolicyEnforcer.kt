@@ -37,13 +37,18 @@ import android.util.Log
  *   (suspended OR hidden) for this admin. The allowlist verify path reads through this.
  * @param alwaysExempt extra packages that must never be suspended (e.g. the active default
  *   launcher). System apps and self are exempt unconditionally; this adds to that set.
+ *   **Re-evaluated on every [applyAllowlist] call** so a launcher change between watchdog ticks
+ *   cannot leave a stale exemption (the now-non-default launcher must become a deny target).
+ * @param lock the fail-closed containment action (default `dpm.lockNow()`). Routed through a seam
+ *   so the lock half of the fail-closed contract is independently testable.
  */
 class PolicyEnforcer(
     private val context: Context,
     private val isRestrictionSet: (String) -> Boolean = defaultRestrictionReader(context),
     private val installedApps: () -> List<InstalledApp> = defaultInstalledAppsReader(context),
     private val isLaunchBlocked: (String) -> Boolean = defaultLaunchBlockedReader(context),
-    private val alwaysExempt: Set<String> = defaultExemptPackages(context),
+    private val alwaysExempt: () -> Set<String> = defaultExemptReader(context),
+    private val lock: () -> Unit = defaultLockAction(context),
 ) {
 
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
@@ -133,16 +138,34 @@ class PolicyEnforcer(
             "Not Device Owner — cannot enforce the app allowlist"
         }
 
-        val apps = installedApps()
+        // (1) Enumerate. If we cannot read the installed-package list we cannot prove the deny set
+        // is contained — that is a fail-OPEN read error, so contain (lockNow) and throw rather than
+        // silently skip enforcement (the watchdog would otherwise swallow a bare throw and leave
+        // the prior launch state in place). Same fail-closed shape as a verify gap.
+        val apps = try {
+            installedApps()
+        } catch (e: Exception) {
+            runCatching { lock() }.onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
+            throw AllowlistEnforcementException(
+                emptyList(),
+                "could not enumerate installed packages — cannot prove allowlist containment: ${e.message}",
+            )
+        }
         val pkgs = apps.map { it.pkg }
-        val exempt = apps.filter { it.isSystem }.map { it.pkg }.toSet() + alwaysExempt + context.packageName
+        // Re-evaluate the exempt set every call (F3): the active launcher can change between ticks,
+        // and a now-non-default launcher must NOT keep a stale exemption.
+        val exempt = apps.filter { it.isSystem }.map { it.pkg }.toSet() + alwaysExempt() + context.packageName
 
         val denyTargets = pkgs.filterNot { it in allowlist }.filterNot { it in exempt }
         val allowTargets = pkgs.filter { it in allowlist }
 
         // (2) Restore allowlisted apps — a previously-blocked app that is now allowed must launch.
-        runCatching { dpm.setPackagesSuspended(admin, allowTargets.toTypedArray(), false) }
-            .onFailure { Log.e(TAG, "unsuspend allowlisted failed: ${it.message}") }
+        // setPackagesSuspended(false) returns the packages it could NOT un-suspend; surface them so
+        // a now-allowed app silently stuck blocked is at least visible (over-restriction, not a leak).
+        val failedUnsuspend =
+            runCatching { dpm.setPackagesSuspended(admin, allowTargets.toTypedArray(), false).toList() }
+                .getOrElse { Log.e(TAG, "unsuspend allowlisted threw: ${it.message}"); emptyList() }
+        if (failedUnsuspend.isNotEmpty()) Log.w(TAG, "allowlisted apps still suspended (could not un-suspend): $failedUnsuspend")
         allowTargets.forEach { pkg ->
             runCatching { dpm.setApplicationHidden(admin, pkg, false) }
                 .onFailure { Log.e(TAG, "unhide allowlisted $pkg failed: ${it.message}") }
@@ -167,7 +190,7 @@ class PolicyEnforcer(
         // (4) Verify-or-throw. Any deny target neither suspended nor hidden can still launch.
         val stillLaunchable = denyTargets.filterNot { isLaunchBlocked(it) }
         if (stillLaunchable.isNotEmpty()) {
-            runCatching { dpm.lockNow() }
+            runCatching { lock() }
                 .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
             throw AllowlistEnforcementException(stillLaunchable)
         }
@@ -330,20 +353,28 @@ class PolicyEnforcer(
         }
 
         /**
-         * Default exempt set: the active default launcher. Suspending the live home app would
-         * brick the device, and it is not the deny-by-default threat surface. System apps and
-         * self are exempt unconditionally inside [applyAllowlist]; this only adds the launcher.
+         * Default exempt seam: re-resolves the **active default launcher** on each call (so a
+         * launcher change between watchdog ticks can't leave a stale exemption, F3). Suspending the
+         * live home app would brick the device and it is not the deny-by-default threat surface.
+         * System apps and self are exempt unconditionally inside [applyAllowlist]; this only adds
+         * the launcher.
          *
          * Honesty caveat (ADR-022): if the kid has set a *non-allowlisted third-party launcher*
          * as default, it stays usable here — enforcing the stock launcher is DEFENSES Kid §3.4,
          * tracked separately, not part of this deny-by-default change.
          */
-        private fun defaultExemptPackages(context: Context): Set<String> {
+        private fun defaultExemptReader(context: Context): () -> Set<String> = {
             val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
             val default = context.packageManager
                 .resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY)
                 ?.activityInfo?.packageName
-            return setOfNotNull(default)
+            setOfNotNull(default)
+        }
+
+        /** Default fail-closed containment action: lock the device via this admin's `lockNow()`. */
+        private fun defaultLockAction(context: Context): () -> Unit {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            return { dpm.lockNow() }
         }
     }
 }
@@ -367,9 +398,12 @@ class RestrictionEnforcementException(val missing: List<String>) :
     IllegalStateException("Fail-closed: required user restrictions not verifiably set: $missing")
 
 /**
- * Thrown when deny-by-default launch enforcement cannot contain one or more apps: after suspend +
- * hide-escalation they are still launchable. [stillLaunchable] names them. The device is locked
- * (best-effort) before this is thrown, mirroring the Day-One fail-closed containment.
+ * Thrown when deny-by-default launch enforcement cannot prove the deny set is contained — either a
+ * deny target is still launchable after suspend + hide-escalation ([stillLaunchable] names them),
+ * or the installed-package list could not be enumerated at all. The device is locked (best-effort)
+ * before this is thrown, mirroring the Day-One fail-closed containment.
  */
-class AllowlistEnforcementException(val stillLaunchable: List<String>) :
-    IllegalStateException("Fail-closed: non-allowlisted apps still launchable after apply: $stillLaunchable")
+class AllowlistEnforcementException(
+    val stillLaunchable: List<String>,
+    reason: String = "non-allowlisted apps still launchable after apply: $stillLaunchable",
+) : IllegalStateException("Fail-closed (allowlist): $reason")
