@@ -71,6 +71,9 @@ object Ratchet {
         val hw = markers.wallHighWaterMs ?: lastWall
         if (nowWallMs < hw) return STRICT_SILENCE
         val wallDelta = nowWallMs - lastWall
+        // Defensive: the guard above (nowWall >= hw >= lastWall) makes wallDelta >= 0 unreachable
+        // today. Kept as a belt-and-suspenders fail-closed floor so a future refactor that weakens
+        // the high-water invariant degrades to STRICT, not to a negative/garbage silence.
         return if (wallDelta < 0) STRICT_SILENCE else wallDelta
     }
 }

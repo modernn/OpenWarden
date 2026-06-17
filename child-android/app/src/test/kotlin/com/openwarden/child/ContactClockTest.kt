@@ -18,6 +18,7 @@ class ContactClockTest {
         var contactElapsed: Long? = null,
         var wallHw: Long? = null,
         var hbFloor: Long? = null,
+        var failHighWater: Boolean = false,
     ) : ContactStore {
         override fun childDeviceId() = childId
         override fun isProvisioned() = provisioned
@@ -28,6 +29,7 @@ class ContactClockTest {
             contactWall = wallMs; contactElapsed = elapsedMs; wallHw = maxOf(wallHw ?: wallMs, wallMs)
         }
         override fun advanceWallHighWater(wallMs: Long) {
+            if (failHighWater) error("simulated durable high-water write failure")
             if (wallHw == null || wallMs > wallHw!!) wallHw = wallMs
         }
         override fun heartbeatFloor() = hbFloor
@@ -69,6 +71,15 @@ class ContactClockTest {
     @Test
     fun `provisioned child with no contact is STRICT`() {
         val cc = ContactClock(FakeStore(provisioned = true), FakeClock(5L, 5L))
+        assertEquals(Ratchet.Tier.STRICT, cc.currentTier())
+    }
+
+    @Test
+    fun `currentTier returns STRICT (never throws) when the clock store cannot persist (H1)`() {
+        // ADR-024 D2/D5: a marker the watchdog cannot persist is an anomaly ⇒ STRICT, NOT a throw
+        // that the watchdog's runCatching would swallow (which would leave a looser tier live).
+        val store = FakeStore(provisioned = true, contactWall = 1L, contactElapsed = 1L, wallHw = 1L, failHighWater = true)
+        val cc = ContactClock(store, FakeClock(2_000L, 2_000L))
         assertEquals(Ratchet.Tier.STRICT, cc.currentTier())
     }
 

@@ -212,7 +212,8 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         ) { "contact marker commit() failed (fail-closed)" }
         check(
             prefs.getLong(KEY_CONTACT_WALL, Long.MIN_VALUE) == wallMs &&
-                prefs.getLong(KEY_CONTACT_ELAPSED, Long.MIN_VALUE) == elapsedMs,
+                prefs.getLong(KEY_CONTACT_ELAPSED, Long.MIN_VALUE) == elapsedMs &&
+                prefs.getLong(KEY_WALL_HW, Long.MIN_VALUE) == hw,
         ) { "contact marker readback mismatch after commit (fail-closed)" }
     }
 
@@ -250,7 +251,8 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         check(
             prefs.getLong(KEY_HB_FLOOR, Long.MIN_VALUE) == issuedAt &&
                 prefs.getLong(KEY_CONTACT_WALL, Long.MIN_VALUE) == wallMs &&
-                prefs.getLong(KEY_CONTACT_ELAPSED, Long.MIN_VALUE) == elapsedMs,
+                prefs.getLong(KEY_CONTACT_ELAPSED, Long.MIN_VALUE) == elapsedMs &&
+                prefs.getLong(KEY_WALL_HW, Long.MIN_VALUE) == hw,
         ) { "heartbeat contact readback mismatch after commit (fail-closed)" }
     }
 

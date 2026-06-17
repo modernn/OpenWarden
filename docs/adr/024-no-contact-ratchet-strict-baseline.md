@@ -31,10 +31,12 @@ Adopt **option C**. Seven parts; all fail-closed.
 | Tier | Trigger | Enforcement |
 |---|---|---|
 | `FRESH` | silence < `RATCHET_STALE_MS` (**24 h**) | the active bundle's own policy (status quo) |
-| `STALE` | `RATCHET_STALE_MS` ≤ silence < `RATCHET_STRICT_MS` (**48 h**) | **override the allowlist to deny-all** (only the ADR-022 system-exempt set launches). The frozen bundle is still *trusted* for its DNS resolver + time-windows; Day-One stays asserted. Kid's apps stop launching; device still works for system/dialer. |
+| `STALE` | `RATCHET_STALE_MS` ≤ silence < `RATCHET_STRICT_MS` (**48 h**) | **override the allowlist to deny-all** (only the ADR-022 system-exempt set launches). The frozen bundle is still *trusted* for its DNS resolver; Day-One stays asserted. Kid's apps stop launching; device still works for system/dialer. |
 | `STRICT` | silence ≥ `RATCHET_STRICT_MS` (**48 h**) | **distrust the frozen bundle entirely** → deny-all allowlist **+ ignore the bundle's `private_dns`, pinning the default filtering resolver** (DNS floor's Missing/Corrupt path) **+ full Day-One re-verify (verify-or-lock).** The hard lockdown floor; the stale permissive bundle no longer influences any surface. |
 
-The incremental lever between the rungs is *how much of the frozen bundle is still trusted*: `STALE` stops trusting its **allowlist** (apps off) but keeps its DNS/windows; `STRICT` stops trusting **all** of it and falls to the hard default floor — the same surfaces a `Missing`/`Corrupt` bundle yields. (With today's policy model these are the available levers; finer gradations are future work — see Consequences.)
+The incremental lever between the rungs is *how much of the frozen bundle is still trusted*: `STALE` stops trusting its **allowlist** (apps off) but keeps its **DNS resolver**; `STRICT` stops trusting **all** of it (allowlist + DNS) and falls to the hard default floor — the same surfaces a `Missing`/`Corrupt` bundle yields.
+
+> **Honest scope of the lever (H2, review):** with today's enforcer the *only* ratcheted surfaces are the **allowlist** (deny-all) and the **DNS resolver** (default at STRICT). **Time-window enforcement is NOT implemented** — `PolicyEnforcer` does not read `policy.windows` at all — so "trust the bundle's windows" is currently vacuous and is deliberately omitted from the rungs above. Day-One restrictions are re-asserted every tick regardless of tier (ADR-021), so they are not a ratchet lever either. Like `not_after` (D7), window enforcement is a separate future surface; when it lands it can join the STRICT distrust set. Finer-than-two-rung gradations are future work (see Consequences).
 
 `RATCHET_STALE_MS` / `RATCHET_STRICT_MS` are named constants (tunable). The tier function is pure → deterministically unit-testable (the issue's "clock-driven ratchet test").
 
@@ -74,7 +76,11 @@ A new `POST /heartbeat` endpoint runs this. `issued_at` is used **only** as the 
 
 So the ratchet engages within one 30 s interval of crossing a threshold. It stays **fail-closed-but-alive**: a throw evaluating the tier is caught and logged like any other surface (and a clock the watchdog cannot read is itself an anomaly ⇒ STRICT, D2). The contact clock + tier are injected as seams so the wiring is unit-testable without a live device.
 
-**D6 — Persistence.** Contact + heartbeat state lives in the existing `EncryptedSharedPreferences` (`ReplayFloorStore`'s store, TEE/StrongBox-bound at rest per ADR-017 part 1): `lastContactWallMs`, `lastContactElapsedMs`, `wallHighWaterMs`, `lastHeartbeatIssuedAt`. Each write is fail-closed (`commit()`-checked + readback, same contract as the replay floor). A provisioned child with **no** contact marker is an anomaly ⇒ strict (D2).
+**D6 — Persistence.** Contact + heartbeat state lives in the existing `EncryptedSharedPreferences` (`ReplayFloorStore`'s store, TEE/StrongBox-bound at rest per ADR-017 part 1): `lastContactWallMs`, `lastContactElapsedMs`, `wallHighWaterMs`, `heartbeatFloor`. Marker writes are `commit()`-checked **+ readback** (all fields) and throw on failure — the same fail-closed contract as the replay floor. A provisioned child with **no** contact marker is an anomaly ⇒ strict (D2).
+
+Two contact-reset paths, two contracts (M1, review):
+- **Heartbeat reset** (`admitHeartbeatContact`) advances the replay floor + records contact in **one** durable commit and **throws** on failure ⇒ the heartbeat is treated as not-admitted (no reset).
+- **Bundle-apply reset** is **best-effort** (`runCatching` in the `/policy` handler): the policy apply is *already durable* (ADR-017 two-phase commit) and must not be unwound by a marker-write failure. A failed reset there only leaves the silence timer un-reset — i.e. the ratchet stays **tighter**, never looser — so the fail-closed direction holds even though this single write does not throw.
 
 **D7 — `not_after` enforcement is explicitly OUT of scope.** O1's ratchet is independent of `not_after`; this PR closes O1 via the ratchet alone. Enforcing the `not_before`/`not_after` freshness window (the rest of ADR-017 §5: signed-time re-anchor, anchor-rollback anomaly) is a separate, larger follow-up and is **not** folded in here.
 
@@ -89,7 +95,7 @@ Good:
 - Reuses the watchdog loop (ADR-021), the strict baseline (ADR-020/022/016), and the JCS/Ed25519 verify primitives — no new crypto, no new enforcement surface invented.
 
 Bad / accepted limits:
-- **Whole-snapshot restore resets the markers.** A fully-rooted kid who snapshots *all* local state (contact markers + floor) and restores it offline can reset the silence clock — the same residual ADR-017 documents; it is caught by the **parent** on next sync (ADR-017 part 2), not locally.
+- **Whole-snapshot restore resets the markers.** A fully-rooted kid who snapshots *all* local state (contact markers + floor) and restores it offline can reset the silence clock — the same residual ADR-017 documents. ADR-017 part 2 designates the **parent** as the monotonicity anchor that catches this on next sync — but **that backstop is itself not yet built** (M2, review): `ReplayFloorStore.chainFloor()` is `null` (no append-only event-log chain) and there is no parent reconcile shipped, so today this residual is **uncaught even locally**. It narrows only when the event log + parent sync land (tracked, ADR-017 part 1/2). The ratchet still bounds the *honest* offline case (no snapshot tooling) on schedule.
 - **Reboot loses `elapsedRealtime`,** so cross-reboot silence falls back to the wall-clock-vs-high-water path; this is fail-closed (anomaly ⇒ tighten) but coarser than the in-session monotonic measure.
 - **A parent who sends nothing trips the ratchet.** By design — but it makes a real parent-side dependency (D8): the parent app must send periodic heartbeats/bundles.
 - **Coarse steps.** With the current policy model the meaningful lever is the allowlist (deny-all) plus the Day-One floor; STALE vs STRICT is therefore a two-rung ladder, not a continuous taper. Finer gradations would need a richer policy-tier model (future).

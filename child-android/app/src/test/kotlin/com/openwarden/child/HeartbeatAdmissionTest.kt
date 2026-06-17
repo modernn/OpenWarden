@@ -82,6 +82,13 @@ class HeartbeatAdmissionTest {
     }
 
     @Test
+    fun `a fully-default heartbeat is rejected (fail-closed defaults)`() {
+        // Empty audience id + empty sig + issued_at 0 — the all-defaults object must never admit.
+        val outcome = HeartbeatAdmission.decide(SignedHeartbeat(v = 1), myId, HeartbeatTestSigner.newKeypair().pubRaw, heartbeatFloor = null)
+        assertFalse(accepts(outcome))
+    }
+
+    @Test
     fun `replayed heartbeat at or below the floor rejects`() {
         val kp = HeartbeatTestSigner.newKeypair()
         val signed = HeartbeatTestSigner.sign(hb(issuedAt = 1_000L), kp)

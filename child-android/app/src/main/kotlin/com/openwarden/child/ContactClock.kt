@@ -25,8 +25,15 @@ class ContactClock(
     /**
      * The current ratchet tier. Advances the persisted wall high-water as a side effect so a later
      * backward clock roll is detectable (ADR-024 D2).
+     *
+     * **Fail-closed on ANY error (ADR-024 D2/D5):** a clock the watchdog cannot read, or a marker it
+     * cannot persist (`advanceWallHighWater` throws on a failed/divergent commit), is itself an
+     * anomaly ⇒ [Ratchet.Tier.STRICT]. We must NOT let the exception propagate: in the watchdog this
+     * runs inside a `runCatching` seam, so a throw would be swallowed and the *prior* (possibly
+     * looser) tier's enforcement would stay live until a later tick — exactly the fail-OPEN window
+     * D5 forbids. Returning STRICT makes the seam apply the hard floor (deny-all + default DNS) now.
      */
-    fun currentTier(): Ratchet.Tier {
+    fun currentTier(): Ratchet.Tier = try {
         val nowWall = clock.wallMs()
         val nowElapsed = clock.elapsedMs()
         store.advanceWallHighWater(nowWall)
@@ -35,8 +42,9 @@ class ContactClock(
             lastContactElapsedMs = store.lastContactElapsedMs(),
             wallHighWaterMs = store.wallHighWaterMs(),
         )
-        val silence = Ratchet.silenceMs(markers, store.isProvisioned(), nowWall, nowElapsed)
-        return Ratchet.tierFor(silence)
+        Ratchet.tierFor(Ratchet.silenceMs(markers, store.isProvisioned(), nowWall, nowElapsed))
+    } catch (e: Exception) {
+        Ratchet.Tier.STRICT
     }
 
     /** Record an authenticated parent contact NOW — resets the silence timer (ADR-024 D3). */
