@@ -76,9 +76,9 @@ examples, and the D4 hardening backlog all use this one list — no drift.
 - **Tier 2 — supported with *disclosed enforcement gaps*:** DPC works and most `DISALLOW_*` apply,
   **but** the launch allowlist can be bypassed via OEM-preloaded apps, reset/unlock protection is
   best-effort, watchdog liveness depends on a per-OEM battery exemption, and there is no StrongBox
-  guarantee. These gaps **must be disclosed to the parent at setup** — that disclosure is a
-  *required, not-yet-complete* propagation into the parent-facing docs (see D5), not a claim that
-  it is already in place.
+  guarantee. These gaps **must be disclosed to the parent** — propagated into the parent-facing
+  docs (README + SIMPLIFY are reconciled in this PR; the setup/onboarding flow is still pending,
+  see D5), not silently over-promised.
 - **Tier 3 — best-effort, community-supported, *no anti-bypass warranty*.**
 
 **D3 — Tier 2/3 stay SUPPORTED with these caveats.** This amendment does **not** drop Tier 2/3
@@ -96,15 +96,14 @@ verification, **per-OEM watchdog/battery-optimization verification**, and per-OE
 Filed as **issue #57** (`area:child-android`, `agent-blocked`). Until it lands, Tier 2 ships with
 the D2 disclosure, not a hardened guarantee.
 
-**D5 — Marketing / docs disclosure is a REQUIRED follow-up, not done here.** This ADR is the
-decision; the parent-facing docs do **not** yet reflect it, and some actively contradict it — so
-the "disclosure" of D2/D3 is **not in place yet**. Before any Tier-2/3 marketing or beta, the
-following must be reconciled to carry the Tier-2/3 enforcement caveat (no silent over-promise —
-the no-SaaS honesty bar applies to protection claims too): `README.md` (currently lists OEMs as
-supported and says "best on Pixel, works on most" without the enforcement caveat), `docs/SIMPLIFY.md`
-(still describes v1 as Pixel-only — stale vs ADR-001's tier system and this ADR; reconcile), and
-the setup/onboarding flow (must surface the Tier-2 gaps at provisioning). Tracked alongside #57's
-gating; this ADR sets the constraint and records that the doc work is outstanding.
+**D5 — Marketing / docs disclosure (partly landed here, onboarding pending).** This ADR is the
+decision; the parent-facing docs must carry the Tier-2/3 enforcement caveat so the "disclosure" of
+D2/D3 is real, not silent over-promise (the no-SaaS honesty bar applies to protection claims too).
+**Reconciled in this PR:** `README.md` (now states the enforcement tiers instead of a flat
+"supported"/"best on Pixel, works on most") and `docs/SIMPLIFY.md` (the "one device family /
+Pixel-only" constraint is replaced with the ADR-001/ADR-023 tier-and-disclose model, removing the
+contradiction). **Still a follow-up:** the setup/onboarding flow must surface the Tier-2 gaps at
+provisioning — tracked alongside #57's gating, required before any Tier-2 marketing or beta.
 
 ## Consequences
 

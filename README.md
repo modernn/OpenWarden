@@ -8,7 +8,7 @@ Open-source, local-only parental control for Android. Apache 2.0. Free forever.
 
 OpenWarden is two paired apps that let a parent control what their kid does on an Android phone — without surveillance, subscriptions, or cloud servers.
 
-- **Child device:** stock Android (Pixel 7 best; Samsung / OnePlus / Motorola / others supported). Runs the OpenWarden DPC (Device Owner) app. Enforces policy locally — works offline.
+- **Child device:** stock Android, by **enforcement tier** ([ADR-023](docs/adr/023-enforcement-floor-tiers.md)): **Tier 1 = Pixel-class** (full anti-bypass enforcement); **Tier 2 = Samsung / OnePlus / Motorola / Nothing** (supported, but with *documented enforcement gaps* — OEM-preloaded apps can bypass the launch allowlist, factory-reset/unlock protection is best-effort, no StrongBox guarantee); **Tier 3 = other Android 13+** (best-effort, no anti-bypass warranty). Strongest on Pixel; honest about the rest. Runs the OpenWarden DPC (Device Owner) app. Enforces policy locally — works offline.
 - **Parent device:** Android phone (v1) or iOS phone (v1, foreground-poll model). Edits policy, reviews activity, holds recovery phrase.
 - **Communication:** LAN-first signed REST. Both phones on the same Wi-Fi = direct sync. (v2: store-and-forward over Iroh for remote sync.)
 

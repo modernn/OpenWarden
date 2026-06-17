@@ -131,10 +131,17 @@ support more, but the UI cannot stay simple if we expose it.
 *Prevents:* enterprise-UX bloat, role-permission matrix nightmares,
 "who's the admin?" confusion.
 
-**One target device family.** Pixel 7 / 7a / 7 Pro for v1. Pixel 8
-when it's older. We will not chase Samsung One UI, Xiaomi MIUI, or any
-OEM customization. The DPC behaves predictably on stock Android only.
-*Prevents:* infinite OEM-bug testing matrix.
+**One device *tier* model, not one family ([ADR-001](adr/001-one-device-tier.md),
+[ADR-023](adr/023-enforcement-floor-tiers.md)).** Not Pixel-only: a tier
+system. **Tier 1 = Pixel-class stock** (full enforcement, the reference). **Tier
+2 = named OEMs** (Samsung / OnePlus / Motorola / Nothing) — supported with
+*documented enforcement gaps*: OEM-preloaded apps can bypass the launch
+allowlist, FRP/unlock is best-effort, and watchdog liveness needs a per-OEM
+battery exemption. **Tier 3 = other Android 13+**, best-effort; heavy-
+customization OEMs (Xiaomi MIUI) live here. We don't pretend OEM differences
+don't exist — we **tier and disclose** them, never silently over-promise.
+*Prevents:* both the infinite OEM-bug matrix *and* a silent over-claim that a
+Samsung phone is as locked down as a Pixel.
 
 **One AI model per category.** When we add NSFW image classification
 (Tier 2, v3+), we ship one model. Not a marketplace, not a "choose your
