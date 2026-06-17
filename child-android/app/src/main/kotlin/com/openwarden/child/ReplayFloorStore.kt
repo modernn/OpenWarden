@@ -122,21 +122,19 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
      * request — an instance field would not survive between requests. Resets on process restart
      * (the durable cross-restart witness is the not-yet-built event-log chain mirror).
      */
-    override fun appliedHighWater(): Long? {
-        val durable = if (prefs.contains(KEY_STAGED)) prefs.getLong(KEY_STAGED, ReplayFloor.GENESIS_FLOOR) else null
-        return listOfNotNull(durable, appliedHighWaterMem).maxOrNull()
-    }
+    override fun appliedHighWater(): Long? =
+        if (prefs.contains(KEY_STAGED)) prefs.getLong(KEY_STAGED, ReplayFloor.GENESIS_FLOOR) else null
 
     override fun noteApplied(policySeq: Long) {
         val cur = appliedHighWater()
         if (cur != null && policySeq <= cur) return
-        // R10: persist the stage witness DURABLY so a staged-but-failed apply can't be rolled back
-        // after a restart (in-memory alone is lost on reboot). stage() already succeeded here, so
-        // storage works and this commit normally succeeds; if it fails (storage pressure), fall back
-        // to the in-memory witness for the same-process guard — the cross-restart case then degrades
-        // to the documented chain-mirror gap (ADR-017), no worse than before.
-        val ok = runCatching { prefs.edit().putLong(KEY_STAGED, policySeq).commit() }.getOrDefault(false)
-        if (!ok) appliedHighWaterMem = maxOf(appliedHighWaterMem ?: policySeq, policySeq)
+        // R10/R11: the rollback witness MUST be durable BEFORE the bundle is made active (admit()
+        // calls this before stage()). A failed commit is fail-closed — throw so admit() rejects and
+        // never stages, rather than make the bundle active with only an in-memory witness a restart
+        // would lose (which would re-open the staged-but-failed rollback). No silent memory fallback.
+        check(prefs.edit().putLong(KEY_STAGED, policySeq).commit()) {
+            "staged rollback-witness commit() failed for seq=$policySeq (fail-closed)"
+        }
     }
 
     /** True iff this child has been provisioned (pairing marker written). ADR-017 part 4. */
@@ -179,16 +177,7 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
         const val KEY_PROVISIONED = "provisioned"
         const val KEY_CHILD_ID = "child_device_id"
 
-        /** R10: durable stage witness — the highest applied seq, persisted so it survives a restart. */
+        /** R10/R11: durable stage witness — the highest applied seq, persisted so it survives a restart. */
         const val KEY_STAGED = "staged_high_water"
-
-        /**
-         * R7 in-memory applied high-water, process-global so it survives the fresh
-         * [ReplayFloorStore] that `/policy` builds per request. Mutated only under
-         * `PolicyAdmission.ADMIT_LOCK` (every `noteApplied` call is inside `admit`), so plain
-         * `@Volatile` visibility is enough — no separate lock needed.
-         */
-        @Volatile
-        private var appliedHighWaterMem: Long? = null
     }
 }

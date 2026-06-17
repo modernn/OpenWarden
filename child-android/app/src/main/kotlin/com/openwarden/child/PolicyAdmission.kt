@@ -309,14 +309,15 @@ object PolicyAdmission {
                         pinParentKey(pub)
                         store.markProvisioned()
                     }
-                    applier.stage(bundle)             // 12. stage — the candidate is now the persisted active bundle
-                    // 12b. R9: record the rollback witness AS SOON AS staged. stage() has already made
-                    // this the active bundle the watchdog enforces, and applyAndFsync() can mutate
-                    // live/durable state before throwing (e.g. allowlist verify -> lockNow + throw). If
-                    // we waited until after apply, a throwing apply would leave the staged newer policy
-                    // with no witness, and a lower valid seq could roll it back. Recording at stage
-                    // covers every durable/live mutation before the floor advances.
+                    // 11b. R9/R11: record the DURABLE rollback witness BEFORE the bundle is made
+                    // active. stage() persists the candidate as the active bundle the watchdog
+                    // enforces, and applyAndFsync() can mutate live/durable state before throwing
+                    // (e.g. allowlist verify -> lockNow + throw). The witness must already be durable
+                    // first, so a staged-but-failed apply can't be rolled back by a lower valid seq —
+                    // even across a restart. noteApplied is fail-closed: if it can't persist durably
+                    // it throws here, and we never stage (nothing becomes active to roll back).
                     store.noteApplied(outcome.policySeq)
+                    applier.stage(bundle)             // 12. stage — the candidate is now the persisted active bundle
                     applier.applyAndFsync(bundle)     // 13. apply + fsync (durable; may throw)
                     store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
                     applier.ack(outcome.policySeq)    // 15. ack (chain witness)

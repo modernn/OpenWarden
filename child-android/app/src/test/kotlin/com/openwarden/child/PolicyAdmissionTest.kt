@@ -100,10 +100,13 @@ class PolicyAdmissionTest {
             atRest = policySeq
         }
 
-        // R7 in-memory applied high-water — instance-scoped here so each test is isolated.
+        // Rollback witness — instance-scoped here so each test is isolated. failNote simulates a
+        // failed durable witness commit (R11): noteApplied throws fail-closed.
         var highWater: Long? = null
+        var failNote: Boolean = false
         override fun appliedHighWater(): Long? = highWater
         override fun noteApplied(policySeq: Long) {
+            if (failNote) throw IllegalStateException("simulated staged-witness commit failure (fail-closed)")
             val cur = highWater
             if (cur == null || policySeq > cur) highWater = policySeq
         }
@@ -310,6 +313,23 @@ class PolicyAdmissionTest {
         val r11 = PolicyAdmission.admit(b11, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(r11 is PolicyAdmission.Result.Applied, "seq 11 repairs the durable floor after restart")
         assertEquals(11L, state2.atRestFloor())
+    }
+
+    @Test
+    fun witnessWriteFailureRejectsBeforeMakingTheBundleActive() {
+        // R11: the durable witness is written BEFORE stage() makes the bundle active. If the witness
+        // can't be persisted, admit fails closed WITHOUT staging — so there is no active newer bundle
+        // for a later lower seq to roll back to (the staged-but-failed window never opens).
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L).apply { failNote = true }
+        val applier = RecordingApplier()
+        val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
+
+        val result = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable witness write must be Rejected")
+        assertFalse(applier.calls.contains("stage:11"), "the bundle must NOT be staged when the witness can't be persisted")
+        assertEquals(9L, state.atRestFloor(), "floor unchanged; nothing became active")
     }
 
     @Test

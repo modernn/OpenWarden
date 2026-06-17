@@ -149,10 +149,11 @@ Good:
   below* the applied one, so a retry of the
   *same* seq is still admitted and can re-advance a durable floor a transient write failure left
   stale (R8) — the high-water blocks rollback without blocking self-repair. The witness is
-  **persisted durably** (`ReplayFloorStore` `KEY_STAGED`, R10) so it **survives a restart** —
-  closing the staged-but-failed-apply rollback across reboot, since `stage()` succeeding means
-  storage works. Only if that durable write *also* fails (storage pressure) does it fall back to
-  in-memory + the documented chain-mirror gap —
+  **persisted durably** (`ReplayFloorStore` `KEY_STAGED`, R10) **before** the bundle is staged, and
+  is **fail-closed** (R11): if it can't be written durably, `admit` rejects and never stages, so no
+  active newer bundle exists for a lower seq to roll back to — even across a restart. No silent
+  in-memory fallback. The remaining genuinely-undurable case (the not-yet-built event-log chain
+  mirror, ADR-017 part 1) is still the parent-detects-on-next-sync gap (ADR-017 part 2) —
   the durable cross-restart witness is the not-yet-built event-log chain mirror (ADR-017 part 1);
   a whole-snapshot rollback is still caught by the parent on next sync (ADR-017 part 2), the
   documented pre-existing limitation.
