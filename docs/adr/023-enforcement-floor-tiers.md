@@ -19,8 +19,8 @@ capture, and the degradation is now concrete:
 
 - **Launch allowlist (ADR-022 / #12).** The deny-by-default allowlist exempts all `FLAG_SYSTEM`
   apps (suspending system components bricks the device). On a Tier-1 Pixel the system image is
-  AOSP+Google-clean, so this is tight. On Tier 2 (Samsung / OnePlus / Motorola / Nothing — ADR-001's
-  named list) the OEM **preloads** `FLAG_SYSTEM` apps — e.g. Samsung Internet, Galaxy Store — that
+  AOSP+Google-clean, so this is tight. On a Tier 2 device (the specific tested models in D1) the
+  OEM **preloads** `FLAG_SYSTEM` apps — e.g. Samsung Internet, Galaxy Store — that
   the allowlist therefore cannot suspend. A kid can launch the OEM-preloaded browser/store past the
   allowlist. (Heavier-customization OEMs such as Xiaomi MIUI are **Tier 3**, not committed Tier 2 —
   see SIMPLIFY.)
@@ -61,7 +61,7 @@ S22+ / A55+ / Note, OnePlus 11+, Motorola Edge 50+, Nothing Phone 2+. Heavier-cu
 (e.g. Xiaomi MIUI) are **Tier 3**, not committed Tier 2 (SIMPLIFY). The matrix rows, the Context
 examples, and the D4 hardening backlog all use this one list — no drift.
 
-| Enforcement surface | Tier 1 (Pixel 6+, A14+ stock) | Tier 2 (Samsung/OnePlus/Moto/Nothing, named) | Tier 3 (any A13+ DPC) |
+| Enforcement surface | Tier 1 (Pixel 6+, A14+ stock) | Tier 2 (specific tested models — the canonical list above) | Tier 3 (any other / older A13+ DPC) |
 |---|---|---|---|
 | Launch allowlist (deny-by-default) | Tight — clean system image | **Gap: OEM-preloaded `FLAG_SYSTEM` apps (browser/store) stay launchable** (ADR-022 D4) | Gap, unaudited |
 | Factory-reset / OEM-unlock resistance | Strong (locked bootloader + FRP) | **Best-effort — vendor unlock tools bypass** (ADR-020 D4/D5) | None guaranteed |

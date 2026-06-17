@@ -134,11 +134,13 @@ support more, but the UI cannot stay simple if we expose it.
 **One device *tier* model, not one family ([ADR-001](adr/001-one-device-tier.md),
 [ADR-023](adr/023-enforcement-floor-tiers.md)).** Not Pixel-only: a tier
 system. **Tier 1 = Pixel-class stock** (full enforcement, the reference). **Tier
-2 = named OEMs** (Samsung / OnePlus / Motorola / Nothing) — supported with
-*documented enforcement gaps*: OEM-preloaded apps can bypass the launch
+2 = specific tested OEM models** (Samsung Galaxy S22+/A55+/Note, OnePlus 11+,
+Motorola Edge 50+, Nothing Phone 2+ — the canonical list in ADR-023) — supported
+with *documented enforcement gaps*: OEM-preloaded apps can bypass the launch
 allowlist, FRP/unlock is best-effort, and watchdog liveness needs a per-OEM
-battery exemption. **Tier 3 = other Android 13+**, best-effort; heavy-
-customization OEMs (Xiaomi MIUI) live here. We don't pretend OEM differences
+battery exemption. **Tier 3 = all other or older Android 13+ devices**,
+best-effort; heavy-customization OEMs (Xiaomi MIUI) and untested models of the
+Tier-2 brands live here. We don't pretend OEM differences
 don't exist — we **tier and disclose** them, never silently over-promise.
 *Prevents:* both the infinite OEM-bug matrix *and* a silent over-claim that a
 Samsung phone is as locked down as a Pixel.
