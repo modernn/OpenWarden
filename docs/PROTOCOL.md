@@ -372,6 +372,8 @@ Every `Heartbeat` and `SealedEvent` envelope MUST be padded so the canonical ent
 
 ## 7. Pairing handshake
 
+> **Ratified by [ADR-025](adr/025-pairing-handshake-direction-attestation-sas.md).** The direction (parent **displays** the QR, child **scans** + POSTs), the trust model (StrongBox attestation **and** six-emoji SAS gate the pin), and the wire schema below are protected canon. A parent-scans-child inversion is forbidden without a superseding ADR; there is no `tls_spki` field.
+
 Pairing is the one-time bootstrap that pins both pubkeys. Failure here is unrecoverable except by re-pair. Cf. [`PROVISIONING.md`](PROVISIONING.md) for OOBE flow.
 
 ### 7.1 QR payload (parent → child, displayed on parent)
