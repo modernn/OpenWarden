@@ -5,21 +5,26 @@ import android.os.UserManager
 import android.util.Log
 
 /**
- * Watchdog surface for **profile-escape detection** (ADR-022 / issue #12).
+ * Watchdog surface for **profile-escape detection + containment** (ADR-022 / issue #12).
  *
  * Blocking the *creation* of a managed/private profile is the Day-One restriction baseline's job
  * (`DISALLOW_ADD_MANAGED_PROFILE` always, `DISALLOW_ADD_PRIVATE_PROFILE` on API 35+ — see
- * [PolicyEnforcer.requiredRestrictions]). This guard is the **detection backstop**: if a profile
- * appears anyway (a pre-existing one, or a window before the restriction stuck), the watchdog
- * notices the profile count climbing above the baseline and surfaces it.
+ * [PolicyEnforcer.requiredRestrictionsForSdk]). This guard is the **detection + fail-closed
+ * backstop**: a profile that exists anyway (one that pre-dated our Device Owner, or slipped in
+ * during a window before the restriction stuck) is a *full allowlist bypass* — anything can run
+ * inside it. So when the profile count climbs above the baseline this guard both logs a
+ * containment warning **and locks the device** ([contain]), the same fail-closed `lockNow()`
+ * response every other surface uses on a gap (ADR-020 / ADR-022 D2).
  *
- * Honest scope (ADR-022): with no event log / parent transport yet, "surface" is a local
- * containment **log** plus the watchdog's existing re-assert of the blocking restrictions on the
- * same tick. A parent-facing alert lands when the event log does — the same staged honesty as
- * ADR-020's "FRP implemented but not yet wired".
+ * Honest scope (ADR-022 D3): with no event log / parent transport yet, there is no parent-facing
+ * alert and we do **not** attempt to *remove* the rogue profile (Private Space removal under
+ * Device Owner is unverified and potentially destructive). Containment is local: log + lock, on
+ * every tick the extra profile persists, until it is resolved. A parent alert lands when the
+ * event log does — the same staged honesty as ADR-020's "FRP implemented but not yet wired".
  *
- * The count source is injected as a seam so the trip logic is deterministically testable without
- * a live device. [forContext] wires the real [UserManager.getUserProfiles].
+ * The count source and the containment action are injected as seams so the trip logic is
+ * deterministically testable without a live device. [forContext] wires the real
+ * [UserManager.getUserProfiles] and [PolicyEnforcer.lockNow].
  */
 class ProfileGuard(
     private val profileCount: () -> Int,
@@ -28,25 +33,25 @@ class ProfileGuard(
         Log.w(
             TAG,
             "Extra user profile detected (count=$count > baseline=$baseline) — possible Private " +
-                "Space / managed-profile escape (B1). Blocking restrictions re-asserted this tick; " +
-                "parent alert pending the event log.",
+                "Space / managed-profile escape (B1). Locking device for containment; parent alert " +
+                "pending the event log.",
         )
     },
+    private val contain: () -> Unit = {},
 ) {
 
     /**
-     * Check the current profile count against the baseline. Returns true (and invokes
-     * [onExtraProfile]) when an extra profile is present. Pure-ish: a failure to read the count
-     * propagates to the caller, which the watchdog guards with `runCatching` like every surface.
+     * Check the current profile count against the baseline. On an extra profile, fire
+     * [onExtraProfile] (record) then [contain] (lock), and return true. Returns false when the
+     * device is at the single-user baseline. A failure to read the count propagates to the caller,
+     * which the watchdog guards with `runCatching` like every surface.
      */
     fun check(): Boolean {
         val count = profileCount()
-        return if (count > baseline) {
-            onExtraProfile(count)
-            true
-        } else {
-            false
-        }
+        if (count <= baseline) return false
+        onExtraProfile(count)
+        contain()
+        return true
     }
 
     companion object {
@@ -55,10 +60,16 @@ class ProfileGuard(
         /** A locked-down child device has exactly one profile: the primary user. */
         const val BASELINE_PROFILES = 1
 
-        /** Wire the guard to the real [UserManager] profile count. */
+        /** Wire the guard to the real profile count and the fail-closed `lockNow()` containment. */
         fun forContext(context: Context): ProfileGuard {
             val um = context.getSystemService(Context.USER_SERVICE) as UserManager
-            return ProfileGuard(profileCount = { um.userProfiles.size })
+            return ProfileGuard(
+                profileCount = { um.userProfiles.size },
+                contain = {
+                    runCatching { PolicyEnforcer(context).lockNow() }
+                        .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
+                },
+            )
         }
     }
 }

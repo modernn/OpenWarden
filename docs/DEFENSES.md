@@ -104,7 +104,7 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 | Kid §4.2 | Sneak phone after bedtime | hard bedtime lock w/o PIN unlock | Tech |
 | Kid §5.6 | Browser incognito | block via Chrome enterprise policy as DO | Tech |
 | Kid §7.4 | Find unsuspended app via search | allowlist deny-by-default (`setPackagesSuspended` → escalate to `setApplicationHidden`), fail-closed verify-or-lock + block Settings → Apps launches *(#12, ADR-022)* | Tech |
-| B1 (research/07) | Blocklist beaten by clone / dual-app / repackaged APK / **Private Space** | allowlist-only launch (deny-by-default, fail-closed) + `DISALLOW_ADD_MANAGED_PROFILE` (always) + `DISALLOW_ADD_PRIVATE_PROFILE` (API 35+) + watchdog profile-count detection *(#12, ADR-022)* | Tech |
+| B1 (research/07) | Blocklist beaten by clone / dual-app / repackaged APK / **Private Space** | allowlist-only launch (deny-by-default, fail-closed) + `DISALLOW_ADD_MANAGED_PROFILE` (always) + `DISALLOW_ADD_PRIVATE_PROFILE` (API 35+) + watchdog profile-count detection → `lockNow()` containment *(#12, ADR-022)* | Tech |
 
 ---
 

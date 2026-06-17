@@ -80,8 +80,9 @@ class PolicyWatchdog(
                         ?.bundle?.policy?.private_dns
                     DnsFloor(context).applyFloor(requested)
                 },
-                // ADR-022 profile-escape detection backstop: the restrictions above already BLOCK
-                // managed/private-profile creation; this notices if a profile appears anyway.
+                // ADR-022 profile-escape backstop: the restrictions above already BLOCK
+                // managed/private-profile creation; this detects a profile that exists anyway
+                // (a full allowlist bypass) and contains it with lockNow().
                 checkProfiles = { ProfileGuard.forContext(context).check() },
             )
         }

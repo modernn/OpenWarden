@@ -21,30 +21,40 @@ import kotlin.test.assertTrue
 class ProfileGuardTest {
 
     @Test
-    fun `check is quiet at the baseline single profile`() {
+    fun `check is quiet at the baseline single profile and does not lock`() {
         var flagged: Int? = null
-        val guard = ProfileGuard(profileCount = { 1 }, onExtraProfile = { flagged = it })
+        var contained = 0
+        val guard = ProfileGuard(profileCount = { 1 }, onExtraProfile = { flagged = it }, contain = { contained++ })
 
         assertFalse(guard.check(), "A single (primary) profile is the expected, locked-down state")
         assertEquals(null, flagged, "No extra-profile callback may fire at the baseline")
+        assertEquals(0, contained, "The device must NOT be locked at the baseline")
     }
 
     @Test
-    fun `check flags when an extra profile appears`() {
+    fun `check flags AND locks when an extra profile appears`() {
         var flagged: Int? = null
-        val guard = ProfileGuard(profileCount = { 2 }, onExtraProfile = { flagged = it })
+        var contained = 0
+        val guard = ProfileGuard(profileCount = { 2 }, onExtraProfile = { flagged = it }, contain = { contained++ })
 
         assertTrue(guard.check(), "A second profile (Private Space / managed profile) must be flagged")
         assertEquals(2, flagged, "The callback must receive the observed profile count")
+        assertEquals(1, contained, "An extra profile is a full allowlist bypass — must trigger lockNow() containment")
     }
 
     @Test
-    fun `check flags any count above baseline`() {
-        var calls = 0
-        val guard = ProfileGuard(profileCount = { 3 }, onExtraProfile = { calls++ })
+    fun `check records before it contains`() {
+        // The warning must be logged before the lock so the detection is recorded even if the
+        // device locks (and a future event-log write happens) on the same tick.
+        val order = mutableListOf<String>()
+        val guard = ProfileGuard(
+            profileCount = { 3 },
+            onExtraProfile = { order += "flag" },
+            contain = { order += "contain" },
+        )
 
         assertTrue(guard.check())
-        assertEquals(1, calls, "An extra profile must be surfaced exactly once per check")
+        assertEquals(listOf("flag", "contain"), order, "must record the detection, then contain")
     }
 
     @Test

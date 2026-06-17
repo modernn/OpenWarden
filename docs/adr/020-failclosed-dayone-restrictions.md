@@ -49,8 +49,14 @@ This list *is* the strict baseline; there is no relaxed variant in v1. It is pin
 > **Amended by ADR-022 (2026-06-16):** the baseline is no longer a fixed "exactly 17". ADR-022
 > adds the always-on **profile-escape block** (`DISALLOW_ADD_MANAGED_PROFILE` always;
 > `DISALLOW_ADD_PRIVATE_PROFILE` on API 35+), so `requiredRestrictions` is now API-aware (18 on
-> API ≤ 34, 19 on API ≥ 35). The verify-or-throw contract (D2) is unchanged; only the *contents*
-> of the required set grew. The witness test is split by `@Config(sdk=...)` accordingly.
+> API ≤ 34, 19 on API ≥ 35). The verify-or-throw *mechanism* (D2) is unchanged; only the
+> *contents* of the required set grew, and the witness test is split by `@Config(sdk=...)`.
+> **Caveat (not purely additive):** the contract now depends on a new assumption — that a Device
+> Owner setting the Java-`@Deprecated` `DISALLOW_ADD_MANAGED_PROFILE` key still records and reads
+> back the restriction bit. If that were false on some OS, verify would *false-trip and brick*
+> (fail-closed direction, but an incident). That readback, and the API-35 private-profile branch,
+> are **not** covered by the (sub-35) Robolectric suite and must be proven by the
+> `connectedAndroidTest` harness (#30) before this is trusted on hardware. See ADR-022 Consequences.
 
 **D2 — Verify-or-throw, never return partial.** `applyDayOneRestrictions()` applies the full
 set, then `verifyOrThrow()` reads each restriction back via `UserManager.hasUserRestriction`
