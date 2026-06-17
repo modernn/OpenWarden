@@ -8,7 +8,7 @@ Open-source, local-only parental control for Android. Apache 2.0. Free forever.
 
 OpenWarden is two paired apps that let a parent control what their kid does on an Android phone — without surveillance, subscriptions, or cloud servers.
 
-- **Child device:** stock Android, by **enforcement tier** ([ADR-023](docs/adr/023-enforcement-floor-tiers.md)): **Tier 1 = Pixel-class** (full anti-bypass enforcement); **Tier 2 = Samsung / OnePlus / Motorola / Nothing** (supported, but with *documented enforcement gaps* — OEM-preloaded apps can bypass the launch allowlist, factory-reset/unlock protection is best-effort, no StrongBox guarantee); **Tier 3 = other Android 13+** (best-effort, no anti-bypass warranty). Strongest on Pixel; honest about the rest. Runs the OpenWarden DPC (Device Owner) app. Enforces policy locally — works offline.
+- **Child device:** stock Android, by **enforcement tier** ([ADR-023](docs/adr/023-enforcement-floor-tiers.md)): **Tier 1 = Pixel-class** (full anti-bypass enforcement); **Tier 2 = specific tested OEM models** (Samsung Galaxy S22+/A55+/Note, OnePlus 11+, Motorola Edge 50+, Nothing Phone 2+ — see [ADR-023](docs/adr/023-enforcement-floor-tiers.md) for the exact list; supported, but with *documented enforcement gaps* — OEM-preloaded apps can bypass the launch allowlist, factory-reset/unlock protection is best-effort, no StrongBox guarantee); **Tier 3 = other or older Android 13+ devices** (best-effort, no anti-bypass warranty). Strongest on Pixel; honest about the rest. Runs the OpenWarden DPC (Device Owner) app. Enforces policy locally — works offline.
 - **Parent device:** Android phone (v1) or iOS phone (v1, foreground-poll model). Edits policy, reviews activity, holds recovery phrase.
 - **Communication:** LAN-first signed REST. Both phones on the same Wi-Fi = direct sync. (v2: store-and-forward over Iroh for remote sync.)
 
@@ -61,7 +61,7 @@ For ages 5-17. Defaults shift per life stage (5-7 tight, 8-10 standard, 11-13 ea
 - You don't want a SaaS subscription
 - You don't trust Google / Bark / Qustodio with your kid's data
 - You're comfortable provisioning a phone via USB (or willing to use the desktop provisioner v2)
-- You're OK with the enforcement-tier model: **full anti-bypass enforcement on Pixel-class (Tier 1)**, **named Tier-2 OEMs (Samsung/OnePlus/Motorola/Nothing) supported with documented gaps**, and **other Android best-effort with no anti-bypass warranty** ([ADR-023](docs/adr/023-enforcement-floor-tiers.md))
+- You're OK with the enforcement-tier model: **full anti-bypass enforcement on Pixel-class (Tier 1)**, **specific tested Tier-2 OEM models supported with documented gaps** (Samsung/OnePlus/Motorola/Nothing — exact models in [ADR-023](docs/adr/023-enforcement-floor-tiers.md)), and **other or older Android best-effort with no anti-bypass warranty (Tier 3)**
 
 ## Don't pick OpenWarden if
 
