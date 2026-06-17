@@ -333,6 +333,33 @@ class PolicyAdmissionTest {
     }
 
     @Test
+    fun genesisWitnessFailureLeavesACleanIdempotentlyRetryableState() {
+        // R12: on genesis the durable witness is written BEFORE pin/mark. If it fails, nothing is
+        // pinned/marked/staged, so the device is NOT stranded provisioned-but-floorless — the same
+        // signed genesis bundle repairs cleanly on retry.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = false, atRest = null).apply { failNote = true }
+        val applier = RecordingApplier()
+        var pinned: ByteArray? = null
+        val b1 = sign(bundle(policySeq = 1L, childId = state.childDeviceId()), kp)
+
+        val first = PolicyAdmission.admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
+        assertTrue(first is PolicyAdmission.Result.Rejected, "genesis witness-write failure is Rejected")
+        assertFalse(state.isProvisioned(), "must NOT mark provisioned when the witness failed")
+        assertEquals(null, pinned, "must NOT pin the key when the witness failed")
+        assertFalse(applier.calls.contains("stage:1"), "must not stage")
+
+        // Storage recovers; retry the SAME signed genesis bundle — must repair as a clean genesis.
+        state.failNote = false
+        val retry = PolicyAdmission.admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
+        assertTrue(retry is PolicyAdmission.Result.Applied, "retry must repair as a clean genesis, not strand as an anomaly")
+        assertTrue((retry as PolicyAdmission.Result.Applied).genesis)
+        assertEquals(1L, state.atRestFloor())
+        assertTrue(state.isProvisioned())
+        assertTrue(pinned!!.contentEquals(kp.publicKeyRaw), "the parent key is pinned on the repaired genesis")
+    }
+
+    @Test
     fun genesisSeqZeroRejectedNeverLivePolicy() {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = false, atRest = null)

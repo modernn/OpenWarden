@@ -294,29 +294,30 @@ object PolicyAdmission {
             is Outcome.Accept -> {
                 try {
                     // Two-phase commit. Order is load-bearing (ADR-017 commit ordering).
-                    if (outcome.genesis) {
-                        // Genesis (TOFU): the pure decide() could not verify the signature
-                        // (no key material), so we MUST verify the bundle here against the
-                        // key we are about to pin, BEFORE pinning/marking. A genesis accept
-                        // with no pubkey, or a sig that does not verify against it, is
-                        // fail-closed — never pin an unverified key.
-                        val pub = genesisPubkey
-                            ?: return@synchronized Result.Rejected(false, "genesis accept without a pubkey to pin (fail-closed)")
-                        if (!BundleVerifier.verify(bundle, pub)) {
-                            return@synchronized Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
-                        }
-                        // Pin the parent key + mark provisioned BEFORE seeding floor.
-                        pinParentKey(pub)
-                        store.markProvisioned()
+                    // Genesis (TOFU): the pure decide() could not verify the signature (no key
+                    // material), so we MUST verify the bundle here against the key we are about to
+                    // pin, BEFORE pinning. A genesis accept with no pubkey, or a sig that does not
+                    // verify against it, is fail-closed — never pin an unverified key.
+                    val genesisPub: ByteArray? = if (outcome.genesis) {
+                        genesisPubkey
+                            ?.takeIf { BundleVerifier.verify(bundle, it) }
+                            ?: return@synchronized Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
+                    } else {
+                        null
                     }
-                    // 11b. R9/R11: record the DURABLE rollback witness BEFORE the bundle is made
-                    // active. stage() persists the candidate as the active bundle the watchdog
-                    // enforces, and applyAndFsync() can mutate live/durable state before throwing
-                    // (e.g. allowlist verify -> lockNow + throw). The witness must already be durable
-                    // first, so a staged-but-failed apply can't be rolled back by a lower valid seq —
-                    // even across a restart. noteApplied is fail-closed: if it can't persist durably
-                    // it throws here, and we never stage (nothing becomes active to roll back).
+                    // R9/R11/R12: record the DURABLE rollback witness FIRST — before ANY durable
+                    // provisioning (pin/mark) or active-bundle state (stage). stage() makes the
+                    // candidate active and applyAndFsync() can mutate live/durable state before
+                    // throwing, so the witness must already be durable or a staged-but-failed apply
+                    // could be rolled back (even across a restart). It is fail-closed: if it can't
+                    // persist it throws here, leaving a CLEAN state — nothing pinned/marked/staged —
+                    // so the same signed bundle repairs idempotently on retry (R12: a genesis whose
+                    // witness failed must not strand the device pinned-but-floorless).
                     store.noteApplied(outcome.policySeq)
+                    if (genesisPub != null) {
+                        pinParentKey(genesisPub)      // 11c. pin the verified parent key
+                        store.markProvisioned()       //      + mark provisioned, before seeding floor
+                    }
                     applier.stage(bundle)             // 12. stage — the candidate is now the persisted active bundle
                     applier.applyAndFsync(bundle)     // 13. apply + fsync (durable; may throw)
                     store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
