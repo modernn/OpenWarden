@@ -100,13 +100,16 @@ on a real Android 15 device. Containment (lock) is the v1 response; removal + al
   `FLAG_SYSTEM`, so the exempt set takes the whole system partition. On a **Tier 1** device
   (ADR-001 — Pixel-class, AOSP+Google-clean image) this is clean: the system apps present are
   either meant to be available or governed by a *different* layer — Chrome by the managed
-  `URLBlocklist` policy (ADR-009 / #16), Play by install-approval, web egress by the fail-closed
+  `URLBlocklist` policy (ADR-009 / #16); apps installed via Play / OEM stores are themselves
+  non-allowlisted user apps the deny-by-default allowlist suspends; web egress by the fail-closed
   DNS floor (ADR-016 / #19). **But ADR-001 also commits to Tier 2/3 (Samsung / OnePlus / Xiaomi /
   Motorola), which ship preloaded `FLAG_SYSTEM` apps the allowlist therefore can't suspend — e.g.
   Samsung Internet, Galaxy Store.** On those devices a kid can launch the OEM-preloaded browser/
   store past the allowlist. This is **mitigated, not closed**: the DNS floor still filters that
-  browser's web egress, and install-approval still gates the store — but the *launch* of an
-  un-allowlisted preloaded app is a real residual on Tier 2/3. Closing it (a per-OEM curated
+  browser's web egress, and an app *installed* via that store is a non-allowlisted user app the
+  deny-by-default allowlist suspends on the next watchdog tick — but the *launch* of the
+  un-allowlisted preloaded store/browser app itself is a real residual on Tier 2/3. (Install-approval
+  is NOT a current mitigation — it is frozen/future scope, not implemented.) Closing it (a per-OEM curated
   system sub-allowlist, or bloat suspension) is a **follow-up hardening item, and is exactly the
   enforcement-strength gap that motivates reassessing ADR-001's tier guarantees** — tracked
   separately, not silently accepted here. Codex and the dual adversarial review both confirmed
@@ -153,8 +156,10 @@ Bad / accepted limits:
 - **Post-install drift window.** The deny set is computed from the installed-package list at apply
   time, so an app installed *after* the last apply is launchable until the next watchdog tick
   re-runs `applyAllowlist`. This is the **same ≤`INTERVAL_MS` (30 s) drift bound ADR-021 already
-  accepted**, further throttled by `DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY` + install-approval.
-  The deny-by-default guarantee is therefore "≤30 s after install," not instantaneous.
+  accepted**, further throttled by `DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY` (blocks sideload).
+  The deny-by-default guarantee is therefore "≤30 s after install," not instantaneous. (Sideload is
+  separately blocked by `DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY`; install-approval is not
+  implemented and is not relied on here.)
 - **The deprecated `DISALLOW_ADD_MANAGED_PROFILE` readback is asserted, not yet hardware-proven.**
   The verify-or-throw contract assumes a Device Owner setting that (Java-`@Deprecated`) key still
   records and reads back the restriction bit. If that assumption were wrong on some OS, verify

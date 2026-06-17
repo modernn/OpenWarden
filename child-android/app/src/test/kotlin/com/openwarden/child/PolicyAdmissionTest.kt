@@ -78,6 +78,8 @@ class PolicyAdmissionTest {
         var provisioned: Boolean = false,
         var atRest: Long? = null,
         var chain: Long? = null,
+        // R6: simulate a failed durable floor write (commit() == false => advanceFloor throws).
+        var failAdvance: Boolean = false,
     ) : PolicyAdmission.FloorState {
         val acks = mutableListOf<Long>()
         override fun childDeviceId() = myId
@@ -92,6 +94,7 @@ class PolicyAdmissionTest {
             else -> maxOf(atRest!!, chain!!)
         }
         override fun advanceFloor(policySeq: Long) {
+            if (failAdvance) throw IllegalStateException("simulated floor commit() failure (fail-closed)")
             val cur = atRest
             if (cur != null && policySeq <= cur) return // never lower; idempotent
             atRest = policySeq
@@ -173,6 +176,24 @@ class PolicyAdmissionTest {
         val appliedSeqs = applier.calls.filter { it.startsWith("apply:") }.map { it.substringAfter(":").toLong() }
         assertEquals(appliedSeqs.sorted(), appliedSeqs, "applies must be monotonic — no stale lower seq after a higher one")
         assertTrue(11L in appliedSeqs, "the higher seq must have applied")
+    }
+
+    @Test
+    fun durableFloorWriteFailureFailsClosedWithNoAck() {
+        // R6: if the durable floor write fails (advanceFloor throws on commit()==false), admit() must
+        // NOT ack or report Applied — it must fail closed (Rejected). Otherwise a success is reported
+        // while the persisted floor stays old, letting a stale lower-seq bundle re-admit after restart
+        // and undo a newer deny, defeating the R5 lock.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 9L, failAdvance = true)
+        val applier = RecordingApplier()
+        val b = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
+
+        val result = PolicyAdmission.admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable floor write must be Rejected, not Applied")
+        assertFalse(applier.calls.any { it.startsWith("ack:") }, "no ack may be emitted when the floor write fails")
+        assertEquals(9L, state.atRestFloor(), "the floor must remain at its old value (not advanced)")
     }
 
     @Test

@@ -102,7 +102,18 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
     override fun advanceFloor(policySeq: Long) {
         val current = atRestFloor()
         if (current != null && policySeq <= current) return // never lower; idempotent
-        prefs.edit().putLong(KEY_FLOOR, policySeq).commit() // commit() = synchronous durable write
+        // R6: commit() returns false on a failed durable write. Ignoring it would let
+        // PolicyAdmission ack + report Applied while the persisted floor stayed old — so after a
+        // restart a stale lower-seq bundle above the old floor could re-admit and undo a newer
+        // deny, despite the R5 lock. Fail closed: throw, so admit()'s two-phase commit treats it as
+        // a durable-apply failure (Rejected, no ack) and the floor is never silently behind reality.
+        check(prefs.edit().putLong(KEY_FLOOR, policySeq).commit()) {
+            "replay floor commit() failed for seq=$policySeq (fail-closed)"
+        }
+        val readback = prefs.getLong(KEY_FLOOR, ReplayFloor.GENESIS_FLOOR)
+        check(readback == policySeq) {
+            "replay floor readback ($readback) != $policySeq after commit (fail-closed)"
+        }
     }
 
     /** True iff this child has been provisioned (pairing marker written). ADR-017 part 4. */
@@ -114,7 +125,11 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
      * never genesis (ADR-017 part 4).
      */
     override fun markProvisioned() {
-        prefs.edit().putBoolean(KEY_PROVISIONED, true).commit()
+        // R6: same fail-closed contract as advanceFloor — a silently-failed provisioning write would
+        // leave the child looking never-provisioned, re-opening the genesis (TOFU) path on restart.
+        check(prefs.edit().putBoolean(KEY_PROVISIONED, true).commit()) {
+            "provisioning marker commit() failed (fail-closed)"
+        }
     }
 
     /**
@@ -127,7 +142,11 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState {
     override fun childDeviceId(): String {
         prefs.getString(KEY_CHILD_ID, null)?.let { return it }
         val generated = DeviceIdentity.generateStableId()
-        prefs.edit().putString(KEY_CHILD_ID, generated).commit()
+        // R6: if this write silently fails the next read regenerates a DIFFERENT id, breaking
+        // audience binding. Fail closed rather than proceed with an unpersisted id.
+        check(prefs.edit().putString(KEY_CHILD_ID, generated).commit()) {
+            "child device id commit() failed (fail-closed)"
+        }
         return generated
     }
 
