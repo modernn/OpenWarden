@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // Needed for @Serializable wire types in DemoLockCommandSender / future demo clients.
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -38,4 +40,10 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.navigation)
     implementation(libs.androidx.activity.compose)
+    // DEMO ONLY — Ktor OkHttp + JSON for DemoLockCommandSender.
+    // Real signed transport lives in :shared/androidMain/transport/ (unbuilt, gated by #27/#24).
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.contentnegotiation)
+    implementation(libs.ktor.serialization.json)
+    implementation(libs.kotlinx.serialization.json)
 }
