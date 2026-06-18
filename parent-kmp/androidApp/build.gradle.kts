@@ -31,6 +31,7 @@ android {
 dependencies {
     implementation(project(":shared"))
     implementation(libs.kotlinx.coroutines)
+    implementation(libs.kotlinx.datetime)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
@@ -38,4 +39,6 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.navigation)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
 }
