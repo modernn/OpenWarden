@@ -78,7 +78,7 @@ A parent can pair, see state, and push a policy — from a phone.
 - [x] **parent-kmp scaffold** — `:proto` + `:shared` + `:androidApp` build green
   (Android). iOS host-gated to macOS, built later.
 - [ ] Pair via QR scan *(#23)*
-- [ ] Dashboard: child online status, today's usage, recent blocks *(#25)*
+- [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
 - [ ] App allowlist editor: pull installed apps from child, toggle allowed *(#26)*
 - [ ] "Lock now" / "Unlock now" *(#28)*
 - [ ] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(human-gated: crypto)*
