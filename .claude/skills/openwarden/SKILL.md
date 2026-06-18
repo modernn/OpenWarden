@@ -24,6 +24,20 @@ Orchestrator skill. It does NOT reimplement the building-block skills
   `adb -s <child> forward tcp:7180 tcp:7180` and the parent app's `http://10.0.2.2:7180`; Android
   ships no `curl`/`wget`, so verify the parent→child path via the parent app + a screenshot). Cross-
   check the `project-state` / `e2e-test-bed` auto-memory for the current staged state before acting.
+- **NEVER E2E-test against a stale build — run the most-updated app on every simulator.** A live test
+  bed is worthless if the installed APKs are old: we once spent a session concluding "enforcement is
+  dead on the device" when the truth was a months-old demo build (predating the enforcement era) was
+  installed. **Before any E2E / red-team run:** (1) `git`-confirm the worktree is at the intended HEAD;
+  (2) rebuild from source (`./gradlew :app:assembleDebug` child, `:androidApp:assembleDebug` parent,
+  JDK 21); (3) `adb -s <dev> install -r` the freshly-built APK on **every** simulator; (4) verify the
+  running build is current — `adb -s <dev> shell dumpsys package <pkg> | grep lastUpdateTime` should be
+  *now*, not an old date; (5) **trigger the realistic lifecycle so enforcement actually runs** — a `-r`
+  reinstall does NOT start the child's `PolicyService` (it can't be started by an external intent;
+  the watchdog starts on **boot / admin-enable**), so **reboot the child** (`adb reboot` →
+  `wait-for-device` → poll `getprop sys.boot_completed` → wait one `INTERVAL_MS`≈30s watchdog tick)
+  before asserting restrictions/DNS/allowlist. Stale-build or no-watchdog state is a **false negative**,
+  not a finding. Note the codebase fork: real on-device `/usage` lives on `demo/*`, enforcement on
+  `main` — "most updated" depends on which; porting the demo `/usage` to `main` is #20 scope.
 - **Read the shared KB.** Call the MCP tool **`get_session_context`** (from the optional
   local `openwarden-kb` server in [`.claude/mcp-server/`](../../mcp-server/)) to load the
   knowledgebase digest + active-work snapshot. If that server isn't running, fall back to
