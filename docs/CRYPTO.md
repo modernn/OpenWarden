@@ -123,6 +123,8 @@ val edKeyPair = kpg.generateKeyPair()   // throws StrongBoxUnavailableException 
 
 `setIsStrongBoxBacked(true)` is non-negotiable. If StrongBox is unavailable (no Titan M2, e.g. non-Pixel device), the call throws `StrongBoxUnavailableException` — we **do not** fall back to TEE-only. The v1 product requires Pixel 6/7/8. Falling back silently to TEE would give the kid a route to extraction via known TEE exploits ([CVE-2022-20465](https://nvd.nist.gov/vuln/detail/CVE-2022-20465) Titan-only attestation key leak was StrongBox-bound; TEE attestation chains have been compromised more frequently).
 
+> **Amended by ADR-029 (Tier-2 attestation posture):** the rule above is non-negotiable **on Tier 1 (Pixel) only**. On the committed **Tier-2** targets (Samsung S22+/A55+/Note, OnePlus 11+ — ADR-026) the keygen **attempts StrongBox and falls back to TEE keygen** (`setIsStrongBoxBacked(false)`) on `StrongBoxUnavailableException` — **never** to `SOFTWARE`. The TEE residual (weaker physical-extraction resistance) is accepted under the declared threat model (ATTACKS §1 — no JTAG / physical attacker) and **disclosed to the parent at pairing**. See ADR-029 D1/D4.
+
 ### Retrieving the attestation cert chain
 
 ```kotlin
@@ -454,6 +456,8 @@ Hard rules enforced at pairing **and** periodically (every 7 days via refreshed 
 | Revocation status | not in [Google's revocation list](https://android.googleapis.com/attestation/status) | Refuse; `ATTEST_REVOKED` |
 
 `securityLevel < TRUSTED_ENVIRONMENT` (i.e., `SOFTWARE`) is an immediate kill; `TRUSTED_ENVIRONMENT` (1) is not acceptable on a Pixel 7 (it has StrongBox; if the key reports TEE it means the attestation extension is forged or the device is mis-provisioned).
+
+> **Amended by ADR-029 (Tier-2 attestation posture):** the table above is the **Tier-1 (Pixel)** rule. For the committed **Tier-2** targets (Samsung/OnePlus — ADR-026) **exactly two rows widen**: **`securityLevel` / `keymasterSecurityLevel`** accept `StrongBox` **or** `TRUSTED_ENVIRONMENT` (TEE) — `SOFTWARE` is still an immediate kill; and **Cert chain root** accepts any root in the `oem_roots.json` allow-list (Google + Samsung Knox + OnePlus) — an **unknown** root is still `ATTEST_ROOT_UNKNOWN` refuse. `verifiedBootState`, `deviceLocked`, `attestationChallenge`, the per-OEM **model allow-list**, and revocation (per-OEM status endpoint where available) all stay mandatory, and the **four-key SAS (ADR-025 D2a)** stays mandatory — it is the load-bearing MITM catch on TEE-level devices. On Tier 1, `TRUSTED_ENVIRONMENT` remains a kill. See ADR-029 D1/D5.
 
 ---
 

@@ -53,6 +53,9 @@ What this means going forward (good + bad).
 | [025](025-pairing-handshake-direction-attestation-sas.md) | Accepted | Pairing handshake ratified — parent-displays-QR + StrongBox attestation + six-emoji SAS (ratifies PROTOCOL §7) |
 | [026](026-top-oem-release-scope.md) | Proposed | Commit Pixel + Samsung + OnePlus to the v1.0 release at the disclosed-gap floor (amends ADR-001/023; blocked on the ADR-025 Tier-2 attestation amendment) |
 | [027](027-provisioning-distribution-model.md) | Proposed | QR-OOBE Device-Owner provisioning is the primary consumer path; Play-distributed; ADB stays power/bench; weak no-DO mode rejected (amends PROVISIONING_V2; blocked with ADR-026) |
+| [029](029-tier2-attestation-posture.md) | Proposed | Tier-2 attestation posture — accept allow-listed OEM-root + TEE-level attestation for committed Samsung/OnePlus, disclosed downgrade, four-key SAS still mandatory (amends ADR-025; reconciles CRYPTO §3/§10) |
+
+<!-- 028 is reserved for the in-flight Bluetooth-transport ADR (PR #70); the table fills in when it merges. -->
 
 ## When to write an ADR
 
