@@ -51,8 +51,8 @@ What this means going forward (good + bad).
 | [023](023-enforcement-floor-tiers.md) | Accepted | Device tiers defined by enforcement floor, not just attestation (amends ADR-001) |
 | [024](024-no-contact-ratchet-strict-baseline.md) | Accepted | Progressive no-contact ratchet to strict baseline + signed Heartbeat (implements ADR-017 §7) |
 | [025](025-pairing-handshake-direction-attestation-sas.md) | Accepted | Pairing handshake ratified — parent-displays-QR + StrongBox attestation + six-emoji SAS (ratifies PROTOCOL §7) |
-| [026](026-top-oem-release-scope.md) | Accepted | Commit Pixel + Samsung + OnePlus to the v1.0 release at the disclosed-gap floor (amends ADR-001/023) |
-| [027](027-provisioning-distribution-model.md) | Accepted | QR-OOBE Device-Owner provisioning is the primary consumer path; Play-distributed; ADB stays power/bench; weak no-DO mode rejected (amends PROVISIONING_V2) |
+| [026](026-top-oem-release-scope.md) | Proposed | Commit Pixel + Samsung + OnePlus to the v1.0 release at the disclosed-gap floor (amends ADR-001/023; blocked on the ADR-025 Tier-2 attestation amendment) |
+| [027](027-provisioning-distribution-model.md) | Proposed | QR-OOBE Device-Owner provisioning is the primary consumer path; Play-distributed; ADB stays power/bench; weak no-DO mode rejected (amends PROVISIONING_V2; blocked with ADR-026) |
 
 ## When to write an ADR
 
