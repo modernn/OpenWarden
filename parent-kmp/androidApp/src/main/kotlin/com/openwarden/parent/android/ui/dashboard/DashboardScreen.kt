@@ -32,8 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.openwarden.parent.dashboard.AppUsageSummary
 import com.openwarden.parent.dashboard.BlockedAttempt
+import com.openwarden.parent.dashboard.BlocksData
 import com.openwarden.parent.dashboard.ChildOnlineStatus
-import com.openwarden.parent.dashboard.ChildDashboardSnapshot
 import com.openwarden.parent.dashboard.DashboardUiState
 import com.openwarden.parent.dashboard.TodayUsage
 import kotlinx.datetime.Instant
@@ -52,6 +52,9 @@ import kotlinx.datetime.Instant
  *    rendered — the domain types do not carry such fields.
  *  - Fail-closed: Loading / Error states → child displayed as offline/unknown,
  *    never optimistically online.
+ *  - Honest offline (H3): when the child is OFFLINE_OR_UNKNOWN, usage and blocks
+ *    display as "unavailable" (—) rather than "0m" / "No blocked attempts today."
+ *    A genuine online-with-zero reads as "0m" / "No blocked attempts today."
  */
 @Composable
 fun DashboardScreen(
@@ -77,7 +80,7 @@ fun DashboardScreen(
                 when (val s = uiState) {
                     is DashboardUiState.Loading -> LoadingState()
                     is DashboardUiState.Error -> ErrorState(s.message)
-                    is DashboardUiState.Success -> SuccessContent(s.snapshot)
+                    is DashboardUiState.Success -> SuccessContent(s)
                 }
             }
         }
@@ -169,7 +172,7 @@ private fun ErrorState(message: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SuccessContent(snapshot: ChildDashboardSnapshot) {
+private fun SuccessContent(state: DashboardUiState.Success) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -179,7 +182,7 @@ private fun SuccessContent(snapshot: ChildDashboardSnapshot) {
         item { Spacer(modifier = Modifier.height(4.dp)) }
 
         // ---- Online / offline badge ----
-        item { OnlineBadge(snapshot.onlineStatus) }
+        item { OnlineBadge(state.onlineStatus) }
 
         item { HorizontalDivider() }
 
@@ -191,7 +194,7 @@ private fun SuccessContent(snapshot: ChildDashboardSnapshot) {
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        item { UsageSummaryCard(snapshot.todayUsage) }
+        item { UsageSummaryCard(state.todayUsage) }
 
         item { HorizontalDivider() }
 
@@ -203,17 +206,31 @@ private fun SuccessContent(snapshot: ChildDashboardSnapshot) {
                 fontWeight = FontWeight.SemiBold,
             )
         }
-        if (snapshot.recentBlocks.isEmpty()) {
-            item {
-                Text(
-                    "No blocked attempts today.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        when (val blocks = state.blocksData) {
+            is BlocksData.Unknown -> {
+                // H3: Do NOT render "No blocked attempts today." — data is unavailable.
+                item {
+                    Text(
+                        "Blocked-attempt data unavailable while offline.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-        } else {
-            items(snapshot.recentBlocks) { block ->
-                BlockedAttemptRow(block)
+            is BlocksData.Known -> {
+                if (blocks.attempts.isEmpty()) {
+                    item {
+                        Text(
+                            "No blocked attempts today.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    items(blocks.attempts) { block ->
+                        BlockedAttemptRow(block)
+                    }
+                }
             }
         }
 
@@ -257,6 +274,13 @@ private fun OnlineBadge(status: ChildOnlineStatus) {
 // Today's usage card
 // ---------------------------------------------------------------------------
 
+/**
+ * Renders today's usage.
+ *
+ * H3 enforcement: [TodayUsage.Unknown] renders "—" / "Usage unavailable while offline"
+ * rather than "0m".  A [TodayUsage.Known] with totalForegroundMs == 0 renders "0m"
+ * (genuine zero on an idle device — that is an honest reading).
+ */
 @Composable
 private fun UsageSummaryCard(usage: TodayUsage) {
     Card(
@@ -269,33 +293,59 @@ private fun UsageSummaryCard(usage: TodayUsage) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Total
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    "Total screen time today",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    formatDuration(usage.totalForegroundMs),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-
-            if (usage.perApp.isNotEmpty()) {
-                HorizontalDivider()
-                usage.perApp.forEach { entry ->
-                    AppUsageRow(entry)
+            when (usage) {
+                is TodayUsage.Unknown -> {
+                    // H3: child is offline/unreachable — do NOT show "0m".
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "Total screen time today",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "—",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Text(
+                        "Usage unavailable while offline.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-            } else {
-                Text(
-                    "No usage data yet.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                is TodayUsage.Known -> {
+                    // Total
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "Total screen time today",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            formatDuration(usage.totalForegroundMs),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+
+                    if (usage.perApp.isNotEmpty()) {
+                        HorizontalDivider()
+                        usage.perApp.forEach { entry ->
+                            AppUsageRow(entry)
+                        }
+                    } else {
+                        Text(
+                            "No usage data yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
@@ -328,7 +378,7 @@ private fun AppUsageRow(entry: AppUsageSummary) {
 
 @Composable
 private fun BlockedAttemptRow(block: BlockedAttempt) {
-    // Metadata only: app label/package, category, timestamp, count.
+    // Metadata only: app label/package, category (enum — never free-form), timestamp, count.
     // No URL, no message content, no search query rendered here or carried
     // by the BlockedAttempt domain type.
     Card(
@@ -358,14 +408,11 @@ private fun BlockedAttemptRow(block: BlockedAttempt) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            val category = block.category
-            if (category != null) {
-                Text(
-                    text = category,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = block.category.displayName,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 text = "${block.countToday}x today",
                 style = MaterialTheme.typography.labelSmall,

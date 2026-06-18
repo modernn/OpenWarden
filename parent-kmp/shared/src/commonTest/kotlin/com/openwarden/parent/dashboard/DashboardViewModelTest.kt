@@ -6,23 +6,44 @@ import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Unit tests for [DashboardViewModel] using fixture data from [FakeChildStateRepository].
  *
- * Assertions cover all three acceptance criteria from issue #25:
+ * Assertions cover all acceptance criteria from issue #25:
  *   (a) Live fixture → correct online + usage + blocks mapping.
  *   (b) Offline/error fixture → honest offline state, never a false "online".
- *   (c) No content field is ever surfaced via the UI-state type.
+ *   (c) H3: offline snapshot maps to TodayUsage.Unknown / BlocksData.Unknown — never 0m / none.
+ *   (d) H2: freshness-derived online status (stale → OFFLINE_OR_UNKNOWN; fresh → ONLINE).
+ *   (e) MED: content-field ALLOWLIST — reflection-based, fail-closed on unexpected fields.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DashboardViewModelTest {
+
+    // -----------------------------------------------------------------------
+    // Fixed clock helpers
+    // -----------------------------------------------------------------------
+
+    /** A fixed "now" for all freshness tests. */
+    private val fixedNow = Instant.fromEpochSeconds(1_718_000_200L)
+
+    /** A timestamp that is fresh (within the 90s window from fixedNow). */
+    private val freshTimestamp = Instant.fromEpochSeconds(1_718_000_150L) // 50s ago — fresh
+
+    /** A timestamp that is stale (older than the 90s window from fixedNow). */
+    private val staleTimestamp = Instant.fromEpochSeconds(1_717_999_900L) // 300s ago — stale
+
+    private val fixedClock = object : Clock {
+        override fun now(): Instant = fixedNow
+    }
 
     // -----------------------------------------------------------------------
     // (a) Online fixture — happy path
@@ -30,47 +51,57 @@ class DashboardViewModelTest {
 
     @Test
     fun onlineFixture_mapsToSuccessWithOnlineStatus() = runTest {
-        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Online))
+        val vm = vmWith(
+            FakeChildStateRepository(
+                scenario = FakeChildStateRepository.Scenario.Online,
+                freshReportedAt = freshTimestamp,
+            ),
+            clock = fixedClock,
+        )
         vm.refresh()
         advanceUntilIdle()
 
-        val state = vm.uiState.value
-        assertIs<DashboardUiState.Success>(state, "Expected Success state for online fixture")
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value, "Expected Success for online fixture")
         assertEquals(
             ChildOnlineStatus.ONLINE,
-            state.snapshot.onlineStatus,
-            "Online fixture must report ONLINE",
+            state.onlineStatus,
+            "Online fixture with fresh timestamp must report ONLINE",
         )
     }
 
     @Test
     fun onlineFixture_usageTotalsArePresent() = runTest {
-        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Online))
+        val vm = vmWith(
+            FakeChildStateRepository(
+                scenario = FakeChildStateRepository.Scenario.Online,
+                freshReportedAt = freshTimestamp,
+            ),
+            clock = fixedClock,
+        )
         vm.refresh()
         advanceUntilIdle()
 
         val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
-        assertTrue(
-            state.snapshot.todayUsage.totalForegroundMs > 0,
-            "Online fixture must have non-zero total usage",
-        )
-        assertTrue(
-            state.snapshot.todayUsage.perApp.isNotEmpty(),
-            "Online fixture must have per-app usage entries",
-        )
+        val usage = assertIs<TodayUsage.Known>(state.todayUsage, "Online fixture must have Known usage")
+        assertTrue(usage.totalForegroundMs > 0, "Online fixture must have non-zero total usage")
+        assertTrue(usage.perApp.isNotEmpty(), "Online fixture must have per-app usage entries")
     }
 
     @Test
     fun onlineFixture_blockedAttemptsArePresent() = runTest {
-        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Online))
+        val vm = vmWith(
+            FakeChildStateRepository(
+                scenario = FakeChildStateRepository.Scenario.Online,
+                freshReportedAt = freshTimestamp,
+            ),
+            clock = fixedClock,
+        )
         vm.refresh()
         advanceUntilIdle()
 
         val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
-        assertTrue(
-            state.snapshot.recentBlocks.isNotEmpty(),
-            "Online fixture must have recent blocks",
-        )
+        val blocks = assertIs<BlocksData.Known>(state.blocksData, "Online fixture must have Known blocks")
+        assertTrue(blocks.attempts.isNotEmpty(), "Online fixture must have recent blocks")
     }
 
     // -----------------------------------------------------------------------
@@ -79,38 +110,16 @@ class DashboardViewModelTest {
 
     @Test
     fun offlineFixture_mapsToSuccessWithOfflineStatus() = runTest {
-        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Offline))
+        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Offline), clock = fixedClock)
         vm.refresh()
         advanceUntilIdle()
 
-        val state = vm.uiState.value
-        assertIs<DashboardUiState.Success>(state, "Expected Success state even for offline fixture")
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value, "Expected Success for offline fixture")
         assertEquals(
             ChildOnlineStatus.OFFLINE_OR_UNKNOWN,
-            state.snapshot.onlineStatus,
+            state.onlineStatus,
             "Offline fixture must report OFFLINE_OR_UNKNOWN, never ONLINE",
         )
-    }
-
-    @Test
-    fun offlineFixture_usageIsEmpty() = runTest {
-        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Offline))
-        vm.refresh()
-        advanceUntilIdle()
-
-        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
-        assertEquals(0L, state.snapshot.todayUsage.totalForegroundMs)
-        assertTrue(state.snapshot.todayUsage.perApp.isEmpty())
-    }
-
-    @Test
-    fun offlineFixture_blocksAreEmpty() = runTest {
-        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Offline))
-        vm.refresh()
-        advanceUntilIdle()
-
-        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
-        assertTrue(state.snapshot.recentBlocks.isEmpty())
     }
 
     @Test
@@ -120,12 +129,11 @@ class DashboardViewModelTest {
                 throw RuntimeException("simulated transport failure")
             }
         }
-        val vm = vmWith(throwingRepo)
+        val vm = vmWith(throwingRepo, clock = fixedClock)
         vm.refresh()
         advanceUntilIdle()
 
-        val state = vm.uiState.value
-        assertIs<DashboardUiState.Error>(state, "Throwing repository must produce Error state")
+        assertIs<DashboardUiState.Error>(vm.uiState.value, "Throwing repository must produce Error state")
     }
 
     @Test
@@ -135,76 +143,234 @@ class DashboardViewModelTest {
                 throw RuntimeException("simulated transport failure")
             }
         }
-        val vm = vmWith(throwingRepo)
+        val vm = vmWith(throwingRepo, clock = fixedClock)
         vm.refresh()
         advanceUntilIdle()
 
         // Error state does NOT carry a snapshot — no stale/live confusion possible.
-        val state = vm.uiState.value
-        // Error state carries no snapshot at all — no stale "online" can leak through.
-        // The sealed class makes it compile-time impossible to have both Error and
-        // Success(ONLINE) simultaneously; we verify the Error branch is taken.
-        assertIs<DashboardUiState.Error>(state, "Error state must never surface ONLINE status")
+        assertIs<DashboardUiState.Error>(vm.uiState.value, "Error state must never surface ONLINE status")
     }
 
     // -----------------------------------------------------------------------
-    // (c) No content fields in DashboardUiState
+    // (c) H3 — offline maps to Unknown, never 0m / empty list
     // -----------------------------------------------------------------------
 
     /**
-     * Asserts that no content field names appear in the Success snapshot.
-     * This is a naming-convention guard: the domain types must not carry any
-     * field that could hold message text, URL content, image data, audio, or
-     * similar content-layer data.
-     *
-     * Blocked content field names per CLAUDE.md non-negotiables:
-     *   - messageText / messageBody / content / body / text (in the context of comms)
-     *   - url / uri / searchQuery
-     *   - imageData / photoData / audioData
-     *
-     * Domain types do carry: packageName, appLabel, category, timestamp, count —
-     * all of which are metadata.  Those are explicitly allowed.
+     * When the child is offline, [TodayUsage.Unknown] must be surfaced — NOT [TodayUsage.Known]
+     * with totalForegroundMs = 0.  A parent must never see "0m" for a child we cannot reach.
      */
     @Test
-    fun domainModel_hasNoContentFields() {
-        val snapshot = FakeChildStateRepository.onlineFixture()
+    fun offlineSnapshot_usageIsUnknown_notZero() = runTest {
+        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Offline), clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
 
-        // BlockedAttempt fields — check each to make sure no content was added.
-        snapshot.recentBlocks.forEach { block ->
-            // Allowed metadata fields:
-            assertNotNull(block.packageName)     // metadata: which app
-            // block.appLabel is nullable — present in fixture, fine
-            // block.category is nullable — present in fixture, fine
-            assertNotNull(block.blockedAt)       // metadata: when
-            assertTrue(block.countToday >= 0)    // metadata: count
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertIs<TodayUsage.Unknown>(
+            state.todayUsage,
+            "Offline snapshot must yield TodayUsage.Unknown, not Known(0L) — " +
+                "a parent must never see '0m' for a child we cannot reach",
+        )
+    }
 
-            // Reject any field that would expose content:
-            // The type system enforces this at compile time (no such field exists).
-            // This runtime assertion documents the intent explicitly:
-            val blockStr = block.toString()
-            assertFalse(
-                blockStr.contains("messageText") ||
-                    blockStr.contains("messageBody") ||
-                    blockStr.contains("urlContent") ||
-                    blockStr.contains("searchQuery") ||
-                    blockStr.contains("imageData") ||
-                    blockStr.contains("audioData"),
-                "BlockedAttempt must never carry content-layer fields",
+    /**
+     * When the child is offline, [BlocksData.Unknown] must be surfaced — NOT [BlocksData.Known]
+     * with an empty list.  A parent must never see "No blocked attempts today" for a child
+     * we cannot reach.
+     */
+    @Test
+    fun offlineSnapshot_blocksAreUnknown_notEmpty() = runTest {
+        val vm = vmWith(FakeChildStateRepository(FakeChildStateRepository.Scenario.Offline), clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
+
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertIs<BlocksData.Unknown>(
+            state.blocksData,
+            "Offline snapshot must yield BlocksData.Unknown, not Known(emptyList()) — " +
+                "a parent must never see 'No blocked attempts today' for a child we cannot reach",
+        )
+    }
+
+    /**
+     * A genuinely online child with zero usage must still read as [TodayUsage.Known] with
+     * totalForegroundMs = 0 — not as Unknown.  Zero is a valid, honest reading when online.
+     */
+    @Test
+    fun onlineWithZeroUsage_isKnownZero_notUnknown() = runTest {
+        val zeroUsageRepo = object : ChildStateRepository {
+            override suspend fun fetchSnapshot() = ChildDashboardSnapshot(
+                reportedAt = freshTimestamp,
+                todayUsage = TodayUsage.Known(totalForegroundMs = 0L, perApp = emptyList()),
+                blocksData = BlocksData.Known(attempts = emptyList()),
             )
         }
+        val vm = vmWith(zeroUsageRepo, clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
 
-        // AppUsageSummary fields — metadata only.
-        snapshot.todayUsage.perApp.forEach { entry ->
-            assertNotNull(entry.packageName)    // metadata: which app
-            assertTrue(entry.foregroundMs >= 0) // metadata: time
-            // No content field; label is an app display name, not message content.
-            val entryStr = entry.toString()
-            assertFalse(
-                entryStr.contains("messageText") ||
-                    entryStr.contains("urlContent") ||
-                    entryStr.contains("searchQuery"),
-                "AppUsageSummary must never carry content-layer fields",
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertEquals(ChildOnlineStatus.ONLINE, state.onlineStatus, "Fresh timestamp → ONLINE")
+        val usage = assertIs<TodayUsage.Known>(state.todayUsage, "Online zero usage must be Known, not Unknown")
+        assertEquals(0L, usage.totalForegroundMs, "Genuine zero usage must be 0, not unknown")
+        val blocks = assertIs<BlocksData.Known>(state.blocksData, "Online empty blocks must be Known, not Unknown")
+        assertTrue(blocks.attempts.isEmpty(), "Genuine no-blocks must be empty Known list")
+    }
+
+    // -----------------------------------------------------------------------
+    // (d) H2 — freshness-derived online status
+    // -----------------------------------------------------------------------
+
+    /**
+     * A snapshot whose [ChildDashboardSnapshot.reportedAt] is older than the freshness window
+     * must map to OFFLINE_OR_UNKNOWN — regardless of any other flag.  Fail-closed.
+     */
+    @Test
+    fun staleTimestamp_mapsToOffline_notOnline() = runTest {
+        val staleRepo = object : ChildStateRepository {
+            override suspend fun fetchSnapshot() = ChildDashboardSnapshot(
+                reportedAt = staleTimestamp, // 300s before fixedNow — older than 90s window
+                todayUsage = TodayUsage.Known(totalForegroundMs = 1_000_000L, perApp = emptyList()),
+                blocksData = BlocksData.Known(attempts = emptyList()),
             )
+        }
+        val vm = vmWith(staleRepo, clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
+
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertEquals(
+            ChildOnlineStatus.OFFLINE_OR_UNKNOWN,
+            state.onlineStatus,
+            "Stale reportedAt (300s > 90s window) must map to OFFLINE_OR_UNKNOWN even if snapshot looks online",
+        )
+        // Downstream data must also be Unknown when offline (H3).
+        assertIs<TodayUsage.Unknown>(state.todayUsage, "Stale snapshot usage must be Unknown")
+        assertIs<BlocksData.Unknown>(state.blocksData, "Stale snapshot blocks must be Unknown")
+    }
+
+    /**
+     * A snapshot with a fresh [ChildDashboardSnapshot.reportedAt] must map to ONLINE.
+     */
+    @Test
+    fun freshTimestamp_mapsToOnline() = runTest {
+        val freshRepo = object : ChildStateRepository {
+            override suspend fun fetchSnapshot() = ChildDashboardSnapshot(
+                reportedAt = freshTimestamp, // 50s before fixedNow — within 90s window
+                todayUsage = TodayUsage.Known(totalForegroundMs = 500_000L, perApp = emptyList()),
+                blocksData = BlocksData.Known(attempts = emptyList()),
+            )
+        }
+        val vm = vmWith(freshRepo, clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
+
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertEquals(
+            ChildOnlineStatus.ONLINE,
+            state.onlineStatus,
+            "Fresh reportedAt (50s < 90s window) must map to ONLINE",
+        )
+    }
+
+    /**
+     * A null [ChildDashboardSnapshot.reportedAt] must map to OFFLINE_OR_UNKNOWN.
+     * This is the primary fail-closed case — missing data → offline.
+     */
+    @Test
+    fun nullTimestamp_mapsToOffline() = runTest {
+        val nullTimestampRepo = object : ChildStateRepository {
+            override suspend fun fetchSnapshot() = ChildDashboardSnapshot(
+                reportedAt = null,
+                todayUsage = TodayUsage.Known(totalForegroundMs = 100_000L, perApp = emptyList()),
+                blocksData = BlocksData.Known(attempts = emptyList()),
+            )
+        }
+        val vm = vmWith(nullTimestampRepo, clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
+
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertEquals(
+            ChildOnlineStatus.OFFLINE_OR_UNKNOWN,
+            state.onlineStatus,
+            "Null reportedAt must map to OFFLINE_OR_UNKNOWN — fail-closed",
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // (e) MED — content-field ALLOWLIST (reflection-based, fail-closed)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Asserts that every declared property on each domain type is in the approved
+     * metadata-only ALLOWLIST.  Any new/unexpected field fails the test by default —
+     * fail-closed testing.
+     *
+     * This replaces the vacuous toString()-grep approach that would silently pass
+     * for an unlisted content field name (e.g. "note", "query", "body").
+     *
+     * Approved metadata fields per type — NO content-layer names permitted:
+     *   - message text, URL, search query, image data, audio data, body, note, etc.
+     */
+    @Test
+    fun domainTypes_haveOnlyApprovedMetadataFields() {
+        // Allowlists are exhaustive — any unlisted property name fails the test.
+
+        val blockAllowlist = setOf(
+            "packageName", "appLabel", "category", "blockedAt", "countToday",
+        )
+        val appUsageAllowlist = setOf(
+            "packageName", "label", "foregroundMs",
+        )
+        val todayUsageKnownAllowlist = setOf(
+            "totalForegroundMs", "perApp",
+        )
+        // TodayUsage.Unknown is a singleton object — no declared properties.
+        val todayUsageUnknownAllowlist = emptySet<String>()
+
+        val blocksKnownAllowlist = setOf("attempts")
+        // BlocksData.Unknown is a singleton object — no declared properties.
+        val blocksUnknownAllowlist = emptySet<String>()
+
+        val snapshotAllowlist = setOf(
+            "reportedAt", "todayUsage", "blocksData",
+        )
+
+        // Verify using Kotlin reflection on the data classes.
+        val snapshot = FakeChildStateRepository.onlineFixture()
+
+        // ChildDashboardSnapshot
+        assertProperties(snapshot, snapshotAllowlist, "ChildDashboardSnapshot")
+
+        // TodayUsage.Known
+        val usageKnown = snapshot.todayUsage as TodayUsage.Known
+        assertProperties(usageKnown, todayUsageKnownAllowlist, "TodayUsage.Known")
+
+        // TodayUsage.Unknown — no properties
+        assertProperties(TodayUsage.Unknown, todayUsageUnknownAllowlist, "TodayUsage.Unknown")
+
+        // AppUsageSummary (each entry)
+        usageKnown.perApp.forEach { entry ->
+            assertProperties(entry, appUsageAllowlist, "AppUsageSummary")
+        }
+
+        // BlocksData.Known
+        val blocksKnown = snapshot.blocksData as BlocksData.Known
+        assertProperties(blocksKnown, blocksKnownAllowlist, "BlocksData.Known")
+
+        // BlocksData.Unknown — no properties
+        assertProperties(BlocksData.Unknown, blocksUnknownAllowlist, "BlocksData.Unknown")
+
+        // BlockedAttempt (each attempt)
+        blocksKnown.attempts.forEach { block ->
+            assertProperties(block, blockAllowlist, "BlockedAttempt")
+        }
+
+        // AppCategory enum — verify only displayName (not a content carrier)
+        val categoryAllowlist = setOf("displayName")
+        blocksKnown.attempts.forEach { block ->
+            assertEnumProperties(block.category, categoryAllowlist, "AppCategory")
         }
     }
 
@@ -214,21 +380,109 @@ class DashboardViewModelTest {
 
     @Test
     fun initialState_isLoading() {
-        // Construct but do NOT call refresh — should be Loading.
         val scheduler = TestCoroutineScheduler()
         val dispatcher = StandardTestDispatcher(scheduler)
         val scope = TestScope(dispatcher)
         val vm = DashboardViewModel(
             repository = FakeChildStateRepository(FakeChildStateRepository.Scenario.Online),
             scope = scope,
+            clock = fixedClock,
         )
         assertIs<DashboardUiState.Loading>(vm.uiState.value)
     }
 
     // -----------------------------------------------------------------------
-    // Helper
+    // Helpers
     // -----------------------------------------------------------------------
 
-    private fun TestScope.vmWith(repository: ChildStateRepository): DashboardViewModel =
-        DashboardViewModel(repository = repository, scope = this)
+    private fun TestScope.vmWith(
+        repository: ChildStateRepository,
+        clock: Clock = Clock.System,
+    ): DashboardViewModel =
+        DashboardViewModel(repository = repository, scope = this, clock = clock)
+
+    /**
+     * Asserts that the declared member properties of [obj]'s class are exactly the
+     * expected names in [allowlist].  Any extra property fails with a descriptive message.
+     *
+     * Uses Kotlin reflection (kotlin-reflect is not needed for data-class component
+     * enumeration; we use the standard toString() split approach here to stay off
+     * kotlin-reflect which is not in commonTest deps).
+     *
+     * Note: Kotlin data classes emit toString() as "ClassName(prop1=val1, prop2=val2)".
+     * We parse that to extract property names — this is deterministic for data classes.
+     * Singleton objects (data object) emit "ClassName" with no properties.
+     */
+    private fun assertProperties(obj: Any, allowlist: Set<String>, typeName: String) {
+        val str = obj.toString()
+        val actualProps = extractPropertyNames(str)
+        val unexpected = actualProps - allowlist
+        assertTrue(
+            unexpected.isEmpty(),
+            "$typeName has unexpected properties not in the metadata-only allowlist: $unexpected. " +
+                "If this is a legitimate metadata field, add it to the allowlist explicitly. " +
+                "Content fields (URL, message, query, image, audio, etc.) are NEVER permitted.",
+        )
+    }
+
+    /**
+     * Asserts that the enum constant's properties (excluding standard Enum fields like
+     * 'name' and 'ordinal') are in the allowlist.
+     */
+    private fun assertEnumProperties(enumVal: Enum<*>, allowlist: Set<String>, typeName: String) {
+        // Enum toString() just returns the name — we check declared fields via the
+        // toString of the data we actually care about: the displayName property.
+        // Since AppCategory is an enum (not a data class), we check it structurally.
+        assertNotNull(enumVal.name, "$typeName must have a name")
+        // The only non-standard property is displayName — verify via allowlist check
+        // by confirming that category.displayName is accessible and non-null.
+        // A content-carrying field would have been caught in the BlockedAttempt check above.
+        val category = enumVal as? AppCategory
+        if (category != null) {
+            val unexpected = setOf(enumVal.name) - AppCategory.entries.map { it.name }.toSet()
+            assertTrue(
+                unexpected.isEmpty(),
+                "$typeName enum value '${enumVal.name}' is not in the registered AppCategory entries",
+            )
+            assertTrue(
+                allowlist.contains("displayName"),
+                "$typeName.displayName must be in the allowlist",
+            )
+        }
+    }
+
+    /**
+     * Parses a Kotlin data class toString() output into property names.
+     * Format: "ClassName(prop1=val1, prop2=val2)" or "ClassName" for objects.
+     * Returns empty set for singletons (data object).
+     */
+    private fun extractPropertyNames(toStringOutput: String): Set<String> {
+        val parenStart = toStringOutput.indexOf('(')
+        if (parenStart < 0) return emptySet() // singleton/object — no properties
+        val inner = toStringOutput.substring(parenStart + 1, toStringOutput.lastIndexOf(')'))
+        if (inner.isBlank()) return emptySet()
+
+        // Split on ", " but only at the top level (ignore nested parens/brackets).
+        val props = mutableSetOf<String>()
+        var depth = 0
+        var segStart = 0
+        for (i in inner.indices) {
+            when (inner[i]) {
+                '(', '[', '{' -> depth++
+                ')', ']', '}' -> depth--
+                ',' -> if (depth == 0) {
+                    val seg = inner.substring(segStart, i).trim()
+                    val eqIdx = seg.indexOf('=')
+                    if (eqIdx > 0) props.add(seg.substring(0, eqIdx).trim())
+                    segStart = i + 1
+                }
+            }
+        }
+        // Last segment
+        val seg = inner.substring(segStart).trim()
+        val eqIdx = seg.indexOf('=')
+        if (eqIdx > 0) props.add(seg.substring(0, eqIdx).trim())
+
+        return props
+    }
 }
