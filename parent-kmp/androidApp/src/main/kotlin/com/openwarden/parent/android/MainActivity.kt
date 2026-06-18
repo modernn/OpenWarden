@@ -30,19 +30,26 @@ import com.openwarden.parent.state.PairingStatus
 class MainActivity : ComponentActivity() {
     private val appState = AppState()
 
+    // Repository is held at Activity scope so it is closed exactly once in onDestroy,
+    // releasing the underlying OkHttp thread pool and connection pool.
+    private val allowlistRepo = DemoAllowlistRepository()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme { AppRoot(appState) }
+            MaterialTheme { AppRoot(appState, allowlistRepo) }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        allowlistRepo.close()
     }
 }
 
 @Composable
-private fun AppRoot(appState: AppState) {
+private fun AppRoot(appState: AppState, allowlistRepo: DemoAllowlistRepository) {
     var showAllowlist by remember { mutableStateOf(false) }
-    // Repo is created once here; a real DI layer would inject it.
-    val allowlistRepo = remember { DemoAllowlistRepository() }
 
     if (showAllowlist) {
         AllowlistEditorScreen(

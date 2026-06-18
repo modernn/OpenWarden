@@ -155,6 +155,46 @@ class AllowlistEditorViewModelTest {
         assertEquals(setOf("com.example.alpha"), vm.currentAllowlist())
     }
 
+    // --- toggle with pre-existing saved allowlist (regression for stale-read bug) ---
+
+    /**
+     * Regression: toggle() must save the committed state, not a subsequent read of _state.value.
+     * This test starts with a non-empty persisted allowlist and removes a package via toggle,
+     * then verifies the save received the correct reduced set — not the stale pre-toggle set.
+     */
+    @Test
+    fun toggle_removesFromPreExistingAllowlist_saveReceivesReducedSet() = runTest {
+        val repo = FakeAllowlistRepository(
+            fetchResult = FetchAppsResult.Success(sampleApps),
+            initialAllowlist = setOf("com.example.alpha", "com.example.gamma"),
+        )
+        val vm = AllowlistEditorViewModel(repo)
+        vm.load()
+
+        // Remove alpha from the pre-loaded allowlist.
+        vm.toggle("com.example.alpha")
+
+        assertFalse("com.example.alpha" in vm.state.value.allowlist)
+        assertTrue("com.example.gamma" in vm.state.value.allowlist)
+        // The save must have received the post-toggle state, not the stale pre-toggle state.
+        assertEquals(setOf("com.example.gamma"), repo.savedAllowlist)
+    }
+
+    @Test
+    fun toggle_removesLastEntry_saveReceivesEmptySet() = runTest {
+        val repo = FakeAllowlistRepository(
+            fetchResult = FetchAppsResult.Success(sampleApps),
+            initialAllowlist = setOf("com.example.alpha"),
+        )
+        val vm = AllowlistEditorViewModel(repo)
+        vm.load()
+
+        vm.toggle("com.example.alpha")
+
+        assertTrue(vm.state.value.allowlist.isEmpty())
+        assertTrue(repo.savedAllowlist.isEmpty())
+    }
+
     // --- toProtoPolicy integration ---
 
     @Test

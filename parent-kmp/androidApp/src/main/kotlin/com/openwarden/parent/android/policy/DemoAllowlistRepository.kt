@@ -15,16 +15,34 @@ import com.openwarden.parent.policy.FetchAppsResult
  *
  * Fail-closed: [fetchInstalledApps] wraps [ApiResult.Failure] as [FetchAppsResult.Error];
  * no failure path silently returns an empty-success that would appear to allow all apps.
+ *
+ * Implements [java.io.Closeable]: call [close] to release the underlying OkHttp resources
+ * when this repository is no longer needed (e.g. on Activity destroy).
+ *
+ * The secondary constructor accepting [fetchOverride] is intended for unit tests only;
+ * it injects a fake fetch function so tests never hit the real network.
  */
-class DemoAllowlistRepository internal constructor(
-    private val client: ChildApiClient = ChildApiClient(),
-) : AllowlistRepository {
+class DemoAllowlistRepository private constructor(
+    private val client: ChildApiClient?,
+    private val fetchOverride: (suspend () -> FetchAppsResult)?,
+) : AllowlistRepository, java.io.Closeable {
+
+    /** Production constructor — uses the real [ChildApiClient]. */
+    constructor() : this(client = ChildApiClient(), fetchOverride = null)
+
+    /**
+     * Test-only constructor — [fetchFn] is called instead of the real network client.
+     * No [ChildApiClient] is created, so no OkHttp resources are allocated.
+     */
+    internal constructor(fetchFn: suspend () -> FetchAppsResult) :
+        this(client = null, fetchOverride = fetchFn)
 
     // In-memory allowlist store (demo only — survives the screen but not process death).
     private var persistedAllowlist: Set<String> = emptySet()
 
     override suspend fun fetchInstalledApps(): FetchAppsResult {
-        return when (val result = client.getApps()) {
+        if (fetchOverride != null) return fetchOverride.invoke()
+        return when (val result = checkNotNull(client).getApps()) {
             is ApiResult.Success -> FetchAppsResult.Success(
                 result.data.map { AppInfo(packageName = it.packageName, label = it.label) },
             )
@@ -37,4 +55,9 @@ class DemoAllowlistRepository internal constructor(
     }
 
     override fun loadAllowlist(): Set<String> = persistedAllowlist
+
+    /** Release the [ChildApiClient]'s OkHttp thread pool and connection pool. */
+    override fun close() {
+        client?.close()
+    }
 }

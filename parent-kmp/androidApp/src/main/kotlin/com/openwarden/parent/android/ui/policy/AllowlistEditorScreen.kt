@@ -103,7 +103,7 @@ internal fun AllowlistEditorContent(
 ) {
     when {
         state.loading -> LoadingIndicator()
-        state.errorMessage != null -> ErrorWithRetry(state.errorMessage ?: "", onRetry)
+        state.errorMessage != null -> ErrorWithRetry(checkNotNull(state.errorMessage), onRetry)
         state.apps.isEmpty() -> EmptyApps(onRetry)
         else -> AppList(state.apps, state.allowlist, onToggle)
     }
@@ -162,11 +162,25 @@ private fun EmptyApps(onRetry: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            "No apps found on the child device.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "No apps reported by child device",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Text(
+                    "The child device returned an empty app list. " +
+                        "This means no apps are currently restricted by the allowlist — " +
+                        "the child can open any app until you receive and toggle the app list.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
         Button(onClick = onRetry) { Text("Retry") }
     }
 }

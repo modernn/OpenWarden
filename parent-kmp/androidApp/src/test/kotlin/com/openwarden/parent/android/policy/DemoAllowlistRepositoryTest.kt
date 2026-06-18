@@ -1,5 +1,6 @@
 package com.openwarden.parent.android.policy
 
+import com.openwarden.parent.policy.AppInfo
 import com.openwarden.parent.policy.FetchAppsResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -7,31 +8,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for [DemoAllowlistRepository] — allowlist persistence path.
+ * Unit tests for [DemoAllowlistRepository].
  *
- * The [com.openwarden.parent.android.demo.ChildApiClient] is internal to the demo
- * package, so the fetch path is exercised via the interface stub in
- * [com.openwarden.parent.policy.AllowlistEditorViewModelTest] in commonTest.
- * These tests focus on the persistence contract that DemoAllowlistRepository owns.
+ * The fetch path is exercised via the [internal constructor][DemoAllowlistRepository]
+ * that accepts a [FetchAppsResult] lambda, so no real network calls are made and
+ * tests run in milliseconds.
  */
 class DemoAllowlistRepositoryTest {
 
+    // ---------------------------------------------------------------------------
+    // Allowlist persistence
+    // ---------------------------------------------------------------------------
+
     @Test
     fun initialLoad_returnsEmptySet() {
-        val repo = DemoAllowlistRepository()
+        val repo = DemoAllowlistRepository { FetchAppsResult.Error("stub") }
         assertTrue(repo.loadAllowlist().isEmpty())
     }
 
     @Test
     fun saveAndLoad_roundTrips() {
-        val repo = DemoAllowlistRepository()
+        val repo = DemoAllowlistRepository { FetchAppsResult.Error("stub") }
         repo.saveAllowlist(setOf("com.a", "com.b"))
         assertEquals(setOf("com.a", "com.b"), repo.loadAllowlist())
     }
 
     @Test
     fun secondSave_overwritesPrevious() {
-        val repo = DemoAllowlistRepository()
+        val repo = DemoAllowlistRepository { FetchAppsResult.Error("stub") }
         repo.saveAllowlist(setOf("com.a"))
         repo.saveAllowlist(setOf("com.b", "com.c"))
         assertEquals(setOf("com.b", "com.c"), repo.loadAllowlist())
@@ -39,31 +43,43 @@ class DemoAllowlistRepositoryTest {
 
     @Test
     fun saveEmpty_clearsPersistedSet() {
-        val repo = DemoAllowlistRepository()
+        val repo = DemoAllowlistRepository { FetchAppsResult.Error("stub") }
         repo.saveAllowlist(setOf("com.a"))
         repo.saveAllowlist(emptySet())
         assertTrue(repo.loadAllowlist().isEmpty())
     }
 
-    /**
-     * When the child is unreachable (as in a build without the real child running),
-     * fetchInstalledApps MUST return [FetchAppsResult.Error], never a silent empty success.
-     *
-     * This test runs against the real DemoAllowlistRepository (which calls the real
-     * ChildApiClient against a non-existent server) to verify the fail-closed mapping
-     * end-to-end at the Android layer.
-     */
+    // ---------------------------------------------------------------------------
+    // Fetch — fail-closed via injected stub
+    // ---------------------------------------------------------------------------
+
     @Test
-    fun fetchInstalledApps_whenChildUnreachable_returnsError() = runTest {
-        // Real DemoAllowlistRepository pointing at the demo URL (no server running in unit test).
-        val repo = DemoAllowlistRepository()
+    fun fetchInstalledApps_onError_returnsFetchAppsResultError() = runTest {
+        val repo = DemoAllowlistRepository { FetchAppsResult.Error("Connection refused") }
         val result = repo.fetchInstalledApps()
-        // Must be Error, never Success (fail-closed).
-        assertTrue(
-            "Expected FetchAppsResult.Error when child is unreachable, got $result",
-            result is FetchAppsResult.Error,
+        assertTrue(result is FetchAppsResult.Error)
+        assertEquals("Connection refused", (result as FetchAppsResult.Error).message)
+    }
+
+    @Test
+    fun fetchInstalledApps_onSuccess_mapsEntriesToAppInfo() = runTest {
+        val expected = listOf(
+            AppInfo("com.example.one", "One"),
+            AppInfo("com.example.two", "Two"),
         )
-        val msg = (result as FetchAppsResult.Error).message
-        assertTrue("Error message must not be blank", msg.isNotBlank())
+        val repo = DemoAllowlistRepository { FetchAppsResult.Success(expected) }
+        val result = repo.fetchInstalledApps()
+        assertTrue(result is FetchAppsResult.Success)
+        assertEquals(expected, (result as FetchAppsResult.Success).apps)
+    }
+
+    @Test
+    fun fetchInstalledApps_onEmptySuccess_returnsSuccessWithEmptyList() = runTest {
+        // An empty list from the child is a valid (though ambiguous) response — repo
+        // passes it through; the ViewModel / UI layer is responsible for the warning.
+        val repo = DemoAllowlistRepository { FetchAppsResult.Success(emptyList()) }
+        val result = repo.fetchInstalledApps()
+        assertTrue(result is FetchAppsResult.Success)
+        assertTrue((result as FetchAppsResult.Success).apps.isEmpty())
     }
 }

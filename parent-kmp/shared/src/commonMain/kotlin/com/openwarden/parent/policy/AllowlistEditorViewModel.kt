@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 
 /**
  * UI state for the allowlist editor screen (PARENT_KMP_STRUCTURE.md §1 state/).
@@ -76,14 +77,18 @@ class AllowlistEditorViewModel(
     /**
      * Toggle [packageName] in the allowlist and immediately persist the new snapshot.
      * Idempotent: calling twice returns to the original state.
+     *
+     * Uses [MutableStateFlow.updateAndGet] so the value passed to [AllowlistRepository.saveAllowlist]
+     * is atomically the same state that was committed — not a subsequent read of [_state.value]
+     * which could be stale under concurrent calls (e.g. two rapid toggles in quick succession).
      */
     fun toggle(packageName: String) {
-        _state.update { s ->
+        val committed = _state.updateAndGet { s ->
             val next =
                 if (packageName in s.allowlist) s.allowlist - packageName
                 else s.allowlist + packageName
             s.copy(allowlist = next)
         }
-        repo.saveAllowlist(_state.value.allowlist)
+        repo.saveAllowlist(committed.allowlist)
     }
 }

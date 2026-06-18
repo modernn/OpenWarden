@@ -75,8 +75,14 @@ sealed class ApiResult<out T> {
     data class Failure(val message: String) : ApiResult<Nothing>()
 }
 
-/** Thin Ktor client scoped to the demo child server. */
-internal class ChildApiClient {
+/**
+ * Thin Ktor client scoped to the demo child server.
+ *
+ * Implements [java.io.Closeable]: call [close] when the client is no longer needed
+ * (e.g. when the enclosing repository is discarded) to release OkHttp's thread pool
+ * and connection pool. [DemoAllowlistRepository] closes this client in its own [close].
+ */
+internal class ChildApiClient : java.io.Closeable {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -139,4 +145,9 @@ internal class ChildApiClient {
         onSuccess = { ApiResult.Success(it) },
         onFailure = { ApiResult.Failure(it.message ?: "Unknown error fetching /apps") },
     )
+
+    /** Release the underlying OkHttp thread pool and connection pool. */
+    override fun close() {
+        http.close()
+    }
 }
