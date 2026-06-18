@@ -33,6 +33,7 @@ android {
 dependencies {
     implementation(project(":shared"))
     implementation(libs.kotlinx.coroutines)
+    implementation(libs.kotlinx.datetime)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
@@ -40,6 +41,8 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.navigation)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     // TODO(#27): demo-only transport; replace with signed transport (gated by #27/#24), drop ktor from release.
     // These four deps exist solely for DemoLockCommandSender and must be removed once the real
     // mDNS + pinned-TLS + signed-command transport is implemented.  Moving DemoLockCommandSender
