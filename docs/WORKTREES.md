@@ -88,17 +88,30 @@ active-development worktrees into each other outside of the normal PR flow.
 
 When a line of work is done:
 
-1. Merge or PR the branch.
-2. In the folder that held the worktree:
+1. Merge or PR the branch — merge with plain **`gh pr merge <n> --merge`**, **not**
+   `--delete-branch` (it fails when the branch is checked out in a worktree: gh's local
+   `git branch -d` errors and gh exits 1 before deleting the remote, leaving a stale ref).
+2. Run the helper from any worktree:
    ```
-   git worktree remove C:\src\OpenWarden-<slug>
+   scripts/cleanup-merged-worktree.sh <branch>
    ```
-   The folder must be clean (no uncommitted changes) for this to succeed.
-3. Delete the branch if it is fully merged:
-   ```
-   git branch -d <branch>
-   ```
-4. Run `git worktree prune` to clean up any stale entries from hand-deleted folders.
+   It does the Windows-safe order — stop Gradle daemon → `git worktree remove --force` →
+   delete local branch → delete **remote** branch → `git worktree prune` + `git fetch --prune`
+   → `rm` any lock-orphaned folder — idempotently, refusing to drop an unmerged branch
+   (`--force-unmerged` overrides) and self-verifying. `--dry-run` to preview.
+
+**Manual fallback** (helper unavailable), in this exact order — **never delete the branch
+before removing its worktree**, and a running **Gradle daemon locks the folder on Windows**
+(`git worktree remove` → *"Permission denied"*), so stop it first:
+
+```
+( cd C:\src\OpenWarden-<slug> && ./gradlew --stop )   # release the Windows file lock
+git worktree remove C:\src\OpenWarden-<slug> --force
+git branch -D <branch>                                # now unbound from the worktree
+git push origin --delete <branch>                     # explicit remote delete (PR merged only)
+git worktree prune && git fetch --prune
+rm -rf C:\src\OpenWarden-<slug>                        # only if a lock left the folder behind
+```
 
 A branch lives in only one worktree at a time. Do not leave stale worktrees sitting
 around — each one has a lock file that blocks that branch from being added elsewhere.
@@ -137,8 +150,11 @@ git worktree list
 git -C C:\src\OpenWarden-<slug> status -s
 git -C C:\src\OpenWarden-<slug> log --oneline @{u}..
 
-# Remove a finished, clean worktree
-git worktree remove C:\src\OpenWarden-<slug>
+# Clean up a worktree + branch after its PR merged (Windows-safe, idempotent)
+scripts/cleanup-merged-worktree.sh <branch>
+
+# Remove a finished, clean worktree (manual)
+git worktree remove C:\src\OpenWarden-<slug> --force
 
 # Forget hand-deleted folders
 git worktree prune

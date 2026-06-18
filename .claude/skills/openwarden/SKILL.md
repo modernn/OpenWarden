@@ -232,25 +232,24 @@ choosing what to emit.
 
 Run a cleanup pass after every completed line of work:
 
-1. **Merged worktrees.** For each entry in `git worktree list`, check whether its
-   branch has already been merged into `main`. If yes, remove it:
-   `git worktree remove <path>` (must be clean; stash or commit anything left first).
-   **Windows file-lock gotcha:** a running Gradle daemon holds files in the worktree, so
-   `git worktree remove` fails with *"Permission denied"*. Run `./gradlew --stop` first.
-   If the folder delete still fails, the git admin entry is already gone — `git worktree
-   prune`, then `rm -rf <path>` the orphan folder (retry once; the lock is usually transient).
-   See [`docs/WORKTREES.md`](../../../docs/WORKTREES.md) for the full worktree rules.
-2. **Merged local branches.** After removing a merged worktree, delete the local
-   branch: `git branch -d <branch>` (use `-D` only if the remote already deleted it
-   and the branch is confirmed merged).
-3. **Merged remote branch.** Delete the branch on the remote too, so a completed PR's
-   branch never lingers on GitHub. `gh pr merge --delete-branch` already removes it when
-   *we* merge — but when a PR is completed any other way (web UI, a maintainer merge, or
-   `gh pr merge` without the flag), **explicitly delete it**:
-   `git push origin --delete <branch>` (or `gh api -X DELETE
-   repos/:owner/:repo/git/refs/heads/<branch>`). **Only after the PR is merged/closed** —
-   never delete the remote branch of a still-open PR. Confirm with `git ls-remote --heads
-   origin <branch>` returning nothing.
+1. **Merged worktree + branch — use the helper.** After a PR merges, run
+   **`scripts/cleanup-merged-worktree.sh <branch>`**. It does the *only* order that works on
+   Windows, idempotently, with lock handling + self-verification: stop any Gradle daemon →
+   `git worktree remove --force` → delete the **local** branch → delete the **remote** branch →
+   `git worktree prune` + `git fetch --prune` → `rm` any lock-orphaned folder. It **refuses to
+   drop an unmerged branch** (override with `--force-unmerged`) and `--dry-run` previews. Prefer
+   it over hand-running the steps. See [`docs/WORKTREES.md`](../../../docs/WORKTREES.md).
+2. **Never merge with `--delete-branch`.** `gh pr merge <n> --merge --delete-branch` **fails on
+   every OpenWarden PR**: the branch is checked out in a worktree, so gh's `git branch -d` errors
+   and gh **exits 1 *before* deleting the remote**, leaving a stale remote ref behind. Always merge
+   with plain **`gh pr merge <n> --merge`**, then run the cleanup helper (item 1).
+3. **Manual fallback** (only if the helper is unavailable) — in this exact order; **never delete
+   the branch before removing its worktree:** (a) `./gradlew --stop` in the worktree (releases the
+   Windows file lock); (b) `git worktree remove <path> --force`; (c) `git branch -D <branch>` (now
+   unbound from the worktree); (d) `git push origin --delete <branch>`, then confirm `git ls-remote
+   --heads origin <branch>` is empty (**only** after the PR is merged/closed — never for a still-open
+   PR); (e) `git worktree prune` + `git fetch --prune`; (f) if a lock left the folder behind,
+   `rm -rf <path>` (retry once — git already de-registered it, so it is a harmless orphan).
 4. **Prune stale refs.** `git worktree prune` to forget any hand-deleted worktree
    folders. `git fetch --prune` to drop local refs to now-deleted remote branches.
 5. **Temp scratch files.** Delete any ephemeral files the run created — diff bundles,
@@ -370,14 +369,15 @@ complete → cleanup. `start` picks + implements + opens the PR; `finish` review
    green + review-clean **non**-`agent-blocked` PR, STOP and hand back on any `agent-blocked` PR
    or unresolved blocker.
 6. **Complete the chosen PRs.** For each PR the operator chose to merge (and that passes the
-   gate), `gh pr merge --merge --delete-branch` — the `--delete-branch` flag removes **both** the
-   local and the **remote** branch on merge.
-7. **Cleanup + report.** Run the Completion-protocol self-clean for each merged PR (§ 2): remove
-   the worktree, delete the local **and remote** branch (if a merge path other than
-   `--delete-branch` left the remote branch behind, `git push origin --delete <branch>`),
-   `git worktree prune`, `git fetch --prune`, temp files. Verify no orphan remote branch remains
-   (`git ls-remote --heads origin <branch>` → empty). Emit a per-PR result (merged /
-   fixed-then-merged / held / human-gated / closed) and the standard `**Next:**` line.
+   gate), `gh pr merge <n> --merge` — **plain `--merge`, NOT `--delete-branch`.** `--delete-branch`
+   fails on every OpenWarden PR (the branch is checked out in a worktree, so gh's local-branch
+   delete errors and gh exits 1 before deleting the remote, leaving a stale ref). Branch + worktree
+   teardown is the cleanup helper's job (next step).
+7. **Cleanup + report.** For each merged PR run **`scripts/cleanup-merged-worktree.sh <branch>`**
+   (Completion-protocol § 2, item 1) — it removes the worktree, deletes the local **and remote**
+   branch in the Windows-safe order, prunes, and self-verifies (no orphan remote ref:
+   `git ls-remote --heads origin <branch>` → empty). Delete any temp scratch files. Emit a per-PR
+   result (merged / fixed-then-merged / held / human-gated / closed) and the standard `**Next:**` line.
 
 ## Unattended / AFK mode
 
