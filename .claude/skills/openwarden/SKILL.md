@@ -15,6 +15,15 @@ Orchestrator skill. It does NOT reimplement the building-block skills
   `./scripts/verify-env.sh`.
 - Read [`AGENTS.md`](../../../AGENTS.md) + [`CLAUDE.md`](../../../CLAUDE.md) rules.
 - Check worktrees: `git worktree list`; never work two branches in one folder.
+- **Check the live E2E test bed (don't re-discover our own work).** Run `adb devices`; for each
+  attached OpenWarden emulator run `adb -s <dev> shell dpm list-owners` (child Device Owner?) and
+  `adb -s <dev> shell pm list packages | grep openwarden`. A **child+parent emulator pair may already
+  be staged from a prior session** — treat it as *our own prior work, not a clean slate*: never
+  re-provision, wipe, or clobber a running test bed before checking. The `demo/*` branches hold the
+  demo-grade parent↔child E2E harness (real `/state` + on-device `/usage`, reached via
+  `adb -s <child> forward tcp:7180 tcp:7180` and the parent app's `http://10.0.2.2:7180`; Android
+  ships no `curl`/`wget`, so verify the parent→child path via the parent app + a screenshot). Cross-
+  check the `project-state` / `e2e-test-bed` auto-memory for the current staged state before acting.
 - **Read the shared KB.** Call the MCP tool **`get_session_context`** (from the optional
   local `openwarden-kb` server in [`.claude/mcp-server/`](../../mcp-server/)) to load the
   knowledgebase digest + active-work snapshot. If that server isn't running, fall back to
