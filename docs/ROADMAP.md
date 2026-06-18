@@ -84,7 +84,8 @@ A parent can pair, see state, and push a policy — from a phone.
 - [ ] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(human-gated: crypto)*
 - [ ] Send signed policy bundles *(human-gated: crypto/proto)*
 - [ ] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
-  WireGuard modes deferred.
+  WireGuard modes deferred. Bluetooth is a planned **additive** transport for the
+  no-shared-Wi-Fi case — committed direction, implemented after LAN is real *(ADR-028)*.
 
 ### v0.4 — provisioning + CI hardening
 
@@ -115,6 +116,9 @@ Loose on purpose. Candidate rungs before we call anything a beta:
 - Onboarding a non-technical parent without hand-holding.
 - Public beta program: real families, real devices, a feedback loop, crash/bug
   reporting **without** telemetry (opt-in, local, or manual reports only).
+- **Bluetooth transport** (RFCOMM primary, BLE fallback) as a LAN alternative for the
+  no-shared-Wi-Fi case — additive under the transport-agnostic app-layer crypto; the BT
+  link stays untrusted (identity = pinned keys + SAS, not BT bonding) *(ADR-028)*.
 
 ---
 
