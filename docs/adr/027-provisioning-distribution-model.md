@@ -1,10 +1,10 @@
 # ADR-027: Provisioning + distribution model — QR-OOBE Device-Owner is the primary consumer path; Play-distributed; ADB stays the power/bench path; the weak no-DO mode is rejected (amends PROVISIONING_V2)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-17
 Relates: docs/PROVISIONING_V2.md (the ADB state machine S0–S10), ADR-026 (committed device scope), ADR-020 (fail-closed Day-One + FRP), ADR-022 (allowlist deny-by-default), ADR-023 (enforcement-floor tiers), ADR-025 (pairing attestation + SAS), ADR-010 (no OS fork), ADR-002 (iOS parent app); docs/ANDROID_COMPAT.md §4/§5/§7 (note: ANDROID_COMPAT self-labels "v2+ scoping, superseded for current scope by ADR-023" — ADR-026/027 lift its §3/§4/§5/§7 into v1 prerequisite scope; ANDROID_COMPAT's status header should gain a matching note when those prerequisites are cut), docs/ROADMAP.md open question 3 (iOS child enforcement)
 Amends: PROVISIONING_V2.md "Locked decisions" (relaxes *ADB-only* and *Pixel-7-only* for the consumer path)
-Blocked-on (shared with ADR-026): the **pairing** half of D5 reuses ADR-025, which currently mandates Google-root + StrongBox or fail-closed pair-refusal. The committed Samsung/OnePlus targets cannot pair under that until the **ADR-025 amendment** (OEM-root allowlist + TEE-level attestation + disclosed downgrade; four-key SAS mandatory; refuse-closed on *unknown* root — see ADR-026 Blocked-on/D5) lands. This ADR flips to Accepted alongside that amendment.
+Resolved-by: the ADR-025 Tier-2 amendment landed as **ADR-029** (Accepted, 2026-06-18). The pairing reuse is now defined for the committed Samsung/OnePlus targets (OEM-root allowlist + TEE-level acceptance + disclosed downgrade; four-key SAS mandatory; refuse-closed on *unknown* root). Remaining provisioning items (QR-OOBE flow, signed-APK/Play distribution, disclosure UI) are agent-blocked implementation tracked separately.
 
 ## Context
 

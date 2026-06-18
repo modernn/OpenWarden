@@ -1,10 +1,10 @@
 # ADR-026: Commit the top OEMs (Pixel + Samsung + OnePlus) to the v1.0 release, at the disclosed-gap floor (amends ADR-001 / ADR-023)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-17
 Relates: ADR-001 (device-tier system), ADR-023 (tiers defined by enforcement floor + disclosed Tier-2 gaps), ADR-010 (no OS fork; stock Android primary), ADR-020 (fail-closed Day-One + FRP/OEM-unlock), ADR-022 (allowlist deny-by-default), ADR-016 (DNS floor), ADR-019 (canonical signing), ADR-025 (pairing attestation + SAS); docs/ANDROID_COMPAT.md, docs/CRYPTO.md §3/§10, docs/PROVISIONING_V2.md, docs/ROADMAP.md
 Amends: ADR-001 (release timing of Tier 2), ADR-023 (which Tier-2 models are *release-committed*)
-Blocked-on (before this flips to Accepted / before any code): a dedicated ADR amending **ADR-025 D2/D7 + reconciling CRYPTO.md §3/§10** to define the Tier-2 attestation posture — an **OEM-root allowlist** + **TEE-level attestation acceptance** + a **parent-disclosed downgrade**, with the four-key SAS still mandatory and **fail-closed pair-refusal on any *unknown* root**. ADR-025 currently ratifies *Google-root + StrongBox attestation or refuse-the-pair*, which the committed Samsung/OnePlus targets (TEE-only, OEM roots — ANDROID_COMPAT §3) **cannot satisfy** — so this device commitment is *unbuildable* until that amendment lands. It is the first item in D5.
+Resolved-by: the Tier-2 attestation amendment landed as **ADR-029** (Accepted, 2026-06-18) — OEM-root allowlist + TEE-level acceptance + parent-disclosed downgrade, four-key SAS still mandatory, fail-closed pair-refusal on any *unknown* root. The device commitment is now buildable; the remaining D5 items (TEE keygen fallback, `oem_roots.json`, QR-OOBE provisioning, disclosure UI, bench QA) are agent-blocked implementation tracked separately.
 
 ## Context
 
