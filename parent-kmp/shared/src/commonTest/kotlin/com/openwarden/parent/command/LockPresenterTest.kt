@@ -2,6 +2,8 @@ package com.openwarden.parent.command
 
 import com.openwarden.parent.state.AppState
 import com.openwarden.parent.state.LockState
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -69,6 +71,27 @@ class LockPresenterTest {
         assertTrue(presenter.uiState.value.lastError!!.contains("network error"))
     }
 
+    // ── lockNow — exception path (fail-closed) ─────────────────────────────────
+
+    @Test
+    fun lockNow_seamThrows_stateBecomesUnknown_failClosed() = runTest {
+        val appState = AppState()
+        val throwingSender = object : LockCommandSender {
+            override suspend fun sendLock(): LockCommandResult =
+                throw RuntimeException("connection refused")
+            override suspend fun sendUnlock(): LockCommandResult =
+                LockCommandResult.Success
+        }
+        val presenter = LockPresenter(appState, throwingSender)
+
+        presenter.lockNow()
+
+        assertEquals(LockState.UNKNOWN, presenter.uiState.value.lockState, "fail-closed: thrown exception must yield UNKNOWN")
+        assertEquals(LockState.UNKNOWN, appState.lockState.value)
+        assertFalse(presenter.uiState.value.isBusy, "isBusy must be cleared even when seam throws")
+        assertNotNull(presenter.uiState.value.lastError)
+    }
+
     // ── unlockNow — success path ────────────────────────────────────────────────
 
     @Test
@@ -113,26 +136,84 @@ class LockPresenterTest {
         assertNotNull(presenter.uiState.value.lastError)
     }
 
-    // ── reentrancy guard ────────────────────────────────────────────────────────
+    // ── unlockNow — exception path (fail-closed) ───────────────────────────────
 
     @Test
+    fun unlockNow_seamThrows_stateBecomesUnknown_failClosed() = runTest {
+        val appState = AppState()
+        val throwingSender = object : LockCommandSender {
+            override suspend fun sendLock(): LockCommandResult =
+                LockCommandResult.Success
+            override suspend fun sendUnlock(): LockCommandResult =
+                throw RuntimeException("unlock boom")
+        }
+        val presenter = LockPresenter(appState, throwingSender)
+
+        presenter.unlockNow()
+
+        assertEquals(LockState.UNKNOWN, presenter.uiState.value.lockState, "fail-closed: thrown exception must yield UNKNOWN")
+        assertEquals(LockState.UNKNOWN, appState.lockState.value)
+        assertFalse(presenter.uiState.value.isBusy, "isBusy must be cleared even when seam throws")
+        assertNotNull(presenter.uiState.value.lastError)
+    }
+
+    // ── reentrancy guard ────────────────────────────────────────────────────────
+
+    /**
+     * Two coroutines call [LockPresenter.lockNow] concurrently while the seam is
+     * suspended on a [CompletableDeferred] gate.  Only the first caller must invoke
+     * the seam; the second must be rejected by the atomic busy guard.
+     *
+     * This test WILL FAIL if the compareAndSet guard is removed (both callers would
+     * reach the seam, yielding lockCalls == 2).
+     */
+    @Test
     fun lockNow_whileBusy_doesNotCallSeamAgain() = runTest {
-        // Simulate a slow sender by not completing the first call before the second.
-        // In practice the presenter guards with isBusy; test that the guard fires.
-        // We do this by checking that a second synchronous call after the first
-        // still only produces one seam call (the guard returns early).
-        val sender = FakeLockCommandSender()
+        val gate = CompletableDeferred<Unit>()
+        val sender = FakeLockCommandSender(lockGate = gate)
         val presenter = LockPresenter(AppState(), sender)
 
-        // First call completes normally; state is LOCKED.
-        presenter.lockNow()
-        assertEquals(1, sender.lockCalls)
+        // First call — suspends inside the seam at the gate.
+        val job = launch { presenter.lockNow() }
 
-        // isBusy is false after first call. A second call IS allowed (not guarded
-        // by a "already locked" check, only by the busy flag during in-flight).
-        // Reset to UNKNOWN so we can verify the second call goes through.
-        presenter.unlockNow()
+        // Yield control so the first coroutine can advance and set isBusy = true.
+        // runTest's scheduler is deterministic: after one yield the launched
+        // coroutine has run up to its first suspension point (the gate await).
+        kotlinx.coroutines.yield()
+
+        // Verify isBusy is set before issuing the second call.
+        assertTrue(presenter.uiState.value.isBusy, "presenter must be busy while first call is in-flight")
+
+        // Second call — must be rejected by the atomic guard.
         presenter.lockNow()
-        assertEquals(2, sender.lockCalls, "second lock call must go through after first completes")
+
+        // Release the gate so the first call can complete.
+        gate.complete(Unit)
+        job.join()
+
+        assertEquals(1, sender.lockCalls, "seam must be invoked exactly once — reentrancy guard must reject second caller")
+        assertFalse(presenter.uiState.value.isBusy, "isBusy must be cleared after first call completes")
+    }
+
+    /**
+     * Mirror of the lock reentrancy test for [LockPresenter.unlockNow].
+     */
+    @Test
+    fun unlockNow_whileBusy_doesNotCallSeamAgain() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val sender = FakeLockCommandSender(unlockGate = gate)
+        val presenter = LockPresenter(AppState(), sender)
+
+        val job = launch { presenter.unlockNow() }
+        kotlinx.coroutines.yield()
+
+        assertTrue(presenter.uiState.value.isBusy)
+        presenter.unlockNow()
+
+        gate.complete(Unit)
+        job.join()
+
+        assertEquals(1, sender.unlockCalls, "seam must be invoked exactly once — reentrancy guard must reject second caller")
+        assertFalse(presenter.uiState.value.isBusy)
     }
 }

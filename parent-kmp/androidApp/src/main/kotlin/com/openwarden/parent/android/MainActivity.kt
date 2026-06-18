@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -46,7 +47,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun DashboardScreen(appState: AppState) {
     val pairing by appState.pairing.collectAsState()
-    val presenter = remember { LockPresenter(appState, DemoLockCommandSender()) }
+
+    // sender and presenter are remembered for the lifetime of this composition.
+    // DisposableEffect closes the HttpClient when the composable leaves composition,
+    // preventing an OkHttp connection-pool / thread leak.
+    val sender = remember { DemoLockCommandSender() }
+    val presenter = remember(sender) { LockPresenter(appState, sender) }
+    DisposableEffect(sender) {
+        onDispose { sender.close() }
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(

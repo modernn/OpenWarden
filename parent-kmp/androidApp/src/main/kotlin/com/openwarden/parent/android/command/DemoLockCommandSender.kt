@@ -23,10 +23,14 @@ import java.util.concurrent.TimeUnit
  *
  * Android emulators reach the host loopback at 10.0.2.2 so both emulators can
  * talk to each other through the host bridge.
+ *
+ * Lifecycle: call [close] when this sender is no longer needed (e.g. in a
+ * DisposableEffect onDispose or ViewModel.onCleared) to release the OkHttp
+ * connection pool and Ktor engine resources.
  */
 internal const val DEMO_CHILD_BASE_URL = "http://10.0.2.2:7180"
 
-internal class DemoLockCommandSender : LockCommandSender {
+internal class DemoLockCommandSender : LockCommandSender, java.io.Closeable {
 
     private val http = HttpClient(OkHttp) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
@@ -47,4 +51,9 @@ internal class DemoLockCommandSender : LockCommandSender {
         http.post("$DEMO_CHILD_BASE_URL/unlock")
         LockCommandResult.Success
     }.getOrElse { LockCommandResult.Failure(it.message ?: "unlock failed") }
+
+    /** Releases the underlying OkHttp connection pool and Ktor engine. */
+    override fun close() {
+        http.close()
+    }
 }

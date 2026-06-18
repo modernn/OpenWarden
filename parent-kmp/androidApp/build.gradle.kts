@@ -40,8 +40,11 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.navigation)
     implementation(libs.androidx.activity.compose)
-    // DEMO ONLY — Ktor OkHttp + JSON for DemoLockCommandSender.
-    // Real signed transport lives in :shared/androidMain/transport/ (unbuilt, gated by #27/#24).
+    // TODO(#27): demo-only transport; replace with signed transport (gated by #27/#24), drop ktor from release.
+    // These four deps exist solely for DemoLockCommandSender and must be removed once the real
+    // mDNS + pinned-TLS + signed-command transport is implemented.  Moving DemoLockCommandSender
+    // to a src/debug source set would allow debugImplementation here, but that requires standing
+    // up the debug source set first — deferred to the #27 transport milestone.
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.contentnegotiation)
     implementation(libs.ktor.serialization.json)
