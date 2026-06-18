@@ -11,6 +11,13 @@
 > classification or parent-facing wording, use ADR-023's **model-scoped** list: **Tier 2 = Samsung
 > Galaxy S22+/A55+/Note, OnePlus 11+, Motorola Edge 50+, Nothing Phone 2+**; everything else —
 > including Xiaomi and untested models of those brands — is **Tier 3** best-effort.
+>
+> **Update — ADR-026 / ADR-027 (Proposed, 2026-06-17):** §3 (StrongBox→TEE fallback), §4 (per-OEM
+> attestation roots), §5 (FGS/battery-saver), and §7 (per-OEM provisioning) are **lifted into v1.0
+> release-prerequisite scope** for the committed Pixel + Samsung + OnePlus set — they are now v1
+> engineering inputs, not only v2+ aspiration. The rest of this doc (the broader OEM list, marketing
+> copy) remains v2+ scoping superseded by ADR-023. This note becomes the authoritative scope once
+> ADR-026/027 flip to Accepted (with the Blocked-on ADR-025 amendment).
 
 The user's ask: keep Pixel as the best-supported target, but stop refusing non-Pixel Androids. The mechanical reason OpenWarden said no until now is that every defense in `DEFENSES.md` and every assumption in `CRYPTO.md` §3/§10 is rooted in Google's hardware attestation chain + Titan M2 StrongBox + a fully predictable AOSP DPC surface. None of those generalize cleanly. They generalize *with caveats*, and the caveats are exactly what this doc enumerates.
 

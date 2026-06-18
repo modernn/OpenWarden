@@ -3,32 +3,36 @@ package com.openwarden.parent.android
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
+import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.openwarden.parent.android.policy.DemoAllowlistRepository
+import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
+import com.openwarden.parent.android.ui.dashboard.DashboardScreen
 import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
-import com.openwarden.parent.state.AppState
-import com.openwarden.parent.state.PairingStatus
+import com.openwarden.parent.dashboard.FakeChildStateRepository
 
+/**
+ * Main activity.
+ *
+ * Wiring note: the real [ChildStateRepository] (HTTP to child /state + /usage)
+ * is not yet built (depends on issue #20).  Until then the [FakeChildStateRepository]
+ * online scenario is injected so the dashboard renders live fixture data.
+ * Replace FakeChildStateRepository with the real HTTP implementation when #20 lands.
+ */
 class MainActivity : ComponentActivity() {
-    private val appState = AppState()
+
+    private val dashboardVm: DashboardAndroidViewModel by viewModels {
+        // TODO(#20): replace FakeChildStateRepository with the real HTTP client
+        //            once child /state and /usage endpoints are built.
+        DashboardAndroidViewModel.Factory(
+            repository = FakeChildStateRepository(FakeChildStateRepository.Scenario.Online),
+        )
+    }
 
     // Repository is held at Activity scope so it is closed exactly once in onDestroy,
     // releasing the underlying OkHttp thread pool and connection pool.
@@ -37,7 +41,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme { AppRoot(appState, allowlistRepo) }
+            MaterialTheme {
+                AppRoot(
+                    dashboardVm = dashboardVm,
+                    allowlistRepo = allowlistRepo,
+                )
+            }
         }
     }
 
@@ -48,7 +57,10 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AppRoot(appState: AppState, allowlistRepo: DemoAllowlistRepository) {
+private fun AppRoot(
+    dashboardVm: DashboardAndroidViewModel,
+    allowlistRepo: DemoAllowlistRepository,
+) {
     var showAllowlist by remember { mutableStateOf(false) }
 
     if (showAllowlist) {
@@ -57,31 +69,9 @@ private fun AppRoot(appState: AppState, allowlistRepo: DemoAllowlistRepository) 
             onBack = { showAllowlist = false },
         )
     } else {
-        DashboardScreen(appState, onOpenAllowlist = { showAllowlist = true })
-    }
-}
-
-@Composable
-private fun DashboardScreen(appState: AppState, onOpenAllowlist: () -> Unit) {
-    val pairing by appState.pairing.collectAsState()
-    Surface(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("OpenWarden", style = MaterialTheme.typography.headlineMedium)
-            Text("Parent app — scaffold", style = MaterialTheme.typography.bodyMedium)
-            AssistChip(
-                onClick = {},
-                label = { Text(if (pairing == PairingStatus.PAIRED) "Paired" else "Not paired") },
-            )
-            HorizontalDivider()
-            Button(onClick = onOpenAllowlist) {
-                Text("Edit app allowlist")
-            }
-        }
+        DashboardScreen(
+            viewModel = dashboardVm,
+            onOpenAllowlist = { showAllowlist = true },
+        )
     }
 }
