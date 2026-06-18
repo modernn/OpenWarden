@@ -1,6 +1,6 @@
 # ADR-029: Tier-2 attestation posture — accept OEM-root + TEE-level attestation for the committed Samsung/OnePlus targets, with a disclosed downgrade (amends ADR-025; reconciles CRYPTO §3/§10)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-18
 Amends: **ADR-025 D2 (check 1 root, check 3 security-level), D7 (device scope)**; reconciles **CRYPTO.md §3** (StrongBox-non-negotiable) + **§10** (attestation-root + securityLevel rules)
 Relates: ADR-026 (commits Pixel + Samsung + OnePlus at v1.0 — this ADR is its load-bearing crypto prerequisite), ADR-027 (QR-OOBE provisioning reuses this pairing), ADR-023 (enforcement-floor tiers + disclosed gaps), ADR-001 (device tiers), ADR-015 (sealed-box audience = the pinned child X25519 key), ADR-019 (canonical signing); docs/ANDROID_COMPAT.md §3 (StrongBox/TEE matrix) + §4 (per-OEM attestation roots), docs/ATTACKS.md §1 (threat model) + H3 (pubkey substitution), docs/DEFENSES.md #4/#14 (attestation → anti-swap)
