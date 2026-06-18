@@ -4,8 +4,8 @@ Date: 2026-06-16
 Relates: ADR-001 (one device tier), ADR-020 (fail-closed Day-One + FRP/OEM-unlock), ADR-022 (allowlist deny-by-default), ADR-016 (DNS floor); docs/ANDROID_COMPAT.md, docs/research/07
 Amends: ADR-001 (tier definitions + Consequences)
 
-> **Amendment proposed by ADR-026 (Proposed, 2026-06-17):** ADR-026 proposes that **Samsung
-> (S22+/A55+/Note) + OnePlus 11+ become release-committed at v1.0**, shipping at this ADR's
+> **Amended by ADR-026 (Accepted, 2026-06-17):** ADR-026 makes **Samsung
+> (S22+/A55+/Note) + OnePlus 11+ release-committed at v1.0**, shipping at this ADR's
 > **disclosed-gap floor (D2)** — not a hardened guarantee. Two consequences for this ADR: (1) the **D5 onboarding/pairing disclosure** of the
 > Tier-2 gaps becomes a **hard release gate** for those two OEMs (shipping them without it would be
 > the silent over-promise the non-negotiables forbid); (2) the **D4 per-OEM hardening backlog (#57)**

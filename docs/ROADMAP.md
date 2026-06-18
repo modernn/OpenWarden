@@ -79,8 +79,8 @@ A parent can pair, see state, and push a policy — from a phone.
   (Android). iOS host-gated to macOS, built later.
 - [ ] Pair via QR scan *(#23)*
 - [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
-- [ ] App allowlist editor: pull installed apps from child, toggle allowed *(#26)*
-- [ ] "Lock now" / "Unlock now" *(#28)*
+- [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
+- [x] "Lock now" / "Unlock now" *(#28, PR #76)*
 - [ ] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(human-gated: crypto)*
 - [ ] Send signed policy bundles *(human-gated: crypto/proto)*
 - [ ] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
@@ -113,10 +113,10 @@ Loose on purpose. Candidate rungs before we call anything a beta:
   Mac; the cross-platform bar starts here).
 - Multi-child support hardened (schema already allows it; UX does not yet).
 - Onboarding a non-technical parent without hand-holding.
-- **Top-OEM release readiness (ADR-026/027 — Proposed):** the **load-bearing first item is an
-  ADR-025 Tier-2 attestation amendment** (OEM-root allowlist + TEE-level acceptance + parent-disclosed
-  downgrade; four-key SAS still mandatory; fail-closed on *unknown* root) — Samsung/OnePlus cannot
-  pair without it, so nothing else here is buildable until it lands. Then: QR-OOBE Device-Owner
+- **Top-OEM release readiness (ADR-026/027 — Accepted):** the **load-bearing ADR-025 Tier-2
+  attestation amendment landed as ADR-029** (OEM-root allowlist + TEE-level acceptance + parent-disclosed
+  downgrade; four-key SAS still mandatory; fail-closed on *unknown* root), so the device commitment is
+  buildable. Remaining: QR-OOBE Device-Owner
   provisioning (Play-distributed; signed-APK + URL fallback if Play policy rejects the DPC, trust
   anchored on the package-signer pin); StrongBox→TEE crypto fallback + per-OEM attestation roots
   (`oem_roots.json`: Google + Samsung Knox + OnePlus); per-OEM OOBE handling + battery-optimization
@@ -142,10 +142,10 @@ Loose on purpose. Candidate rungs before we call anything a beta:
   Tier 2 **Samsung** (S22+/A55+/Note) **& OnePlus 11+** at the *disclosed-gap floor*
   (ADR-023/ADR-026) — the parent is shown what's weaker at pairing, fail-closed preserved.
   Motorola/Nothing are supported-but-not-release-gating; Xiaomi/others are Tier-3 best-effort.
-  *(pivot — ADR-026, Proposed; gated on the ADR-025 Tier-2 attestation amendment)*
+  *(pivot — ADR-026, Accepted; ADR-025 amended by ADR-029)*
 - **Provisioning (Android):** **QR-OOBE Device-Owner is the primary consumer path** — factory-reset
   phone + scan a QR + DPC installs from the Play Store, **no computer**; ADB/USB stays the
-  power/bench path. No weak no-DO ("regular app") mode ships. *(pivot — ADR-027, Proposed)*
+  power/bench path. No weak no-DO ("regular app") mode ships. *(pivot — ADR-027, Accepted)*
 - **iOS child enforcement model decided + shipped** — currently an **open blocker** (see open
   question 3); the no-USB candidate is Apple's Family Controls/Screen Time API, the strong path is
   Supervised MDM. Needs its own ADR before this rung closes. *(ADR-027 D7)*
