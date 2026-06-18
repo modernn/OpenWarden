@@ -136,19 +136,33 @@ class DashboardViewModelTest {
         assertIs<DashboardUiState.Error>(vm.uiState.value, "Throwing repository must produce Error state")
     }
 
+    /**
+     * Error state carries only a diagnostic message string — no snapshot, no online flag,
+     * no usage, no blocks.  This is a structural guarantee: [DashboardUiState.Error] has
+     * a single `message: String` field (the exception text, not child content).  The test
+     * pins that the message is non-empty and does not carry stale-child data.
+     */
     @Test
-    fun errorState_neverExposesOnlineStatus() = runTest {
+    fun errorState_carresOnlyDiagnosticMessage_noChildData() = runTest {
+        val sentinelMessage = "simulated transport failure sentinel"
         val throwingRepo = object : ChildStateRepository {
             override suspend fun fetchSnapshot(): ChildDashboardSnapshot {
-                throw RuntimeException("simulated transport failure")
+                throw RuntimeException(sentinelMessage)
             }
         }
         val vm = vmWith(throwingRepo, clock = fixedClock)
         vm.refresh()
         advanceUntilIdle()
 
-        // Error state does NOT carry a snapshot — no stale/live confusion possible.
-        assertIs<DashboardUiState.Error>(vm.uiState.value, "Error state must never surface ONLINE status")
+        val state = assertIs<DashboardUiState.Error>(vm.uiState.value)
+        // The message must be the exception string, not blank — confirms the error was captured.
+        assertTrue(state.message.isNotBlank(), "Error state must carry a non-blank diagnostic message")
+        // Confirm the message is the exception text (a transport diagnostic, not child content).
+        assertEquals(
+            sentinelMessage,
+            state.message,
+            "Error message must be the exception string, not fabricated child content",
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -310,6 +324,19 @@ class DashboardViewModelTest {
      * This replaces the vacuous toString()-grep approach that would silently pass
      * for an unlisted content field name (e.g. "note", "query", "body").
      *
+     * Implementation note: this uses Kotlin data class toString() parsing (not
+     * kotlin-reflect, which is not in commonTest deps).  The check is reliable for
+     * data classes whose toString() follows "ClassName(prop=val, …)" — all domain
+     * types here are data classes or data objects.  If a type ever moves to a custom
+     * toString(), update this test to match.
+     *
+     * AppCategory is an enum, not a data class; its body fields are verified
+     * structurally in assertEnumProperties.  The primary content-leak guard for
+     * AppCategory is the closed-enum design + AppCategory.fromRaw() chokepoint
+     * (DashboardDomain.kt) — code review at that chokepoint is the invariant, and
+     * this test confirms the enum constant is registered, not that its body is
+     * exhaustively enumerated.
+     *
      * Approved metadata fields per type — NO content-layer names permitted:
      *   - message text, URL, search query, image data, audio data, body, note, etc.
      */
@@ -402,16 +429,13 @@ class DashboardViewModelTest {
         DashboardViewModel(repository = repository, scope = this, clock = clock)
 
     /**
-     * Asserts that the declared member properties of [obj]'s class are exactly the
-     * expected names in [allowlist].  Any extra property fails with a descriptive message.
+     * Asserts that the declared properties appearing in [obj]'s toString() output are
+     * exactly the expected names in [allowlist].  Any extra property name fails with a
+     * descriptive message — fail-closed by default.
      *
-     * Uses Kotlin reflection (kotlin-reflect is not needed for data-class component
-     * enumeration; we use the standard toString() split approach here to stay off
-     * kotlin-reflect which is not in commonTest deps).
-     *
-     * Note: Kotlin data classes emit toString() as "ClassName(prop1=val1, prop2=val2)".
-     * We parse that to extract property names — this is deterministic for data classes.
-     * Singleton objects (data object) emit "ClassName" with no properties.
+     * Mechanism: parses Kotlin data class toString() format "ClassName(prop=val, …)".
+     * Singleton objects (data object) emit "ClassName" with no parens — treated as no properties.
+     * Reliable for all current domain types; would need updating if a type adds a custom toString().
      */
     private fun assertProperties(obj: Any, allowlist: Set<String>, typeName: String) {
         val str = obj.toString()
@@ -426,27 +450,35 @@ class DashboardViewModelTest {
     }
 
     /**
-     * Asserts that the enum constant's properties (excluding standard Enum fields like
-     * 'name' and 'ordinal') are in the allowlist.
+     * Asserts that the given [AppCategory] constant is a registered enum entry and that
+     * the known body property (displayName) is allowed by [allowlist].
+     *
+     * Limitation: this check does NOT exhaustively enumerate AppCategory body fields via
+     * reflection — enums are not data classes so toString() only returns the name, and
+     * kotlin-reflect is not in commonTest deps.  The primary content-leak guard for
+     * AppCategory is (a) the closed-enum design, (b) the AppCategory.fromRaw() parse
+     * chokepoint that all incoming category strings must pass through (DashboardDomain.kt),
+     * and (c) code review at that chokepoint.  If a content field were ever added to the
+     * AppCategory body, this test would NOT catch it — that must be caught by code review.
      */
     private fun assertEnumProperties(enumVal: Enum<*>, allowlist: Set<String>, typeName: String) {
-        // Enum toString() just returns the name — we check declared fields via the
-        // toString of the data we actually care about: the displayName property.
-        // Since AppCategory is an enum (not a data class), we check it structurally.
         assertNotNull(enumVal.name, "$typeName must have a name")
-        // The only non-standard property is displayName — verify via allowlist check
-        // by confirming that category.displayName is accessible and non-null.
-        // A content-carrying field would have been caught in the BlockedAttempt check above.
         val category = enumVal as? AppCategory
         if (category != null) {
-            val unexpected = setOf(enumVal.name) - AppCategory.entries.map { it.name }.toSet()
+            // Confirm the constant is a registered entry (no rogue unlisted constant).
             assertTrue(
-                unexpected.isEmpty(),
+                AppCategory.entries.any { it.name == enumVal.name },
                 "$typeName enum value '${enumVal.name}' is not in the registered AppCategory entries",
             )
+            // Confirm the only non-standard property (displayName) is on the allowlist.
             assertTrue(
                 allowlist.contains("displayName"),
                 "$typeName.displayName must be in the allowlist",
+            )
+            // Confirm displayName is accessible and non-blank (guards against an empty stub).
+            assertTrue(
+                category.displayName.isNotBlank(),
+                "$typeName.displayName must not be blank for constant '${enumVal.name}'",
             )
         }
     }
