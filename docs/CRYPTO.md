@@ -123,6 +123,8 @@ val edKeyPair = kpg.generateKeyPair()   // throws StrongBoxUnavailableException 
 
 `setIsStrongBoxBacked(true)` is non-negotiable. If StrongBox is unavailable (no Titan M2, e.g. non-Pixel device), the call throws `StrongBoxUnavailableException` — we **do not** fall back to TEE-only. The v1 product requires Pixel 6/7/8. Falling back silently to TEE would give the kid a route to extraction via known TEE exploits ([CVE-2022-20465](https://nvd.nist.gov/vuln/detail/CVE-2022-20465) Titan-only attestation key leak was StrongBox-bound; TEE attestation chains have been compromised more frequently).
 
+> **Amended by ADR-029 (Tier-2 attestation posture):** the rule above is non-negotiable **on Tier 1 (Pixel) only**. On the committed **Tier-2** targets (Samsung S22+/A55+/Note, OnePlus 11+ — ADR-026) the keygen **attempts StrongBox and falls back to TEE keygen** (`setIsStrongBoxBacked(false)`) on `StrongBoxUnavailableException` — **never** to `SOFTWARE`. The TEE residual (weaker physical-extraction resistance) is accepted under the declared threat model (ATTACKS §1 — no JTAG / physical attacker) and **disclosed to the parent at pairing**. See ADR-029 D1/D4.
+
 ### Retrieving the attestation cert chain
 
 ```kotlin
@@ -130,7 +132,7 @@ val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 val chain: Array<Certificate> = ks.getCertificateChain("openwarden_child_ed25519")
 ```
 
-The leaf is the attestation cert for the just-generated key; the chain terminates at one of [Google's hardware attestation roots](https://developer.android.com/privacy-and-security/security-key-attestation#root_certificate).
+The leaf is the attestation cert for the just-generated key; the chain terminates at one of the **allow-listed attestation roots** — [Google's hardware attestation roots](https://developer.android.com/privacy-and-security/security-key-attestation#root_certificate) on **Tier 1**, or a committed OEM root (Samsung Knox / OnePlus) in `oem_roots.json` on **Tier 2** (ADR-029 D1/D6). A chain rooting in any **unknown** root is refused (`ATTEST_ROOT_UNKNOWN`) on every tier.
 
 ### Parsing the attestation extension
 
@@ -139,11 +141,11 @@ OID `1.3.6.1.4.1.11129.2.1.17` ([Google's KeyDescription extension](https://sour
 | Field | Why we care |
 |---|---|
 | `attestationChallenge` | Must equal `nonce` we passed in |
-| `securityLevel` | Must equal `STRONGBOX` (value 2) |
-| `keymasterSecurityLevel` | Must equal `STRONGBOX` |
-| `rootOfTrust.verifiedBootState` | Must equal `VERIFIED` (value 0; aka GREEN) |
-| `rootOfTrust.deviceLocked` | Must be `true` |
-| `rootOfTrust.verifiedBootKey` | SHA-256 of the bootloader-trusted key; compare to Pixel 7 expected hash |
+| `securityLevel` | Tier 1: must equal `STRONGBOX` (value 2). **Tier 2 (ADR-029): `STRONGBOX` *or* `TRUSTED_ENVIRONMENT`; `SOFTWARE` is killed.** |
+| `keymasterSecurityLevel` | Same tier rule as `securityLevel` (ADR-029); both fields must agree |
+| `rootOfTrust.verifiedBootState` | Must equal `VERIFIED` (value 0; aka GREEN) — **all tiers, unchanged** |
+| `rootOfTrust.deviceLocked` | Must be `true` — **all tiers, unchanged** |
+| `rootOfTrust.verifiedBootKey` | SHA-256 of the bootloader-trusted key; compare to the **per-model expected hash** in the model allow-list (Pixel 7 on Tier 1; the committed Samsung/OnePlus models on Tier 2 — ADR-029 D2) |
 | `attestationApplicationId` | Sanity-check the package name + cert hash matches OpenWarden |
 
 Parser: [`google/android-key-attestation`](https://github.com/google/android-key-attestation), Apache 2.0. We vendor the parser into `:android:crypto` as a Java source dep (no transitive bloat).
@@ -152,10 +154,17 @@ Parser: [`google/android-key-attestation`](https://github.com/google/android-key
 val parser = KeyDescriptionParser()
 val desc = parser.parse(chain[0])
 require(desc.attestationChallenge.contentEquals(nonce)) { "ATTEST_NONCE_MISMATCH" }
-require(desc.securityLevel == SecurityLevel.STRONG_BOX) { "ATTEST_NOT_STRONGBOX" }
-require(desc.rootOfTrust.verifiedBootState == VerifiedBootState.VERIFIED) { "VB_NOT_GREEN" }
-require(desc.rootOfTrust.deviceLocked) { "BOOTLOADER_UNLOCKED" }
+// Tier 1 (Pixel): StrongBox required. Tier 2 (Samsung/OnePlus — ADR-029): StrongBox OR TEE; SOFTWARE always killed.
+val levelOk = desc.securityLevel == SecurityLevel.STRONG_BOX ||
+    (tier == Tier.TIER2 && desc.securityLevel == SecurityLevel.TRUSTED_ENVIRONMENT)
+require(levelOk) { "ATTEST_SECURITY_LEVEL_REJECTED" }
+require(desc.keymasterSecurityLevel == desc.securityLevel) { "KEYMASTER_LEVEL_MISMATCH" } // both fields agree
+require(desc.rootOfTrust.verifiedBootState == VerifiedBootState.VERIFIED) { "VB_NOT_GREEN" }   // all tiers
+require(desc.rootOfTrust.deviceLocked) { "BOOTLOADER_UNLOCKED" }                               // all tiers
+// Root: chain must validate to an allow-listed root for this tier (Google on T1; oem_roots.json on T2); else ATTEST_ROOT_UNKNOWN.
 ```
+
+> **ADR-029 reconciliation:** the StrongBox-mandatory rules in this §3 (the field table above and the `require()` block) are the **Tier-1** rule; **Tier 2** accepts `TRUSTED_ENVIRONMENT` (TEE) per ADR-029 D1, with `SOFTWARE` always killed and every other check (VERIFIED boot, locked bootloader, per-model verified-boot-key, four-key SAS) unchanged. See ADR-029 D5 + §10's amendment note.
 
 Failure is **fail-closed**: we refuse to complete pairing and surface the failure code to the parent app. There is no "try again" loop — the child phone is rejected.
 
@@ -451,9 +460,13 @@ Hard rules enforced at pairing **and** periodically (every 7 days via refreshed 
 | `keymasterSecurityLevel` | `StrongBox` (2) | Refuse; `KEYMASTER_NOT_STRONGBOX` |
 | `attestationChallenge` | matches sent nonce | Refuse; `ATTEST_NONCE_MISMATCH` |
 | Cert chain root | one of Google's hardware attestation roots ([list](https://developer.android.com/privacy-and-security/security-key-attestation#root_certificate)) | Refuse; `ATTEST_ROOT_UNKNOWN` |
-| Revocation status | not in [Google's revocation list](https://android.googleapis.com/attestation/status) | Refuse; `ATTEST_REVOKED` |
+| Revocation status | Tier 1: not in [Google's revocation list](https://android.googleapis.com/attestation/status). **Tier 2: no equivalent OEM CRL — see the ADR-029 note below.** | Refuse; `ATTEST_REVOKED` (Tier 1) |
 
 `securityLevel < TRUSTED_ENVIRONMENT` (i.e., `SOFTWARE`) is an immediate kill; `TRUSTED_ENVIRONMENT` (1) is not acceptable on a Pixel 7 (it has StrongBox; if the key reports TEE it means the attestation extension is forged or the device is mis-provisioned).
+
+> **Amended by ADR-029 (Tier-2 attestation posture):** the table above is the **Tier-1 (Pixel)** rule. For the committed **Tier-2** targets (Samsung/OnePlus — ADR-026) **exactly two rows widen**: **`securityLevel` / `keymasterSecurityLevel`** accept `StrongBox` **or** `TRUSTED_ENVIRONMENT` (TEE) — `SOFTWARE` is still an immediate kill; and **Cert chain root** accepts any root in the `oem_roots.json` allow-list (Google + Samsung Knox + OnePlus) — an **unknown** root is still `ATTEST_ROOT_UNKNOWN` refuse. `verifiedBootState`, `deviceLocked`, `attestationChallenge`, and the per-OEM **model allow-list** all stay mandatory, and the **four-key SAS (ADR-025 D2a)** stays mandatory — it is the load-bearing MITM catch on TEE-level devices. On Tier 1, `TRUSTED_ENVIRONMENT` remains a kill.
+>
+> **Revocation (Tier 2):** Google's status list covers only Google-rooted (Tier-1) chains; the committed OEMs publish **no equivalent CRL/status endpoint** (ANDROID_COMPAT §4). So for Tier-2 OEM roots there is **no per-leaf revocation check** — this absence is **disclosed to the parent** as part of the D3 downgrade, and a **known-leaked OEM attestation key is retired by removing its root from `oem_roots.json`** via the ADR-029 **D6** recovery-gated, app-signed update path (a chain rooting in a removed root then fails `ATTEST_ROOT_UNKNOWN`). That removal is the compensating control. If an OEM later publishes a status endpoint, checking it becomes a mandatory refuse. See ADR-029 D1/D4/D6.
 
 ---
 
@@ -580,11 +593,11 @@ Mapping from ATTACKS.md IDs to the crypto pattern in this doc:
 | H5 Forge child events | Crypto | n/a — events sealed-to-parent are anonymous; tamper-evidence handled via hash-chain in `:shared:log` (DEFENSES.md #7) |
 | H6 Recovery phrase shoulder-surf | Crypto + behavioral | §2 high-cost Argon2id raises offline-crack cost; behavioral 24h delay (DEFENSES.md #15) |
 | I3 OOBE reprovision window | Provisioning | §3 attestation nonce binds child identity to a specific pairing event |
-| Device-swap during pairing | Provisioning | §3 attestation chain proves "this is a Pixel 7 with locked bootloader" |
+| Device-swap during pairing | Provisioning | §3 attestation chain proves "this is an allow-listed model (Pixel 7 on Tier 1; committed Samsung/OnePlus on Tier 2 — ADR-029) with locked bootloader" |
 | Rooted child reads cache | Crypto | §4 sealed-box (kid can't decrypt own writes); §8 StrongBox-wrapped at-rest cache |
 | Rooted child forges policy | Crypto | §5 Ed25519 sig over canonical JSON; signing key never on child |
 | Wipe + reprovision | Crypto | §3 fresh attestation challenge surfaces fresh attestation cert, parent re-confirms |
-| Boot rolled back to vulnerable version | Crypto | §10 verifiedBootState refresh every 7 days; rollback index check is implicit in `verifiedBootKey` matching latest Pixel 7 expected hash |
+| Boot rolled back to vulnerable version | Crypto | §10 verifiedBootState refresh every 7 days; rollback index check is implicit in `verifiedBootKey` matching the per-model expected hash (Pixel 7 / committed OEM models — ADR-029) |
 
 Anything that doesn't appear here (A-class Settings/ADB attacks, D-class app-layer, K-class social) is addressed by non-crypto defenses in DEFENSES.md. Crypto is necessary, not sufficient — but the necessary part has to be correct, and this document is the spec for getting it correct.
 

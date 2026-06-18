@@ -165,7 +165,7 @@ The threat model already excludes nation-state and JTAG attackers (`ATTACKS.md` 
 | OnePlus attestation root | shared OnePlus/Oppo cert authority | OnePlus 11+ |
 | Motorola attestation root | Motorola Mobility cert authority | Edge series |
 
-**Parent-side update path:** the `:shared:crypto` module ships with a `oem_roots.json` resource that the parent app can refresh via the same signed-bundle channel used for policy. Adding a new OEM root is a parent-app update, not a child-app update — the parent does verification, the child just produces the cert chain.
+**Parent-side update path:** the `:shared:crypto` module ships with a `oem_roots.json` resource. **(Superseded by ADR-029 D6: the "refresh via the signed-bundle channel" idea is REJECTED — `oem_roots.json` and the model allow-list change *only* via a signed parent-app release, never the runtime bundle channel, AND a root/model addition is recovery-phrase-gated per ADR-025 D8. A runtime data-push of trusted roots would let a compromised day-to-day signing key widen trust without the recovery phrase.)** Adding a new OEM root is a parent-app update, not a child-app update — the parent does verification, the child just produces the cert chain.
 
 **Unknown OEMs:** if the leaf cert chains to a root not in the allowlist, parent app surfaces "Unverified attestation — proceed only if you trust this device" with a one-tap dismissal and an `unverified_attestation=true` flag stored in the pairing record. The flag never expires; the parent always knows which child phones have unverified attestation. This matches Tier 3.
 
