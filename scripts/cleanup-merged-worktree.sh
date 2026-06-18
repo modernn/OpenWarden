@@ -105,6 +105,11 @@ if [[ "$FORCE_UNMERGED" -eq 0 ]] && git show-ref --verify --quiet "refs/heads/$B
 fi
 
 # --- 1. remove the worktree ---------------------------------------------------
+# WT_REMOVED gates the step-5 orphan `rm -rf`: it is set ONLY when git confirms
+# this path as a registered worktree and we de-register it here. An arbitrary
+# path a caller passes as $2 therefore can never reach `rm -rf` — it would not
+# match a registered worktree, this branch is skipped, and WT_REMOVED stays 0.
+WT_REMOVED=0
 if [[ -n "$WT_PATH" ]] && git worktree list --porcelain | grep -qxF "worktree $WT_PATH"; then
   # Stop any Gradle daemon holding files in this worktree (the #1 Windows lock).
   # OpenWarden modules each carry their own wrapper.
@@ -114,9 +119,13 @@ if [[ -n "$WT_PATH" ]] && git worktree list --porcelain | grep -qxF "worktree $W
       if [[ "$DRY_RUN" -eq 0 ]]; then ( cd "$(dirname "$g")" && ./gradlew --stop >/dev/null 2>&1 || true ); fi
     fi
   done
-  run git worktree remove "$WT_PATH" --force || echo "WARN: 'git worktree remove' failed; continuing (prune will reconcile)"
+  # A transient Windows file-lock can make this fail; that is NOT an error — the
+  # admin entry is dropped regardless, `git worktree prune` reconciles, and step
+  # 5 retries the leftover folder.
+  run git worktree remove "$WT_PATH" --force || echo "WARN: 'git worktree remove' hit a lock; continuing (prune reconciles; step 5 retries the folder)"
+  WT_REMOVED=1
 else
-  echo "  (no registered worktree for $BRANCH — skipping remove)"
+  echo "  (no registered worktree at this path for $BRANCH — skipping remove)"
 fi
 
 # --- 2. delete the local branch (merged-guard already enforced at step 0) -----
@@ -140,7 +149,9 @@ run git worktree prune
 run git fetch --prune "$REMOTE" 2>/dev/null || true
 
 # --- 5. orphaned folder (Windows file-lock left it behind) --------------------
-if [[ -n "$WT_PATH" && -d "$WT_PATH" ]]; then
+# Gated on WT_REMOVED so only a path git confirmed + de-registered in step 1 is
+# eligible — never an arbitrary directory a caller passed as $2.
+if [[ "$WT_REMOVED" -eq 1 && -n "$WT_PATH" && -d "$WT_PATH" ]]; then
   echo "  worktree folder still on disk (lock?) — attempting removal"
   removed=0
   for _ in 1 2; do
