@@ -33,6 +33,13 @@ Amend SIMPLIFY.md §3 from "one device family" to "one device tier."
 > the per-tier enforcement matrix and the honest Tier-2/3 language that supersedes the
 > attestation-only descriptions here.
 
+> **Amendment proposed by ADR-026 (Proposed, 2026-06-17):** release *timing* changes. ADR-001/ADR-023 left the
+> committed **release** target at Tier 1 (Pixel), with Tier 2 deferred to a v2.0 epic. ADR-026
+> **proposes to commit Samsung (S22+/A55+/Note) + OnePlus 11+ to the v1.0 release** at the ADR-023
+> disclosed-gap floor (Motorola/Nothing remain Tier-2-supported-but-not-release-gating; Xiaomi/others
+> stay Tier 3). The tier system and the enforcement-floor definitions here **stand** unchanged — only
+> which Tier-2 models the *public release* commits to moved earlier. See ADR-026.
+
 ## Consequences
 
 **Good:**
