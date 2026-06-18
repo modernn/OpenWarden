@@ -372,6 +372,8 @@ Every `Heartbeat` and `SealedEvent` envelope MUST be padded so the canonical ent
 
 ## 7. Pairing handshake
 
+> **Ratified by [ADR-025](adr/025-pairing-handshake-direction-attestation-sas.md).** The direction (parent **displays** the QR, child **scans** + POSTs), the trust model (StrongBox attestation **and** six-emoji SAS gate the pin), and the wire schema below are protected canon. A parent-scans-child inversion is forbidden without a superseding ADR; there is no `tls_spki` field.
+
 Pairing is the one-time bootstrap that pins both pubkeys. Failure here is unrecoverable except by re-pair. Cf. [`PROVISIONING.md`](PROVISIONING.md) for OOBE flow.
 
 ### 7.1 QR payload (parent → child, displayed on parent)
@@ -422,18 +424,26 @@ The child app, freshly DPC-provisioned:
 
 ### 7.4 Six-emoji confirmation
 
-After cert verification, both screens derive and display a confirmation:
+After cert verification, both screens derive and display a confirmation. The SAS
+MUST bind **every** pinned key — both Ed25519 identity keys **and** both X25519
+keys (fixed order below) — so a MITM cannot substitute a key the SAS does not
+cover ([ADR-025](adr/025-pairing-handshake-direction-attestation-sas.md) D2a):
 
 ```
 shared_secret_for_display := HKDF-SHA256(
     salt = "openwarden-pair-v1",
-    ikm  = parent_ed25519_pub || child_ed25519_pub,
+    ikm  = parent_ed25519_pub || parent_x25519_pub || child_ed25519_pub || child_x25519_pub,
     info = provisioning_nonce
 )[0..15]
 6 emojis := SAS-emoji-table-lookup-from-Signal-spec(shared_secret_for_display)
 ```
 
-Parent visually compares. Parent taps "Match" → child's pubkey enters `pinned` state in parent app; parent's pubkey is StrongBox-wrapped on child. Mismatch → abort pair, surface MITM warning.
+All four keys are concatenated in exactly this order (parent Ed25519, parent
+X25519, child Ed25519, child X25519). Any substituted key — including the X25519
+keys, which §7.3 attestation does **not** bind — changes the six emojis, so the
+human visual compare catches it.
+
+Parent visually compares. Parent taps "Match" → child's pubkeys enter `pinned` state in parent app; parent's pubkeys are StrongBox-wrapped on child. Mismatch → abort pair, surface MITM warning.
 
 ### 7.5 Pinning on child
 
