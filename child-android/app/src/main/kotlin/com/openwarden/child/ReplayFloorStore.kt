@@ -32,7 +32,7 @@ import androidx.security.crypto.MasterKey
  * The floor is **device-global** and NOT keyed by parent pubkey: a `RotateKey`
  * carries it forward and never lowers it (ADR-017 K2 / §Carried-forward).
  */
-class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactStore {
+class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactStore, CommandStore {
 
     private val prefs: SharedPreferences by lazy { open(context) }
 
@@ -256,6 +256,35 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         ) { "heartbeat contact readback mismatch after commit (fail-closed)" }
     }
 
+    // ---- CommandStore (ADR-030): lock/unlock signed-command replay floor + durable lock state ----
+
+    /** Highest command `issued_at` admitted, or null if none — the shared lock/unlock replay floor. */
+    override fun commandFloor(): Long? =
+        if (prefs.contains(KEY_CMD_FLOOR)) prefs.getLong(KEY_CMD_FLOOR, 0L) else null
+
+    /** The durable lock state surfaced by `GET /state.is_locked`. Default false (never-locked). */
+    override fun isLocked(): Boolean = prefs.getBoolean(KEY_LOCKED, false)
+
+    /**
+     * Advance the command replay floor to [issuedAt] AND set the lock flag to [locked] in ONE durable
+     * commit (ADR-030 D5). Same fail-closed contract as [admitHeartbeatContact]: commit()-checked +
+     * readback, throws on any divergence so a crash can never leave the floor advanced (command
+     * consumed) but the lock flag stale, nor the flag flipped without consuming the floor.
+     */
+    override fun admitCommand(issuedAt: Long, locked: Boolean) {
+        check(
+            prefs.edit()
+                .putLong(KEY_CMD_FLOOR, issuedAt)
+                .putBoolean(KEY_LOCKED, locked)
+                .commit(),
+        ) { "command admit commit() failed (fail-closed)" }
+        check(
+            prefs.getLong(KEY_CMD_FLOOR, Long.MIN_VALUE) == issuedAt &&
+                // Default to !locked so a non-persisted flag reads back as the opposite and trips this.
+                prefs.getBoolean(KEY_LOCKED, !locked) == locked,
+        ) { "command admit readback mismatch after commit (fail-closed)" }
+    }
+
     companion object {
         const val PREFS_NAME = "openwarden_replay_floor"
         const val KEY_FLOOR = "policy_seq_floor"
@@ -270,5 +299,9 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         const val KEY_CONTACT_ELAPSED = "contact_elapsed_ms"
         const val KEY_WALL_HW = "wall_high_water_ms"
         const val KEY_HB_FLOOR = "heartbeat_floor"
+
+        // ADR-030 signed-command surface: shared lock/unlock replay floor + durable lock state.
+        const val KEY_CMD_FLOOR = "command_floor"
+        const val KEY_LOCKED = "is_locked"
     }
 }

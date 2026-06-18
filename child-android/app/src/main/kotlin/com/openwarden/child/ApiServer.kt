@@ -13,11 +13,15 @@ import io.ktor.http.*
 import kotlinx.serialization.json.Json
 
 /**
- * Ktor server, bound to localhost. (v1: bind to all interfaces, rely on Tailscale ACLs.
- * v2: discover the actual Tailscale interface IP and bind only there.)
+ * Embedded Ktor server bound to the LAN (v1: bind to all interfaces, rely on Tailscale ACLs;
+ * v2: discover the actual Tailscale interface IP and bind only there).
  *
- * All endpoints require Authorization: OpenWarden <hex-hmac> over body + timestamp.
- * Stub here — actual HMAC validation goes in v1.
+ * Authentication is APP-LAYER, not transport-layer (ADR-030): every state-changing request carries a
+ * parent-signed wire object verified against the parent Ed25519 key pinned at pairing (ADR-025) —
+ * `/policy` a [SignedBundle] (ADR-017), `/heartbeat` a [SignedHeartbeat] (ADR-024 D4), `/lock` and
+ * `/unlock` a [SignedCommand] (ADR-030). There is no transport HMAC: the ratified pairing flow
+ * establishes no shared secret, and reusing the pinned key is strictly stronger (ADR-030 D1). The
+ * read endpoints (`/state`, `/usage`) expose metadata only and stay open on the LAN in v1 (ADR-030 D6).
  */
 class ApiServer(private val context: Context) {
 
@@ -28,14 +32,16 @@ class ApiServer(private val context: Context) {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             routing {
                 get("/state") {
-                    val store = PolicyStore(this@ApiServer.context)
-                    val active = store.loadActive()
+                    val ctx = this@ApiServer.context
+                    val active = PolicyStore(ctx).loadActive()
                     call.respond(mapOf(
                         "version" to BuildVersion,
                         // §2: issued_at / not_after are integer ms (u53-bounded), not ISO strings.
                         "policy_version" to (active?.issued_at?.toString() ?: "none"),
                         "policy_not_after" to (active?.not_after?.toString() ?: "n/a"),
-                        "is_locked" to false   // TODO
+                        // ADR-030 D5: real durable lock state set by signed /lock /unlock commands.
+                        // Fail-closed: an unreadable store assumes locked, never reports false-unlocked.
+                        "is_locked" to CommandDispatch.isLockedFailClosed { ReplayFloorStore(ctx).isLocked() }
                     ))
                 }
                 post("/policy") {
@@ -87,10 +93,8 @@ class ApiServer(private val context: Context) {
                         call.respond(HttpStatusCode.BadRequest, mapOf("error" to "REJECTED"))
                     }
                 }
-                post("/lock") {
-                    PolicyEnforcer(this@ApiServer.context).lockNow()
-                    call.respond(HttpStatusCode.OK, mapOf("status" to "locked"))
-                }
+                post("/lock") { handleCommand(call, SignedCommand.TYPE_LOCK) }
+                post("/unlock") { handleCommand(call, SignedCommand.TYPE_UNLOCK) }
                 get("/usage") {
                     // TODO(v1): UsageStatsManager queryAndAggregateUsageStats
                     call.respond(mapOf("per_app" to emptyList<Map<String, Any>>()))
@@ -102,6 +106,36 @@ class ApiServer(private val context: Context) {
     fun stop() {
         engine?.stop(1000, 2000)
         engine = null
+    }
+
+    /**
+     * Admit a [SignedCommand] for [expectedType] (ADR-030). [CommandGate] verifies the parent Ed25519
+     * signature against the pinned key + audience + endpoint↔type binding + monotonic replay floor +
+     * freshness window, and on accept atomically advances the floor and sets the durable lock flag.
+     * A lock additionally fires the best-effort DPM keyguard (`lockNow`); the authenticated state is
+     * already durable via the gate regardless.
+     *
+     * Fail-closed: an unparseable body, an unverified/replayed/stale/mis-typed command, OR a
+     * durable-write failure inside the gate all return 400 and change no state.
+     */
+    private suspend fun handleCommand(call: ApplicationCall, expectedType: String) {
+        val ctx = context
+        val cmd = runCatching { call.receive<SignedCommand>() }.getOrNull()
+        val pinned = PolicyStore(ctx).parentPubkey()
+        val gate = CommandGate(ReplayFloorStore(ctx))
+        // Capture an accepted lock so the keyguard side effect fires AFTER the durable state lands.
+        var acceptedLock = false
+        val resp = CommandDispatch.dispatch(cmd, expectedType, pinned) { c, t, p ->
+            gate.admit(c, t, p).also {
+                if (it is CommandAdmission.Outcome.Accept && it.type == SignedCommand.TYPE_LOCK) acceptedLock = true
+            }
+        }
+        if (acceptedLock) {
+            // Best-effort keyguard nag (PolicyEnforcer.lockNow is v1 best-effort; v2 = PIN gate). The
+            // authenticated lock state is already durable via the gate regardless of this firing.
+            runCatching { PolicyEnforcer(ctx).lockNow() }
+        }
+        call.respond(HttpStatusCode.fromValue(resp.status), resp.body)
     }
 
     companion object {
