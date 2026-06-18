@@ -593,11 +593,11 @@ Mapping from ATTACKS.md IDs to the crypto pattern in this doc:
 | H5 Forge child events | Crypto | n/a — events sealed-to-parent are anonymous; tamper-evidence handled via hash-chain in `:shared:log` (DEFENSES.md #7) |
 | H6 Recovery phrase shoulder-surf | Crypto + behavioral | §2 high-cost Argon2id raises offline-crack cost; behavioral 24h delay (DEFENSES.md #15) |
 | I3 OOBE reprovision window | Provisioning | §3 attestation nonce binds child identity to a specific pairing event |
-| Device-swap during pairing | Provisioning | §3 attestation chain proves "this is a Pixel 7 with locked bootloader" |
+| Device-swap during pairing | Provisioning | §3 attestation chain proves "this is an allow-listed model (Pixel 7 on Tier 1; committed Samsung/OnePlus on Tier 2 — ADR-029) with locked bootloader" |
 | Rooted child reads cache | Crypto | §4 sealed-box (kid can't decrypt own writes); §8 StrongBox-wrapped at-rest cache |
 | Rooted child forges policy | Crypto | §5 Ed25519 sig over canonical JSON; signing key never on child |
 | Wipe + reprovision | Crypto | §3 fresh attestation challenge surfaces fresh attestation cert, parent re-confirms |
-| Boot rolled back to vulnerable version | Crypto | §10 verifiedBootState refresh every 7 days; rollback index check is implicit in `verifiedBootKey` matching latest Pixel 7 expected hash |
+| Boot rolled back to vulnerable version | Crypto | §10 verifiedBootState refresh every 7 days; rollback index check is implicit in `verifiedBootKey` matching the per-model expected hash (Pixel 7 / committed OEM models — ADR-029) |
 
 Anything that doesn't appear here (A-class Settings/ADB attacks, D-class app-layer, K-class social) is addressed by non-crypto defenses in DEFENSES.md. Crypto is necessary, not sufficient — but the necessary part has to be correct, and this document is the spec for getting it correct.
 

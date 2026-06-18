@@ -25,6 +25,8 @@ So every committed non-Pixel target fails ADR-025 D2 checks 1 and 3 and refuses 
 
 **Widening the allow-listed root set is the *only* root relaxation** — an unrecognized root never passes on any tier. **Accepting TEE is the *only* security-level relaxation** — and only for Tier 2; SOFTWARE is killed everywhere, and TEE remains a kill on Tier 1.
 
+**Tier is an *output* of verification, never an input.** A device is Tier 2 only as a *consequence* of its attestation chain validating to an **allow-listed OEM root** for an **allow-listed model** — it can **never self-report a tier** to unlock TEE acceptance. The implementation MUST derive `tier` from the matched root+model, not from any device-reported property; otherwise the two relaxations could become a self-declared bypass.
+
 **D2 — Every other ADR-025 D2 check stays mandatory for Tier 2, and the four-key SAS becomes *more* load-bearing.** Unchanged and required on the committed OEMs:
 - `verifiedBootState == VERIFIED` (GREEN) and **bootloader locked** — the committed OEMs ship these (ANDROID_COMPAT §1); no relaxation;
 - **allow-listed model** — a per-OEM model allow-list (the specific committed S22+/A55+/Note + OnePlus 11+ model strings); an unknown Samsung/OnePlus model **refuses**, exactly like an unknown root;
