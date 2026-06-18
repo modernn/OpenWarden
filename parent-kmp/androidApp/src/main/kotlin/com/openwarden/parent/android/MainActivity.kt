@@ -5,8 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.openwarden.parent.android.policy.DemoAllowlistRepository
 import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
 import com.openwarden.parent.android.ui.dashboard.DashboardScreen
+import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
 import com.openwarden.parent.dashboard.FakeChildStateRepository
 
 /**
@@ -27,12 +34,44 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    // Repository is held at Activity scope so it is closed exactly once in onDestroy,
+    // releasing the underlying OkHttp thread pool and connection pool.
+    private val allowlistRepo = DemoAllowlistRepository()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                DashboardScreen(viewModel = dashboardVm)
+                AppRoot(
+                    dashboardVm = dashboardVm,
+                    allowlistRepo = allowlistRepo,
+                )
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        allowlistRepo.close()
+    }
+}
+
+@Composable
+private fun AppRoot(
+    dashboardVm: DashboardAndroidViewModel,
+    allowlistRepo: DemoAllowlistRepository,
+) {
+    var showAllowlist by remember { mutableStateOf(false) }
+
+    if (showAllowlist) {
+        AllowlistEditorScreen(
+            repo = allowlistRepo,
+            onBack = { showAllowlist = false },
+        )
+    } else {
+        DashboardScreen(
+            viewModel = dashboardVm,
+            onOpenAllowlist = { showAllowlist = true },
+        )
     }
 }

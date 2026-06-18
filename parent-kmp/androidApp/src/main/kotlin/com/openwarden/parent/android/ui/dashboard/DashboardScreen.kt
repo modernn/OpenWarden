@@ -69,6 +69,7 @@ import kotlinx.datetime.Instant
 fun DashboardScreen(
     viewModel: DashboardAndroidViewModel,
     modifier: Modifier = Modifier,
+    onOpenAllowlist: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -99,7 +100,7 @@ fun DashboardScreen(
                 when (val s = uiState) {
                     is DashboardUiState.Loading -> LoadingState()
                     is DashboardUiState.Error -> ErrorState(s.message)
-                    is DashboardUiState.Success -> SuccessContent(s, presenter)
+                    is DashboardUiState.Success -> SuccessContent(s, presenter, onOpenAllowlist)
                 }
             }
         }
@@ -191,7 +192,11 @@ private fun ErrorState(message: String) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SuccessContent(state: DashboardUiState.Success, presenter: LockPresenter) {
+private fun SuccessContent(
+    state: DashboardUiState.Success,
+    presenter: LockPresenter,
+    onOpenAllowlist: () -> Unit = {},
+) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -207,6 +212,18 @@ private fun SuccessContent(state: DashboardUiState.Success, presenter: LockPrese
 
         // ---- Lock / Unlock controls (issue #28) ----
         item { LockUnlockSection(presenter = presenter) }
+
+        item { HorizontalDivider() }
+
+        // ---- App allowlist editor nav (issue #26) ----
+        item {
+            Button(
+                onClick = onOpenAllowlist,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Edit app allowlist")
+            }
+        }
 
         item { HorizontalDivider() }
 
