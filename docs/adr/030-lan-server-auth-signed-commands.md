@@ -1,6 +1,6 @@
 # ADR-030: Child LAN server authentication — app-layer Ed25519 signed commands for lock/unlock (closes issue #20's auth + command surface)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-18
 Relates: **ADR-015** (the one signing rule — JCS canonical bytes minus `sig`), **ADR-017** (replay floor + two-phase commit + audience binding), **ADR-019** (canonical signing invariant), **ADR-024 D4** (`SignedHeartbeat` — the keep-alive this command surface is modelled on), **ADR-025** (pairing pins the parent Ed25519 key — the trust root these commands verify against); docs/PROTOCOL.md §2/§5/§7, docs/ROADMAP.md (LAN-only v1 transport), docs/ATTACKS.md §1 (threat model)
 
