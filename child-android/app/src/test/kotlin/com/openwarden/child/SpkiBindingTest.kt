@@ -8,8 +8,9 @@ import kotlin.test.assertTrue
 
 /**
  * TLS SPKI ↔ child-identity binding (ADR-031 D2). This is the logic the PARENT runs to accept-or-reject
- * a presented TLS cert; proving it deterministically here is the acceptance for issue #21
- * ("a spoofed `_openwarden._tcp` responder without the pinned SPKI/identity is rejected"). Fail-closed
+ * a presented TLS cert; proving it deterministically here is the **verifier-logic** acceptance for
+ * issue #21 ("a spoofed `_openwarden._tcp` responder without the pinned SPKI/identity is rejected") —
+ * the *live* spoof-rejection E2E is gated on the deferred parent-side socket (ADR-031 D5). Fail-closed
  * on every missing / mismatched / malformed input.
  */
 class SpkiBindingTest {
@@ -99,11 +100,42 @@ class SpkiBindingTest {
     }
 
     @Test
-    fun `spki hash is RFC 7469 base64url SHA-256 - deterministic, unpadded, url-safe`() {
+    fun `non-base64 or wrong-length spki hash rejects (ADR-025 D6 byte validation)`() {
+        val p = FakeIdentityKeyProvider.withNewKey()
+        val a = assertionFor(p, certA)!!
+        // Not base64url at all → decode throws → reject (before the signature check).
+        assertFalse(SpkiBinding.verify(a.copy(spki_sha256 = "!!! not base64 !!!"), certA, p.identityPublicKey()))
+        // Valid base64url but not a 32-byte digest (3 bytes) → reject on the length check.
+        val shortPin = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(byteArrayOf(1, 2, 3))
+        assertFalse(SpkiBinding.verify(a.copy(spki_sha256 = shortPin), certA, p.identityPublicKey()))
+    }
+
+    @Test
+    fun `spki hash is the RFC 7469 base64url SHA-256 of the input (golden vector)`() {
+        // Golden = base64url-no-pad(SHA-256("leaf-cert-A-spki-der")). Hardcoded so a regression in the
+        // encoding (e.g. switching to standard base64 or hex) or digest is caught — not a tautology.
         val h = SpkiBinding.spkiSha256(certA)
-        assertEquals(SpkiBinding.spkiSha256(certA), h) // deterministic
-        assertEquals(43, h.length)                     // 32-byte digest, base64url no padding
-        assertFalse(h.contains('='))                   // no padding
-        assertFalse(h.contains('+') || h.contains('/')) // url-safe alphabet
+        assertEquals("uVeFXpFKx6o3rRkj0XMLu4S2n-ZwKkywc64azFXdb-0", h)
+        assertEquals(43, h.length)                       // 32-byte digest, base64url no padding
+        assertFalse(h.contains('='))                     // no padding
+        assertFalse(h.contains('+') || h.contains('/'))  // url-safe alphabet
+    }
+
+    @Test
+    fun `spki assertion canonical body is disjoint from the parent-signed wire objects (domain separation)`() {
+        // ADR-031 D2: separation is by disjoint JCS object shape (and, independently, by signing key —
+        // child vs parent). Lock the shape: the SpkiAssertion canonical body has key-set
+        // {spki_sha256, v} and never collides with a SignedCommand body, so an Ed25519 signature over
+        // one can never canonicalize to — and thus verify as — the other. Guards crypto-review F2: if a
+        // future child-key-signed object collides with this shape, this test fails.
+        val a = SpkiAssertion(v = 1, spki_sha256 = SpkiBinding.spkiSha256(certA))
+        val aBody = String(SpkiBinding.canonicalBody(a))
+        assertEquals("{\"spki_sha256\":\"${a.spki_sha256}\",\"v\":1}", aBody)
+        val cmdBody = String(
+            CommandVerifier.canonicalBody(
+                SignedCommand(v = 1, type = "lock", child_device_id = "child-abcd", issued_at = 1),
+            ),
+        )
+        assertFalse(aBody == cmdBody)
     }
 }

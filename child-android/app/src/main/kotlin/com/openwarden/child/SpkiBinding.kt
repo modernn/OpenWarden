@@ -50,9 +50,9 @@ object SpkiBinding {
      *
      *  1. a pinned child identity key exists (else there is no trust anchor — pre-pairing);
      *  2. `v == 1`;
-     *  3. `spki_sha256` is non-empty AND equals SHA-256 of the presented SPKI — binds the assertion to
-     *     *this* cert, so replaying the genuine child's assertion while presenting a different (e.g.
-     *     attacker) cert fails here;
+     *  3. `spki_sha256` decodes to EXACTLY a 32-byte SHA-256 (ADR-025 D6 byte-level validation) whose
+     *     bytes equal SHA-256 of the presented SPKI — binds the assertion to *this* cert, so replaying
+     *     the genuine child's assertion while presenting a different (e.g. attacker) cert fails here;
      *  4. the Ed25519 signature verifies over the canonical body against the pinned identity key — an
      *     attacker lacking the child identity private key cannot forge an assertion for its own SPKI.
      */
@@ -64,12 +64,21 @@ object SpkiBinding {
         if (pinnedIdentityPubkey == null) return false
         if (assertion.v != 1) return false
         if (assertion.spki_sha256.isEmpty()) return false
-        val presented = try {
-            spkiSha256(presentedSpkiDer)
+        // ADR-025 D6 doctrine, carried to the sync channel: decode the claimed pin to bytes and require
+        // EXACTLY a 32-byte SHA-256 (not merely a non-empty string, which is the gap PR #64 had on the
+        // pairing channel), then compare BYTES — never accept an ill-formed/wrong-length pin string.
+        val claimed = try {
+            Base64.getUrlDecoder().decode(assertion.spki_sha256)
         } catch (e: Exception) {
             return false
         }
-        if (assertion.spki_sha256 != presented) return false
+        if (claimed.size != 32) return false
+        val presented = try {
+            MessageDigest.getInstance("SHA-256").digest(presentedSpkiDer)
+        } catch (e: Exception) {
+            return false
+        }
+        if (!MessageDigest.isEqual(claimed, presented)) return false
         return try {
             Ed25519.verify(canonicalBody(assertion), assertion.sig, pinnedIdentityPubkey)
         } catch (e: Exception) {

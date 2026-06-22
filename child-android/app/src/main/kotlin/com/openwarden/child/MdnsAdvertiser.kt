@@ -23,7 +23,12 @@ class MdnsAdvertiser(private val context: Context) {
 
     private var listener: NsdManager.RegistrationListener? = null
 
-    /** Register [spec]. Idempotent-ish: a prior registration is unregistered first. No-op on failure. */
+    /**
+     * Register [spec]. Idempotent-ish: a prior registration is unregistered first. No-op on failure.
+     * `@Synchronized` so concurrent/rapid start↔stop (lifecycle relaunch, config change) cannot race
+     * the mutable [listener] against an in-flight async NsdManager callback.
+     */
+    @Synchronized
     fun start(spec: MdnsServiceSpec) {
         stop()
         val manager = nsd ?: run {
@@ -56,7 +61,8 @@ class MdnsAdvertiser(private val context: Context) {
             .onFailure { Log.w(TAG, "mDNS registerService threw; discovery unavailable", it) }
     }
 
-    /** Unregister any active advertisement. No-op if none / on failure. */
+    /** Unregister any active advertisement. No-op if none / on failure. `@Synchronized` — see [start]. */
+    @Synchronized
     fun stop() {
         val l = listener ?: return
         listener = null
