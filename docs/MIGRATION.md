@@ -77,8 +77,10 @@ migrations — only for §6 and §8.
    against the new device. The FRP email is the same parent Google
    account as the old phone.
 4. **Pair with the same parent.** During S8, the new device generates
-   a fresh StrongBox-attested Ed25519 + X25519 pair (per
-   [`CRYPTO.md`](CRYPTO.md) §3) and presents a QR. The parent app
+   a fresh **StrongBox EC P-256 device-binding key** that attests + signs
+   its TEE-resident Ed25519 + X25519 identity keys (per
+   [`CRYPTO.md`](CRYPTO.md) §3, [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md);
+   StrongBox cannot hold Curve25519). The parent app
    recognises this is a migration QR, not a fresh-pair QR, by the
    `migration_intent` field carried in the QR payload alongside the
    pinning data.

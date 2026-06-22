@@ -117,19 +117,28 @@ bindKpg.initialize(bindSpec)
 val kBind = bindKpg.generateKeyPair()      // throws StrongBoxUnavailableException if no Titan M2
 
 // 2. K_id (Ed25519) + K_enc (X25519) — TEE/AndroidKeyStore; StrongBox cannot hold Curve25519.
+//    OPEN (ADR-032 Blocking): the prior recipe set setUserAuthenticationRequired(true); it is
+//    omitted here because K_id signs SpkiAssertion server-side with no human present (a per-use
+//    biometric gate would deadlock automated signing). setUnlockedDeviceRequired(true) is kept.
+//    The per-use-auth policy for K_id/K_enc vs K_bind is a maintainer decision, not yet ratified.
 val edKpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_ED25519, "AndroidKeyStore")
 edKpg.initialize(KeyGenParameterSpec.Builder("openwarden_child_ed25519",
         KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
     .setUnlockedDeviceRequired(true).build())     // TEE-backed; no setIsStrongBoxBacked
 val kId = edKpg.generateKeyPair()
-// K_enc: KEY_ALGORITHM_XDH, alias "openwarden_child_x25519", PURPOSE_AGREE_KEY, same TEE recipe.
+val xKpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_XDH, "AndroidKeyStore")
+xKpg.initialize(KeyGenParameterSpec.Builder("openwarden_child_x25519",
+        KeyProperties.PURPOSE_AGREE_KEY)
+    .setUnlockedDeviceRequired(true).build())     // same TEE recipe
+val kEnc = xKpg.generateKeyPair()
 
 // 3. K_bind signs ChildKeyBinding over the Curve25519 pubkeys + nonce (freshness).
+//    jcsCanonical()/b64url()/.pubRaw below are illustrative helpers (raw 32-byte pubkey + JCS + base64url).
 val bindingBody = jcsCanonical(mapOf(
     "v" to 1, "child_ed25519_pub" to b64url(kId.pubRaw),
     "child_x25519_pub" to b64url(kEnc.pubRaw), "provisioning_nonce" to b64url(nonce)))
 val childBindingSig = Signature.getInstance("SHA256withECDSA")
-    .apply { initSign(kBind.private); update(bindingBody) }.sign()   // ECDSA-P-256
+    .apply { initSign(kBind.private); update(bindingBody) }.sign()   // ECDSA-P-256, DER-encoded -> hex on the wire
 ```
 
 `setIsStrongBoxBacked(true)` is non-negotiable **for `K_bind`** (the attestation key). If StrongBox is unavailable (no Titan M2, e.g. non-Pixel device), the call throws `StrongBoxUnavailableException` — we **do not** fall back to TEE-only **for the attestation key**. The identity/encryption keys are necessarily TEE-resident (StrongBox cannot hold Curve25519); their hardware binding comes from `K_bind`'s signature, not from StrongBox residency (ADR-032). The v1 product requires Pixel 6/7/8. Falling back silently to TEE would give the kid a route to extraction via known TEE exploits ([CVE-2022-20465](https://nvd.nist.gov/vuln/detail/CVE-2022-20465) Titan-only attestation key leak was StrongBox-bound; TEE attestation chains have been compromised more frequently).
@@ -576,8 +585,8 @@ All listed libraries are Apache 2.0, MIT, BSD, or ISC. No GPL, no LGPL, no SSPL.
 
 | Need | KMP shared (Kotlin common) | Android-specific | iOS-specific |
 |---|---|---|---|
-| Ed25519 sign/verify | `libsodium` via [ionspin/kotlin-multiplatform-libsodium](https://github.com/ionspin/kotlin-multiplatform-libsodium) (ISC) | Identity key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, StrongBox-backed (system) | CryptoKit `Curve25519.Signing` (Apple system framework) |
-| X25519 ECDH / sealed box | libsodium KMP (ISC) | Identity key gen: same as above (system) | CryptoKit `Curve25519.KeyAgreement` |
+| Ed25519 sign/verify | `libsodium` via [ionspin/kotlin-multiplatform-libsodium](https://github.com/ionspin/kotlin-multiplatform-libsodium) (ISC) | Identity key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, **TEE-backed** (`KEY_ALGORITHM_ED25519`; StrongBox holds the P-256 `K_bind` only — ADR-032) | CryptoKit `Curve25519.Signing` (Apple system framework) |
+| X25519 ECDH / sealed box | libsodium KMP (ISC) | Encryption key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, **TEE-backed** (`KEY_ALGORITHM_XDH`; ADR-032) | CryptoKit `Curve25519.KeyAgreement` |
 | BIP-39 wordlist + checksum | KMP port of [NovaCrypto/BIP39](https://github.com/NovaCrypto/BIP39) (Apache 2.0) | n/a | n/a |
 | Argon2id | [andreypfau/kotlinx-crypto](https://github.com/andreypfau/kotlinx-crypto) (MIT) | n/a | n/a |
 | BLAKE3 (optional integrity) | [komputing/khash](https://github.com/komputing/KHash) or [blake3-jvm](https://github.com/sken77/BLAKE3jni) (CC0/Apache) | n/a | n/a |

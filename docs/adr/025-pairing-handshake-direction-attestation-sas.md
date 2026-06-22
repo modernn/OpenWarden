@@ -46,13 +46,13 @@ Adopt **Option A with A-both**. PROTOCOL §7.1–§7.5 is ratified verbatim as p
   "provisioning_nonce":"b64url(32)", "transport_hints":{ "mdns":"_openwarden._tcp.local", ... } }
 ```
 
-`provisioning_nonce` is CSPRNG-fresh and **single-use per pair attempt**. The freshly-DPC-provisioned child **scans** it, generates Ed25519 + X25519 in StrongBox with the nonce as `setAttestationChallenge` and `setUnlockedDeviceRequired(true)` (§7.2 step 2 — follow §7.2 verbatim for the keygen flags), and **POSTs** the §7.2 response (`child_ed25519_pub`, `child_x25519_pub`, `child_attestation_cert_chain`) to the parent's pairing endpoint discovered via `transport_hints`.
+`provisioning_nonce` is CSPRNG-fresh and **single-use per pair attempt**. The freshly-DPC-provisioned child **scans** it, generates its keypairs with the nonce as `setAttestationChallenge` and `setUnlockedDeviceRequired(true)` (§7.2 step 2 — follow §7.2 verbatim for the keygen flags), and **POSTs** the §7.2 response (`child_ed25519_pub`, `child_x25519_pub`, `child_attestation_cert_chain`, `child_binding_sig`) to the parent's pairing endpoint discovered via `transport_hints`. *(Amended by ADR-032: the attested key is the StrongBox EC P-256 `K_bind`; the Ed25519/X25519 identity keys are TEE-resident and bound to it by `child_binding_sig` — StrongBox cannot generate Curve25519.)*
 
 **D2 — Trust model = hardware attestation AND six-emoji SAS; pin only after both pass; any failure refuses the pair (fail-closed).** Per §7.3 the parent MUST verify, and refuse on any failure:
 1. cert chain parses and roots in the **Google Hardware Attestation root**;
 2. leaf attestation challenge == the `provisioning_nonce` it issued;
 3. `verifiedBootState == VERIFIED` (GREEN), bootloader **locked**, device is an **allow-listed model**, attestation security level == **STRONGBOX**;
-4. leaf-cert public key == `child_ed25519_pub`.
+4. leaf-cert public key == `child_ed25519_pub`. *(Amended by ADR-032: the attested leaf is now the P-256 `K_bind`, so check 4 reads "leaf == `K_bind`" plus a **new check 4b** verifying `child_binding_sig` (ECDSA-P-256 by `K_bind`) over the Curve25519 keys + nonce — see the ADR-032 banner above. StrongBox cannot hold Curve25519, so an Ed25519 leaf could never satisfy the old check 4.)*
 
 Then per §7.4 (as amended, D2a) both sides derive `HKDF-SHA256(salt="openwarden-pair-v1", ikm=parent_ed25519_pub‖parent_x25519_pub‖child_ed25519_pub‖child_x25519_pub, info=provisioning_nonce)[0..15]` → a **six-emoji SAS**. The parent visually compares and taps **Match** → the child pubkeys enter `pinned` state; **Mismatch → abort pair + surface MITM warning.** No pin occurs on attestation-only or SAS-only success.
 
@@ -102,7 +102,7 @@ Review (PR #65, Codex lens) flagged conformance behavior that §7 leaves undersp
 
 ## Test plan (binds the D5 implementation issues, not this ADR)
 
-- **Attestation verify:** good Google-rooted chain with matching nonce + GREEN verified-boot + locked bootloader + STRONGBOX + allow-listed model + leaf-pubkey == `child_ed25519_pub` ⇒ proceed; **each** of {wrong root, nonce mismatch, `verifiedBootState != VERIFIED`, unlocked bootloader, non-allow-listed model, security level != STRONGBOX, leaf-pubkey != `child_ed25519_pub`} ⇒ **refuse pair** (deterministic, seam-injected, fail-closed).
+- **Attestation verify:** good Google-rooted chain with matching nonce + GREEN verified-boot + locked bootloader + STRONGBOX + allow-listed model + leaf-pubkey == `child_ed25519_pub` ⇒ proceed; **each** of {wrong root, nonce mismatch, `verifiedBootState != VERIFIED`, unlocked bootloader, non-allow-listed model, security level != STRONGBOX, leaf-pubkey != `child_ed25519_pub`} ⇒ **refuse pair** (deterministic, seam-injected, fail-closed). *(Amended by ADR-032: substitute "leaf-pubkey == `child_ed25519_pub`" → "leaf == `K_bind` (P-256)" and add a `child_binding_sig` accept + reject (wrong key / substituted Curve25519 pubkey / stale nonce) case — see ADR-032 test plan, vectors `pair-06`/`pair-07`/`pair-08`.)*
 - **SAS (four-key binding, D2a):** the HKDF-derived six-emoji sequence is identical on both sides for matching inputs; a substitution of **any** pinned key — `parent_ed25519_pub`, `parent_x25519_pub`, `child_ed25519_pub`, **or** `child_x25519_pub` — changes the SAS (drives the Mismatch → abort + MITM-warning path). The X25519 cases are the regression test for the flaw this ADR closes.
 - **Single-use nonce:** a replayed `provisioning_nonce` from a prior attempt ⇒ refuse.
 - **Byte-level pubkey validation (D6):** `pair-01` valid (exactly 32 decoded bytes) accepted; `pair-03-fail-malformed-pubkey` (non-base64url, wrong length, over-long, bad curve point) rejected — vectors in `docs/test-vectors/pairing/`.

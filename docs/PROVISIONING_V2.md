@@ -103,7 +103,8 @@ adb shell "content query --uri content://com.openwarden.child.debug/health --pro
 # Expected: frp_bound=true
 
 # ---- S7 → S8: Pair with parent ----
-# Child generates StrongBox-attested keypairs and displays QR; parent scans.
+# Child generates a StrongBox EC P-256 device-binding key that attests + signs its TEE Ed25519/X25519 identity keys (ADR-032; StrongBox can't hold Curve25519).
+# NOTE: the QR direction in this block predates ADR-025 (parent displays, child scans) — a separate ADR-025 reconciliation, out of ADR-032 scope.
 # Host script optionally captures the QR via screencap for headless / CI flow:
 adb exec-out screencap -p > pairing_qr.png
 
