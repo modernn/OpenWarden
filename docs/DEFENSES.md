@@ -21,7 +21,7 @@ Be honest about which tier each attack lives in. Pretending a "cannot defend" is
 | 1 | DO provisioning + `setUserControlDisabled(self, true)` | A5, A6, A7, F4, G1, G3 (force-stop/uninstall/disable) | S | Android 14+ |
 | 2 | Core DISALLOW_* (FACTORY_RESET, SAFE_BOOT, DEBUGGING_FEATURES, CONFIG_VPN, MODIFY_ACCOUNTS, OEM_UNLOCK, APPS_CONTROL, USB_FILE_TRANSFER, INSTALL_UNKNOWN_SOURCES, USER_SWITCH, ADD_USER, REMOVE_USER, CONFIG_DATE_TIME, MOUNT_PHYSICAL_MEDIA, CONFIG_TETHERING, CONFIG_MOBILE_NETWORKS, OUTGOING_BEAM) | Most A/B/C/E/F | S | DO |
 | 3 | FRP via `setFactoryResetProtectionPolicy(parent_google)` | A2, A3, A4, G4 | S | API 30+ |
-| 4 | StrongBox-backed Ed25519 identity + attestation cert pinning on parent | H3, H4, I3, swap attacks | M | Pixel 7 Titan M2 |
+| 4 | StrongBox EC P-256 device-binding key attests + signs the TEE Ed25519 identity ([ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md); StrongBox can't hold Curve25519) + attestation cert pinning on parent | H3, H4, I3, swap attacks | M | Pixel 7 Titan M2 |
 | 5 | **Sealed-box envelope (libsodium) on event log to parent pubkey** | Kid w/ root reads logs about themself | M | ionspin KMP libsodium |
 | 6 | Signed policy bundle: Ed25519 + `policy_seq` monotonic + `not_before/not_after` + reject regressions | C8, H1 (replay) | S | Ed25519 |
 | 7 | Append-only signed event log w/ hash chain (`prev_hash || event_data`) | Tamper-evident, fork detect | M | None |
@@ -143,7 +143,7 @@ a heavier parent-configurable policy, tracked separately from the keyguard flag.
 
 Combination of 3 patterns from defenses report:
 
-**Pattern A (StrongBox key wrapping):** Child generates Ed25519 + X25519 keypairs in StrongBox (Titan M2). Keys never leave hardware. `setIsStrongBoxBacked(true)` + `setUnlockedDeviceRequired(true)`.
+**Pattern A (StrongBox key wrapping):** Child generates a **StrongBox EC P-256 device-binding key** (`setIsStrongBoxBacked(true)` + `setUnlockedDeviceRequired(true)`); its private key never leaves StrongBox. The Ed25519 + X25519 identity/encryption keys are **TEE-resident** (StrongBox cannot hold Curve25519) and bound to the StrongBox key by a signature, per [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md).
 
 **Pattern B (sealed-box envelope) — the answer to "kid w/ root can't read logs":**
 1. At pairing, child receives parent's X25519 pubkey. Pinned in StrongBox-wrapped storage.
@@ -152,7 +152,7 @@ Combination of 3 patterns from defenses report:
 4. Events queue locally as opaque ciphertext blobs until sync to parent.
 5. Combined with constant-rate cover traffic (#13) → kid w/ root sees fixed-size opaque blobs at fixed intervals. No content, no frequency-analysis leak.
 
-**Pattern E (remote attestation):** At pairing + periodically, parent sends nonce challenge. Child generates StrongBox-attested keypair using nonce as challenge. Returns `(attestation_cert_chain, child_pub)`. Parent verifies chain rooted in Google → genuine Pixel + locked bootloader + verified boot GREEN. Defeats device-swap attacks.
+**Pattern E (remote attestation):** At pairing + periodically, parent sends nonce challenge. Child generates a **StrongBox-attested EC P-256 device-binding key** using the nonce as challenge ([ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md)). Returns `(attestation_cert_chain, child_pub, child_binding_sig)`. Parent verifies chain rooted in Google → genuine Pixel + locked bootloader + verified boot GREEN, then verifies the binding signature ties the pinned Ed25519/X25519 keys to that attested hardware. Defeats device-swap attacks.
 
 **What this gives:**
 - Kid w/ root sees only ciphertext for event log

@@ -31,7 +31,7 @@ Three tiers, with explicit "what works, what's weaker, what's broken" for each. 
 
 **Works:**
 - Every `DISALLOW_*` from `DEFENSES.md` row #2 — verified on bench Pixel.
-- StrongBox-backed Ed25519 + X25519 keys with Google-rooted attestation chain (`CRYPTO.md` §3).
+- StrongBox-backed EC P-256 device-binding key with Google-rooted attestation chain, binding the TEE-resident Ed25519 + X25519 identity keys (`CRYPTO.md` §3, [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md); StrongBox cannot hold Curve25519).
 - Verified Boot GREEN as a hard requirement (`CRYPTO.md` §10).
 - Real FRP bound to a Google account; `fastboot -w` produces a brick recoverable only via FRP account or BIP39 phrase (`PROVISIONING_V2.md` §6).
 - FGS watchdog behaves predictably on stock — Pixel respects `setExactAndAllowWhileIdle` without the OEM-specific battery-shenanigans that plague other vendors.

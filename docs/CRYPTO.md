@@ -14,8 +14,9 @@ Every long-lived or session secret in OpenWarden, by role:
 |---|---|---|---|---|---|
 | **Parent identity** | Ed25519 | Permanent | OS Keystore (Android Keystore / iOS Keychain), `requireUserAuthentication=true` | n/a (pubkey only, pinned) | Yes, BIP39 root |
 | **Parent encryption** | X25519 | Permanent | Same as parent identity | n/a (pubkey only, pinned) | Yes, BIP39 root |
-| **Child identity** | Ed25519 | Permanent (per-device) | n/a (pubkey only, pinned) | StrongBox, `setIsStrongBoxBacked(true)` | **No** — regenerate on re-pair |
-| **Child encryption** | X25519 | Permanent (per-device) | n/a (pubkey only, pinned) | StrongBox, same recipe | **No** — regenerate on re-pair |
+| **Child device-binding** (`K_bind`, [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md)) | EC P-256 (`secp256r1`) | Permanent (per-device) | n/a (verifies attestation) | StrongBox, `setIsStrongBoxBacked(true)` | **No** — regenerate on re-pair |
+| **Child identity** | Ed25519 | Permanent (per-device) | n/a (pubkey only, pinned) | TEE/AndroidKeyStore (`KEY_ALGORITHM_ED25519`); StrongBox cannot hold Curve25519 — **bound to `K_bind`** by ADR-032, not StrongBox-resident | **No** — regenerate on re-pair |
+| **Child encryption** | X25519 | Permanent (per-device) | n/a (pubkey only, pinned) | TEE/AndroidKeyStore (`KEY_ALGORITHM_XDH`); bound to `K_bind` (ADR-032) | **No** — regenerate on re-pair |
 | **Provisioning nonce** | 32 random bytes | One-shot | RAM only, discarded after pairing | RAM only, discarded after attestation | n/a |
 | **Session ephemeral** | X25519 | 24h max | RAM, rotated | RAM, rotated | n/a |
 | **Recovery root seed** | 256-bit | Permanent | BIP39 24-word phrase, printed + memorized | n/a | The recovery itself |
@@ -94,34 +95,53 @@ x25519_pub  = ...      (32 hex bytes)
 
 ## 3. StrongBox keygen with attestation challenge
 
-The child phone generates its identity and encryption keys inside StrongBox at first pairing. The exact recipe (Android, Kotlin):
+> **Amended by [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md) (Proposed):** the original recipe here was both **unrunnable and platform-impossible** — it initialized a `KEY_ALGORITHM_EC` generator with `ECGenParameterSpec("ed25519")` (the EC generator does not accept Ed25519), and StrongBox **cannot** generate or attest Curve25519 keys at all. The corrected recipe below generates the **StrongBox EC P-256 device-binding key `K_bind`** (the attestable key) and the **TEE-resident Ed25519/X25519** identity/encryption keys, then has `K_bind` sign a `ChildKeyBinding` over them. See ADR-032 for the full rationale + trust model.
+
+The child phone generates, at first pairing, a StrongBox **device-binding key** plus its TEE-resident identity and encryption keys, then binds the latter to the former. The exact recipe (Android, Kotlin):
 
 ```kotlin
 val nonce: ByteArray = readQrProvisioningNonce()  // 32 bytes
 
-val edSpec = KeyGenParameterSpec.Builder(
-        "openwarden_child_ed25519",
+// 1. K_bind — EC P-256 in StrongBox: the only hardware-attestable key.
+val bindSpec = KeyGenParameterSpec.Builder(
+        "openwarden_child_binding_p256",
         KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
-    .setAlgorithmParameterSpec(ECGenParameterSpec("ed25519"))
-    .setDigests(KeyProperties.DIGEST_NONE)  // Ed25519 is hash-included
-    .setIsStrongBoxBacked(true)
-    .setUserAuthenticationRequired(true)
-    .setUserAuthenticationParameters(
-        /* timeout = */ 0,
-        KeyProperties.AUTH_DEVICE_CREDENTIAL or KeyProperties.AUTH_BIOMETRIC_STRONG)
+    .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+    .setDigests(KeyProperties.DIGEST_SHA256)
+    .setIsStrongBoxBacked(true)            // P-256 IS StrongBox-backable; Curve25519 is not
     .setUnlockedDeviceRequired(true)
-    .setAttestationChallenge(nonce)
+    .setAttestationChallenge(nonce)        // -> STRONGBOX attestation cert chain for K_bind
     .build()
+val bindKpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+bindKpg.initialize(bindSpec)
+val kBind = bindKpg.generateKeyPair()      // throws StrongBoxUnavailableException if no Titan M2
 
-val kpg = KeyPairGenerator.getInstance(
-    KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-kpg.initialize(edSpec)
-val edKeyPair = kpg.generateKeyPair()   // throws StrongBoxUnavailableException if no Titan M2
+// 2. K_id (Ed25519) + K_enc (X25519) — TEE/AndroidKeyStore; StrongBox cannot hold Curve25519.
+//    OPEN (ADR-032 Blocking): the prior recipe set setUserAuthenticationRequired(true); it is
+//    omitted here because K_id signs SpkiAssertion server-side with no human present (a per-use
+//    biometric gate would deadlock automated signing). setUnlockedDeviceRequired(true) is kept.
+//    The per-use-auth policy for K_id/K_enc vs K_bind is a maintainer decision, not yet ratified.
+val edKpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_ED25519, "AndroidKeyStore")
+edKpg.initialize(KeyGenParameterSpec.Builder("openwarden_child_ed25519",
+        KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+    .setUnlockedDeviceRequired(true).build())     // TEE-backed; no setIsStrongBoxBacked
+val kId = edKpg.generateKeyPair()
+val xKpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_XDH, "AndroidKeyStore")
+xKpg.initialize(KeyGenParameterSpec.Builder("openwarden_child_x25519",
+        KeyProperties.PURPOSE_AGREE_KEY)
+    .setUnlockedDeviceRequired(true).build())     // same TEE recipe
+val kEnc = xKpg.generateKeyPair()
 
-// Same recipe for X25519 (alias "openwarden_child_x25519"), purpose = AGREE_KEY.
+// 3. K_bind signs ChildKeyBinding over the Curve25519 pubkeys + nonce (freshness).
+//    jcsCanonical()/b64url()/.pubRaw below are illustrative helpers (raw 32-byte pubkey + JCS + base64url).
+val bindingBody = jcsCanonical(mapOf(
+    "v" to 1, "child_ed25519_pub" to b64url(kId.pubRaw),
+    "child_x25519_pub" to b64url(kEnc.pubRaw), "provisioning_nonce" to b64url(nonce)))
+val childBindingSig = Signature.getInstance("SHA256withECDSA")
+    .apply { initSign(kBind.private); update(bindingBody) }.sign()   // ECDSA-P-256, DER-encoded -> hex on the wire
 ```
 
-`setIsStrongBoxBacked(true)` is non-negotiable. If StrongBox is unavailable (no Titan M2, e.g. non-Pixel device), the call throws `StrongBoxUnavailableException` — we **do not** fall back to TEE-only. The v1 product requires Pixel 6/7/8. Falling back silently to TEE would give the kid a route to extraction via known TEE exploits ([CVE-2022-20465](https://nvd.nist.gov/vuln/detail/CVE-2022-20465) Titan-only attestation key leak was StrongBox-bound; TEE attestation chains have been compromised more frequently).
+`setIsStrongBoxBacked(true)` is non-negotiable **for `K_bind`** (the attestation key). If StrongBox is unavailable (no Titan M2, e.g. non-Pixel device), the call throws `StrongBoxUnavailableException` — we **do not** fall back to TEE-only **for the attestation key**. The identity/encryption keys are necessarily TEE-resident (StrongBox cannot hold Curve25519); their hardware binding comes from `K_bind`'s signature, not from StrongBox residency (ADR-032). The v1 product requires Pixel 6/7/8. Falling back silently to TEE would give the kid a route to extraction via known TEE exploits ([CVE-2022-20465](https://nvd.nist.gov/vuln/detail/CVE-2022-20465) Titan-only attestation key leak was StrongBox-bound; TEE attestation chains have been compromised more frequently).
 
 > **Amended by ADR-029 (Tier-2 attestation posture):** the rule above is non-negotiable **on Tier 1 (Pixel) only**. On the committed **Tier-2** targets (Samsung S22+/A55+/Note, OnePlus 11+ — ADR-026) the keygen **attempts StrongBox and falls back to TEE keygen** (`setIsStrongBoxBacked(false)`) on `StrongBoxUnavailableException` — **never** to `SOFTWARE`. The TEE residual (weaker physical-extraction resistance) is accepted under the declared threat model (ATTACKS §1 — no JTAG / physical attacker) and **disclosed to the parent at pairing**. See ADR-029 D1/D4.
 
@@ -129,10 +149,10 @@ val edKeyPair = kpg.generateKeyPair()   // throws StrongBoxUnavailableException 
 
 ```kotlin
 val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-val chain: Array<Certificate> = ks.getCertificateChain("openwarden_child_ed25519")
+val chain: Array<Certificate> = ks.getCertificateChain("openwarden_child_binding_p256")  // K_bind (ADR-032)
 ```
 
-The leaf is the attestation cert for the just-generated key; the chain terminates at one of the **allow-listed attestation roots** — [Google's hardware attestation roots](https://developer.android.com/privacy-and-security/security-key-attestation#root_certificate) on **Tier 1**, or a committed OEM root (Samsung Knox / OnePlus) in `oem_roots.json` on **Tier 2** (ADR-029 D1/D6). A chain rooting in any **unknown** root is refused (`ATTEST_ROOT_UNKNOWN`) on every tier.
+The leaf is the attestation cert for the just-generated **`K_bind`** key (ADR-032; the parent additionally verifies `child_binding_sig` to bind the Curve25519 identity keys to it); the chain terminates at one of the **allow-listed attestation roots** — [Google's hardware attestation roots](https://developer.android.com/privacy-and-security/security-key-attestation#root_certificate) on **Tier 1**, or a committed OEM root (Samsung Knox / OnePlus) in `oem_roots.json` on **Tier 2** (ADR-029 D1/D6). A chain rooting in any **unknown** root is refused (`ATTEST_ROOT_UNKNOWN`) on every tier.
 
 ### Parsing the attestation extension
 
@@ -468,6 +488,8 @@ Hard rules enforced at pairing **and** periodically (every 7 days via refreshed 
 >
 > **Revocation (Tier 2):** Google's status list covers only Google-rooted (Tier-1) chains; the committed OEMs publish **no equivalent CRL/status endpoint** (ANDROID_COMPAT §4). So for Tier-2 OEM roots there is **no per-leaf revocation check** — this absence is **disclosed to the parent** as part of the D3 downgrade, and a **known-leaked OEM attestation key is retired by removing its root from `oem_roots.json`** via the ADR-029 **D6** recovery-gated, app-signed update path (a chain rooting in a removed root then fails `ATTEST_ROOT_UNKNOWN`). That removal is the compensating control. If an OEM later publishes a status endpoint, checking it becomes a mandatory refuse. See ADR-029 D1/D4/D6.
 
+> **Amended by [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md) (Proposed):** the key these hard-rules attest is the **EC P-256 `K_bind`** device-binding key — the only StrongBox-attestable key — **not** the Ed25519 identity key (StrongBox cannot hold Curve25519). The `STRONGBOX` (Tier 1) / `TRUSTED_ENVIRONMENT` (Tier 2) `securityLevel` requirement, VERIFIED boot, locked bootloader, root, and challenge checks all apply to `K_bind`'s chain unchanged. The pinned Ed25519/X25519 identity keys are TEE-resident and bound to `K_bind` by `child_binding_sig` (verified separately, PROTOCOL §7.3 check 4b); they carry **no** independent attestation record.
+
 ---
 
 ## 11. Sequence of operations (KMP-shared Kotlin)
@@ -563,8 +585,8 @@ All listed libraries are Apache 2.0, MIT, BSD, or ISC. No GPL, no LGPL, no SSPL.
 
 | Need | KMP shared (Kotlin common) | Android-specific | iOS-specific |
 |---|---|---|---|
-| Ed25519 sign/verify | `libsodium` via [ionspin/kotlin-multiplatform-libsodium](https://github.com/ionspin/kotlin-multiplatform-libsodium) (ISC) | Identity key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, StrongBox-backed (system) | CryptoKit `Curve25519.Signing` (Apple system framework) |
-| X25519 ECDH / sealed box | libsodium KMP (ISC) | Identity key gen: same as above (system) | CryptoKit `Curve25519.KeyAgreement` |
+| Ed25519 sign/verify | `libsodium` via [ionspin/kotlin-multiplatform-libsodium](https://github.com/ionspin/kotlin-multiplatform-libsodium) (ISC) | Identity key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, **TEE-backed** (`KEY_ALGORITHM_ED25519`; StrongBox holds the P-256 `K_bind` only — ADR-032) | CryptoKit `Curve25519.Signing` (Apple system framework) |
+| X25519 ECDH / sealed box | libsodium KMP (ISC) | Encryption key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, **TEE-backed** (`KEY_ALGORITHM_XDH`; ADR-032) | CryptoKit `Curve25519.KeyAgreement` |
 | BIP-39 wordlist + checksum | KMP port of [NovaCrypto/BIP39](https://github.com/NovaCrypto/BIP39) (Apache 2.0) | n/a | n/a |
 | Argon2id | [andreypfau/kotlinx-crypto](https://github.com/andreypfau/kotlinx-crypto) (MIT) | n/a | n/a |
 | BLAKE3 (optional integrity) | [komputing/khash](https://github.com/komputing/KHash) or [blake3-jvm](https://github.com/sken77/BLAKE3jni) (CC0/Apache) | n/a | n/a |
