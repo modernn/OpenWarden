@@ -392,11 +392,13 @@ Pairing is the one-time bootstrap that pins both pubkeys. Failure here is unreco
 
 ### 7.2 Child response
 
+> **Amended by [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md) (Proposed):** StrongBox cannot hold **Curve25519** keys, so the identity/encryption keys cannot be generated *in* StrongBox. Instead the child generates a **StrongBox EC P-256 device-binding key `K_bind`** (which carries the attestation challenge + chain) plus the **TEE-resident Ed25519 `K_id` and X25519 `K_enc`** identity/encryption keys, and `K_bind` signs a `ChildKeyBinding` over them. Steps 2–4 below are amended accordingly; the POST gains `child_binding_sig` and the attestation chain attests `K_bind`.
+
 The child app, freshly DPC-provisioned:
 
 1. Scans QR.
-2. Calls Android Keystore `generateKey` with `setIsStrongBoxBacked(true)`, `setAttestationChallenge(provisioning_nonce)`, `setUnlockedDeviceRequired(true)`. Generates both Ed25519 and X25519 in StrongBox.
-3. Retrieves the attestation certificate chain.
+2. Generates the **device-binding key `K_bind`** via Android Keystore `generateKey`, `KEY_ALGORITHM_EC` / `ECGenParameterSpec("secp256r1")`, with `setIsStrongBoxBacked(true)`, `setAttestationChallenge(provisioning_nonce)`, `setUnlockedDeviceRequired(true)` — this is the StrongBox-attestable key. Generates the **identity key `K_id`** (`KEY_ALGORITHM_ED25519`) and **encryption key `K_enc`** (`KEY_ALGORITHM_XDH`) in the TEE/AndroidKeyStore (`setUnlockedDeviceRequired(true)`); StrongBox cannot back Curve25519.
+3. Retrieves the attestation certificate chain **for `K_bind`**, and signs `ChildKeyBinding{v:1, child_ed25519_pub, child_x25519_pub, provisioning_nonce}` with `K_bind` (ECDSA-P-256 over the RFC 8785 JCS canonical bytes minus the signature) → `child_binding_sig`.
 4. POSTs to parent's pairing endpoint (discovered via `transport_hints`):
 
 ```json
@@ -404,11 +406,16 @@ The child app, freshly DPC-provisioned:
   "v": 1,
   "child_ed25519_pub": "base64url(32)",
   "child_x25519_pub":  "base64url(32)",
-  "child_attestation_cert_chain": ["base64(DER)", "base64(DER)", "base64(DER)"]
+  "child_attestation_cert_chain": ["base64(DER)", "base64(DER)", "base64(DER)"],
+  "child_binding_sig": "hex(ECDSA-P-256 over JCS{v,child_ed25519_pub,child_x25519_pub,provisioning_nonce})"
 }
 ```
 
+`child_attestation_cert_chain` is the chain for **`K_bind`** (the leaf attests the P-256 binding key). `child_binding_sig` cryptographically binds the pinned Curve25519 keys to the attested hardware.
+
 ### 7.3 Parent verification
+
+> **Amended by [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md) (Proposed):** the attested key is the P-256 `K_bind`, so check 4 verifies the leaf == `K_bind` and a **new check 4b** verifies `child_binding_sig`, which is what binds the pinned Curve25519 keys to the attested hardware.
 
 ```
 1. Parse cert chain, root MUST be Google Hardware Attestation root.
@@ -417,8 +424,10 @@ The child app, freshly DPC-provisioned:
      - verifiedBootState = VERIFIED  (GREEN)
      - bootloader locked = true
      - device = "Pixel 7" or other allow-listed model
-     - attestation security level = STRONGBOX
-4. Public key in leaf cert MUST equal child_ed25519_pub.
+     - attestation security level = STRONGBOX   (now satisfiable: the attested key is the P-256 K_bind)
+4. Public key in leaf cert MUST equal the presented K_bind public key (the leaf attests K_bind, not child_ed25519_pub).
+4b. child_binding_sig MUST verify as ECDSA-P-256 by the leaf (K_bind) key over
+    JCS{v:1, child_ed25519_pub, child_x25519_pub, provisioning_nonce}.   (binds the pinned Curve25519 keys to attested hardware)
 5. If any check fails: refuse pair. Show parent: "Device failed hardware attestation."
 ```
 
@@ -536,8 +545,9 @@ An alternative implementation is **OpenWarden-compatible** iff it satisfies ever
 - [ ] Ephemeral sender keys destroyed post-seal.
 
 ### 10.7 Pairing
-- [ ] StrongBox-backed keypair generation w/ `provisioning_nonce` as attestation challenge.
+- [ ] StrongBox-backed **EC P-256 device-binding key (`K_bind`)** generation w/ `provisioning_nonce` as attestation challenge (Ed25519/X25519 identity keys are TEE-resident, bound to `K_bind` — [ADR-032](adr/032-child-identity-hardware-binding-strongbox-p256.md)).
 - [ ] Cert-chain validation up to Google Hardware Attestation root; rejects ORANGE / YELLOW / RED.
+- [ ] `child_binding_sig` (ECDSA-P-256 by `K_bind` over the Curve25519 pubkeys + nonce) verifies; mismatch/forgery aborts pair (ADR-032 §7.3 check 4b).
 - [ ] Six-emoji SAS derived per §7.4; mismatch aborts pair.
 - [ ] Pinned parent pubkey rotation requires recovery phrase + 24-h delay.
 
