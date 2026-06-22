@@ -26,6 +26,7 @@ import kotlinx.serialization.json.Json
 class ApiServer(private val context: Context) {
 
     private var engine: ApplicationEngine? = null
+    private val mdns = MdnsAdvertiser(context)
 
     fun start() {
         engine = embeddedServer(CIO, port = PORT, host = "0.0.0.0") {
@@ -101,9 +102,20 @@ class ApiServer(private val context: Context) {
                 }
             }
         }.start(wait = false)
+
+        // Advertise this server over mDNS so the parent can discover it without a hand-typed IP
+        // (ADR-031 D3). Fail-safe + orthogonal to enforcement: a discovery hiccup (NSD unavailable,
+        // keystore read of the child id throwing) never crashes the server nor weakens policy.
+        // Discovery is UNTRUSTED — trust comes from the identity-bound TLS SPKI ([SpkiBinding]) +
+        // app-layer Ed25519 verify (ADR-031 D1/D2), never from anything advertised here.
+        runCatching {
+            val childId = ReplayFloorStore(context).childDeviceId()
+            mdns.start(MdnsServiceSpec.forChild(childId, PORT))
+        }
     }
 
     fun stop() {
+        mdns.stop()
         engine?.stop(1000, 2000)
         engine = null
     }
