@@ -77,12 +77,14 @@ A parent can pair, see state, and push a policy — from a phone.
 
 - [x] **parent-kmp scaffold** — `:proto` + `:shared` + `:androidApp` build green
   (Android). iOS host-gated to macOS, built later.
-- [ ] Pair via QR scan *(#23)*
+- [ ] Pair via QR scan — re-scoped per ADR-025 D5 into #94–#98 (parent *displays* QR;
+  the parent-scans inversion is forbidden). (a) session + §7.1 QR payload done
+  *(#94, PR #99, ADR-035)*; (b) endpoint, (c) attestation verify, (d) SAS, (e) pin open
 - [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
 - [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
 - [x] "Lock now" / "Unlock now" *(#28, PR #76)*
 - [x] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(#24, PR #86, ADR-033)*
-- [ ] Send signed policy bundles *(human-gated: crypto/proto)*
+- [x] Send signed policy bundles *(#27, PR #89, ADR-034)*
 - [ ] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
   WireGuard modes deferred.
 
