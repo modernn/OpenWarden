@@ -46,7 +46,10 @@ class PolicySenderTest {
         val result = sender(transport = transport).send(Policy(allowlist = listOf("a.app")))
         assertTrue(result is SendResult.Sent)
         result as SendResult.Sent
-        assertNotNull(result.bundle.sig)
+        // A 64-byte Ed25519 signature → 128 lowercase hex chars.
+        val sig = assertNotNull(result.bundle.sig)
+        assertEquals(128, sig.length)
+        assertTrue(sig.all { it in '0'..'9' || it in 'a'..'f' })
         assertEquals("child-1", result.bundle.childDeviceId)
         assertTrue(transport.lastJson!!.contains("\"policy_seq\""))
         assertTrue(transport.lastJson!!.contains("\"sig\":\""), "signed sig must be on the wire")

@@ -29,6 +29,7 @@ class AndroidPairedChildStore(context: Context) : PairedChildStore {
     override fun pairedChildId(): String? = prefs.getString(KEY_CHILD_ID, null)
 
     /** Called by pairing (#23) once the child Ed25519 pubkey is pinned. Fail-closed on write failure. */
+    @Synchronized
     fun setPairedChild(childDeviceId: String) {
         check(prefs.edit().putString(KEY_CHILD_ID, childDeviceId).commit()) {
             "paired child commit() failed (fail-closed)"
