@@ -256,6 +256,60 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         ) { "heartbeat contact readback mismatch after commit (fail-closed)" }
     }
 
+    // ---- ADR-041 §5.1 freshness anchor: signed-parent time + elapsed pair + not_after watermark ----
+
+    override fun freshnessAnchorParentMs(): Long? =
+        if (prefs.contains(KEY_ANCHOR_PARENT)) prefs.getLong(KEY_ANCHOR_PARENT, 0L) else null
+
+    override fun freshnessAnchorElapsedMs(): Long? =
+        if (prefs.contains(KEY_ANCHOR_ELAPSED)) prefs.getLong(KEY_ANCHOR_ELAPSED, 0L) else null
+
+    override fun notAfterWatermarkMs(): Long? =
+        if (prefs.contains(KEY_NOT_AFTER_HW)) prefs.getLong(KEY_NOT_AFTER_HW, 0L) else null
+
+    /**
+     * Advance the freshness anchor (ADR-041 D4), monotonic-on-write: the anchor's signed-parent time
+     * never decreases (a candidate whose [parentIssuedAtMs] is below the stored anchor is ignored for
+     * the anchor — the replay floor already blocks older bundles; this only keeps the §5.1 clock
+     * monotonic so a local anchor edit cannot revive an expired bundle). The `not_after` watermark
+     * rises to `max(current, notAfterMs)` when [notAfterMs] is non-null (bundles; heartbeats pass
+     * null). When the anchor advances, its `(parent, elapsed)` pair is written together so the clock
+     * stays consistent (esp. across a reboot, where [nowElapsedMs] is small but [parentIssuedAtMs]
+     * still moved forward). Fail-closed (commit()+readback) — the caller invokes this best-effort,
+     * so a throw only leaves the estimate STALER (more restriction), never looser.
+     */
+    override fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {
+        val current = FreshnessClock.Anchor(
+            parentAnchorMs = freshnessAnchorParentMs(),
+            elapsedAtAnchorMs = freshnessAnchorElapsedMs(),
+            notAfterWatermarkMs = notAfterWatermarkMs(),
+        )
+        // Pure ADR-041 D4 monotonic-on-write decision (host-tested in FreshnessClockTest).
+        val next = FreshnessClock.nextAnchor(current, parentIssuedAtMs, nowElapsedMs, notAfterMs)
+        val anchorChanged = next.parentMs != current.parentAnchorMs || next.elapsedMs != current.elapsedAtAnchorMs
+        val watermarkChanged = next.watermarkMs != null && next.watermarkMs != current.notAfterWatermarkMs
+        if (!anchorChanged && !watermarkChanged) return // nothing to persist
+
+        val editor = prefs.edit()
+        if (anchorChanged) {
+            editor.putLong(KEY_ANCHOR_PARENT, next.parentMs).putLong(KEY_ANCHOR_ELAPSED, next.elapsedMs)
+        }
+        if (watermarkChanged) editor.putLong(KEY_NOT_AFTER_HW, next.watermarkMs!!)
+        check(editor.commit()) { "freshness anchor commit() failed (fail-closed)" }
+        // Readback-verify every field we wrote (same fail-closed contract as advanceFloor / contact).
+        if (anchorChanged) {
+            check(
+                prefs.getLong(KEY_ANCHOR_PARENT, Long.MIN_VALUE) == next.parentMs &&
+                    prefs.getLong(KEY_ANCHOR_ELAPSED, Long.MIN_VALUE) == next.elapsedMs,
+            ) { "freshness anchor readback mismatch after commit (fail-closed)" }
+        }
+        if (watermarkChanged) {
+            check(prefs.getLong(KEY_NOT_AFTER_HW, Long.MIN_VALUE) == next.watermarkMs) {
+                "not_after watermark readback mismatch after commit (fail-closed)"
+            }
+        }
+    }
+
     // ---- CommandStore (ADR-030): lock/unlock signed-command replay floor + durable lock state ----
 
     /** Highest command `issued_at` admitted, or null if none — the shared lock/unlock replay floor. */
@@ -303,5 +357,10 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         // ADR-030 signed-command surface: shared lock/unlock replay floor + durable lock state.
         const val KEY_CMD_FLOOR = "command_floor"
         const val KEY_LOCKED = "is_locked"
+
+        // ADR-041 §5.1 freshness anchor: signed-parent time + paired elapsedRealtime + not_after high-water.
+        const val KEY_ANCHOR_PARENT = "freshness_anchor_parent_ms"
+        const val KEY_ANCHOR_ELAPSED = "freshness_anchor_elapsed_ms"
+        const val KEY_NOT_AFTER_HW = "not_after_watermark_ms"
     }
 }

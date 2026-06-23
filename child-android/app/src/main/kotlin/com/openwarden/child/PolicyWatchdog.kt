@@ -1,6 +1,7 @@
 package com.openwarden.child
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 
 /**
@@ -90,29 +91,80 @@ class PolicyWatchdog(
                 (result as? PolicyStore.LoadResult.Loaded)?.bundle?.policy?.private_dns
             }
 
+        /**
+         * ADR-041 §5.1 freshness tier for the ACTIVE bundle (surface B — the window must bite an
+         * already-applied bundle as time passes, not only at admission):
+         *   - active bundle present + [FreshnessClock.Now.Usable] estimate **past `not_after`**
+         *     → [Ratchet.Tier.STALE] (deny-all): the applied policy has expired (PROTOCOL §5 step 10).
+         *   - active bundle present + [FreshnessClock.Now.Unusable] clock (post-reboot / not-yet-
+         *     anchored) → [Ratchet.Tier.STALE] (deny-all): **fail-closed** — we CANNOT confirm the
+         *     active bundle is still within its window, so we must NOT keep its allowlist. This is
+         *     load-bearing: without it, a bundle that already EXPIRED (and was denied-all) would
+         *     **un-expire on reboot** (elapsedRealtime resets → `Unusable` → its allowlist returns) —
+         *     a kid regaining apps by rebooting (review finding). The deny-all is brief: the next
+         *     authenticated parent push / heartbeat re-anchors the clock (a fresh bundle re-applies
+         *     and `decide()` admits it), restoring the allowlist. "Restrictions intact after restart"
+         *     holds — deny-all is MORE restriction, not less.
+         *   - active bundle present + `Usable` within window → [Ratchet.Tier.FRESH].
+         *   - no active bundle → [Ratchet.Tier.FRESH]: the Missing/Corrupt deny-all path covers it.
+         * Pure → unit-testable without a device. Composed via [effectiveTier] (freshness only tightens).
+         */
+        fun freshnessTier(result: PolicyStore.LoadResult, now: FreshnessClock.Now): Ratchet.Tier {
+            val bundle = (result as? PolicyStore.LoadResult.Loaded)?.bundle ?: return Ratchet.Tier.FRESH
+            return when (now) {
+                is FreshnessClock.Now.Unusable -> Ratchet.Tier.STALE // can't confirm freshness ⇒ deny-all
+                is FreshnessClock.Now.Usable ->
+                    if (now.monotonicNowMs >= bundle.not_after) Ratchet.Tier.STALE else Ratchet.Tier.FRESH
+            }
+        }
+
+        /** The stricter of the no-contact ratchet tier and the freshness tier (freshness only tightens). */
+        fun effectiveTier(ratchetTier: Ratchet.Tier, freshnessTier: Ratchet.Tier): Ratchet.Tier =
+            if (freshnessTier.ordinal > ratchetTier.ordinal) freshnessTier else ratchetTier
+
+        /** The §5.1 monotonic estimate from the persisted anchor + the kernel clock (ADR-041). */
+        fun freshnessNow(store: ReplayFloorStore, nowElapsedMs: Long): FreshnessClock.Now =
+            FreshnessClock.estimate(
+                FreshnessClock.Anchor(
+                    parentAnchorMs = store.freshnessAnchorParentMs(),
+                    elapsedAtAnchorMs = store.freshnessAnchorElapsedMs(),
+                    notAfterWatermarkMs = store.notAfterWatermarkMs(),
+                ),
+                nowElapsedMs,
+            )
+
         /** Wire the watchdog to the real on-device policy surfaces. */
         fun forContext(context: Context): PolicyWatchdog {
             val enforcer = PolicyEnforcer(context)
             val store = PolicyStore(context)
             val ratchet = ContactClock.forContext(context)
+            val floorStore = ReplayFloorStore(context)
             return PolicyWatchdog(
                 reassertRestrictions = { enforcer.applyDayOneRestrictions() },
                 // R4: load the active allowlist INSIDE the apply lock (reassertActiveAllowlist), so a
                 // watchdog tick never applies a stale snapshot that a newer /policy apply superseded.
-                // ADR-024: the *tier* (silence-based, bundle-independent) is read outside the lock;
-                // the bundle load stays inside it, so deny-all on STALE/STRICT still honors R4.
+                // ADR-024/ADR-041: the *tier* (silence + active-bundle freshness, bundle-independent
+                // for the silence part) is read outside the lock; the bundle load stays inside it, so
+                // deny-all on STALE/STRICT still honors R4.
                 reassertAllowlist = {
-                    val tier = ratchet.currentTier()
+                    val tier = effectiveTier(
+                        ratchet.currentTier(),
+                        freshnessTier(store.load(), freshnessNow(floorStore, SystemClock.elapsedRealtime())),
+                    )
                     enforcer.reassertActiveAllowlist { ratchetAllowlist(tier, store.load()) }
                 },
                 // Pin the fail-closed DNS floor (ADR-016). The parent's chosen resolver comes
                 // from the active bundle's private_dns; a missing/corrupt bundle (null) or any
                 // non-filtering host resolves to the default filtering host — never OFF. Re-pinned
                 // on every trigger (boot / connectivity / timer), incl. airplane-mode toggles.
-                // ADR-024: at STRICT the bundle's resolver is ignored (default filtering host).
+                // ADR-024/ADR-041: at STRICT (silence) or an EXPIRED active bundle the bundle's
+                // resolver is ignored (default filtering host).
                 reassertDnsFloor = {
-                    val requested = ratchetDns(ratchet.currentTier(), store.load())
-                    DnsFloor(context).applyFloor(requested)
+                    val tier = effectiveTier(
+                        ratchet.currentTier(),
+                        freshnessTier(store.load(), freshnessNow(floorStore, SystemClock.elapsedRealtime())),
+                    )
+                    DnsFloor(context).applyFloor(ratchetDns(tier, store.load()))
                 },
                 // ADR-022 profile-escape backstop: the restrictions above already BLOCK
                 // managed/private-profile creation; this detects a profile that exists anyway

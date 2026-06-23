@@ -75,6 +75,22 @@ object PolicyAdmission {
          * baseline (ADR-017 part 3). Never "keep current permissive policy".
          */
         data class RejectStrict(val reason: String) : Outcome
+
+        /**
+         * Freshness step 9 (PROTOCOL §2.1 / §5, ADR-041): the bundle's window has not opened yet
+         * (`monotonic_now < not_before` — CLOCK_SKEW). Do NOT apply, and do NOT tear down the policy
+         * currently in force — keep it and retry on the next contact. Distinct from a rejection: a
+         * not-yet-valid bundle is a deferral, not an anomaly.
+         */
+        data class Defer(val reason: String) : Outcome
+
+        /**
+         * Freshness step 10 (PROTOCOL §2.1 / §5, ADR-041): the bundle's window has closed
+         * (`monotonic_now >= not_after` — EXPIRED). Do NOT apply; the device drops to / stays in the
+         * stale baseline (the watchdog enforces it via the active-bundle freshness tier), never
+         * "unrestricted".
+         */
+        data class RejectExpired(val reason: String) : Outcome
     }
 
     /**
@@ -95,6 +111,12 @@ object PolicyAdmission {
      *   `null` if no floor is seeded.
      * @param floorAnomaly true if [ReplayFloorStore] detected at-rest-below-chain
      *   (ADR-017 part 1/3). Inert until the chain-mirror follow-up lands.
+     * @param freshnessNow the PROTOCOL §5.1 monotonic estimate of the parent's current time
+     *   ([FreshnessClock.estimate]). [FreshnessClock.Now.Unusable] (no anchor / post-reboot) skips
+     *   the window check and admits on signature + floor alone, re-anchoring on apply (ADR-041 D3).
+     * @param notAfterWatermarkMs the highest `not_after` ever applied (the monotonic-on-write
+     *   anchor watermark), or `null` if never seeded. Reserved for full rollback detection (D4/step
+     *   11), which is the same tracked gap as the floor chain mirror.
      */
     fun decide(
         receivedDoc: JsonObject,
@@ -103,6 +125,8 @@ object PolicyAdmission {
         provisioned: Boolean,
         effectiveFloor: Long?,
         floorAnomaly: Boolean = false,
+        freshnessNow: FreshnessClock.Now = FreshnessClock.Now.Unusable,
+        notAfterWatermarkMs: Long? = null,
     ): Outcome {
         // ADR-019 D2 / ADR-040 ordering: verify over the RECEIVED document FIRST, then parse. The
         // pre-signature gates (size, JC1, version, audience) read the wire object directly — NOT a
@@ -200,9 +224,11 @@ object PolicyAdmission {
             )
         }
 
-        // Steps 9-10: monotonic + jump, via the ported pure ReplayFloor decision.
+        // Monotonic + jump (replay floor), via the ported pure ReplayFloor decision.
         return when (val d = ReplayFloor.admit(effectiveFloor, bundle.policy_seq)) {
-            is ReplayFloor.Decision.Accept -> Outcome.Accept(d.newFloor, genesis = false, bundle = bundle)
+            // Replay floor passed -> apply the freshness window (PROTOCOL §2.1 steps 9-11, ADR-041).
+            is ReplayFloor.Decision.Accept ->
+                freshnessGate(bundle, freshnessNow) ?: Outcome.Accept(d.newFloor, genesis = false, bundle = bundle)
             is ReplayFloor.Decision.RejectStrict -> {
                 // ReplayFloor folds JC1/jump (structural) and rollback (strict) into one
                 // RejectStrict; classify by reason so the wire surfaces MALFORMED for the
@@ -214,6 +240,35 @@ object PolicyAdmission {
                 }
             }
         }
+    }
+
+    /**
+     * PROTOCOL §2.1 steps 9-10 freshness window (ADR-041), evaluated against the §5.1 monotonic
+     * estimate [now]. Returns a non-`Accept` [Outcome] if the window rejects the bundle, or `null`
+     * to proceed to `Accept`.
+     *
+     * `Unusable` clock (no anchor yet, or post-reboot before re-anchor) cannot evaluate the window:
+     * the bundle is admitted on its signature + monotonic `policy_seq` floor alone and re-anchors on
+     * apply (the watchdog holds the stale baseline while the anchor is unusable, so nothing is
+     * under-restricted in the gap — ADR-041 D3). Step 11 full anchor-rollback detection is a tracked
+     * gap (same as the floor chain mirror); the monotonic-on-write anchor + reboot detection are the
+     * local defenses.
+     */
+    private fun freshnessGate(bundle: SignedBundle, now: FreshnessClock.Now): Outcome? {
+        val monotonicNow = (now as? FreshnessClock.Now.Usable)?.monotonicNowMs ?: return null
+        // Step 9: window not open yet -> defer (keep current policy, retry on next contact).
+        if (monotonicNow < bundle.not_before) {
+            return Outcome.Defer(
+                "CLOCK_SKEW: monotonic_now $monotonicNow < not_before ${bundle.not_before} (PROTOCOL §2.1 step 9)",
+            )
+        }
+        // Step 10: window closed -> expired (drop to / stay in stale baseline).
+        if (monotonicNow >= bundle.not_after) {
+            return Outcome.RejectExpired(
+                "EXPIRED: monotonic_now $monotonicNow >= not_after ${bundle.not_after} (PROTOCOL §2.1 step 10)",
+            )
+        }
+        return null
     }
 
     /**
@@ -237,6 +292,19 @@ object PolicyAdmission {
     sealed interface Result {
         data class Applied(val policySeq: Long, val genesis: Boolean) : Result
         data class Rejected(val malformed: Boolean, val reason: String) : Result
+
+        /**
+         * Freshness CLOCK_SKEW (PROTOCOL §2.1 step 9 / ADR-041): the bundle is not yet valid. NOT
+         * applied; the policy currently in force is kept (not torn down) and the parent should retry.
+         */
+        data class Deferred(val reason: String) : Result
+
+        /**
+         * Freshness EXPIRED (PROTOCOL §2.1 step 10 / ADR-041): the bundle's window has closed. NOT
+         * applied; the watchdog holds the device in the stale baseline via the active-bundle freshness
+         * tier (never "unrestricted").
+         */
+        data class Expired(val reason: String) : Result
     }
 
     /**
@@ -266,6 +334,26 @@ object PolicyAdmission {
          */
         fun appliedHighWater(): Long? = null
         fun noteApplied(policySeq: Long) {}
+
+        // ---- ADR-041 §5.1 freshness anchor (defaulted so non-freshness fakes need not implement) ----
+
+        /** The last anchored signed-parent time (`issued_at` of the last applied bundle / heartbeat). */
+        fun freshnessAnchorParentMs(): Long? = null
+
+        /** `elapsedRealtime()` captured at the anchor instant (paired with [freshnessAnchorParentMs]). */
+        fun freshnessAnchorElapsedMs(): Long? = null
+
+        /** Highest `not_after` ever applied — the monotonic-on-write watermark (ADR-041 D4). */
+        fun notAfterWatermarkMs(): Long? = null
+
+        /**
+         * Advance the freshness anchor after a durable apply (ADR-041 D4): set the signed-parent time
+         * [parentIssuedAtMs] + [nowElapsedMs], and raise the not_after watermark to [notAfterMs] when
+         * non-null (bundles carry one; heartbeats pass `null`). Monotonic-on-write: the anchor's
+         * parent time and the watermark never decrease. Best-effort — a failed write only ever leaves
+         * the estimate STALER (more restriction), never looser. Defaulted to a no-op for fakes.
+         */
+        fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {}
     }
 
     /**
@@ -288,6 +376,11 @@ object PolicyAdmission {
      *   signature is verified over (never a re-serialization of a typed model).
      * @param genesisPubkey for a genesis accept, the parent pubkey to pin. The signature is verified
      *   over [receivedDoc] against it here, BEFORE pinning. Ignored otherwise.
+     * @param nowElapsedMs current `SystemClock.elapsedRealtime()` (ADR-041): paired with the stored
+     *   anchor to estimate the parent's monotonic "now" for the freshness window, and captured as the
+     *   new anchor's elapsed component on apply. The caller (ApiServer) passes the real clock; tests
+     *   pass a fixed value. Defaulted so replay-floor tests that do not exercise freshness are
+     *   unaffected (no anchor seeded ⇒ Unusable ⇒ the window check is skipped).
      */
     fun admit(
         receivedDoc: JsonObject,
@@ -296,6 +389,7 @@ object PolicyAdmission {
         pinParentKey: (ByteArray) -> Unit,
         pinnedParentPubkey: ByteArray?,
         genesisPubkey: ByteArray? = null,
+        nowElapsedMs: Long = 0L,
     ): Result = synchronized(ADMIT_LOCK) {
         // R5: the floor read below and the advanceFloor in the commit must be one critical section,
         // or two concurrent admits both read the same floor and apply out of order. Inside the lock,
@@ -315,6 +409,16 @@ object PolicyAdmission {
             store.chainFloor()?.let { chain -> atRest < chain }
         } ?: false
 
+        // ADR-041 §5.1: estimate the parent's monotonic "now" from the stored anchor + the kernel
+        // clock. Unusable (no anchor / reboot) skips the window check in decide() and re-anchors on
+        // apply below; the watchdog holds the stale baseline while the anchor is Unusable.
+        val anchor = FreshnessClock.Anchor(
+            parentAnchorMs = store.freshnessAnchorParentMs(),
+            elapsedAtAnchorMs = store.freshnessAnchorElapsedMs(),
+            notAfterWatermarkMs = store.notAfterWatermarkMs(),
+        )
+        val freshnessNow = FreshnessClock.estimate(anchor, nowElapsedMs)
+
         val outcome = decide(
             receivedDoc = receivedDoc,
             myChildDeviceId = myId,
@@ -322,11 +426,15 @@ object PolicyAdmission {
             provisioned = provisioned,
             effectiveFloor = floor,
             floorAnomaly = anomaly,
+            freshnessNow = freshnessNow,
+            notAfterWatermarkMs = anchor.notAfterWatermarkMs,
         )
 
         when (outcome) {
             is Outcome.RejectMalformed -> Result.Rejected(malformed = true, reason = outcome.reason)
             is Outcome.RejectStrict -> Result.Rejected(malformed = false, reason = outcome.reason)
+            is Outcome.Defer -> Result.Deferred(outcome.reason)
+            is Outcome.RejectExpired -> Result.Expired(outcome.reason)
             is Outcome.Accept -> {
                 // Apply EXACTLY the verified document: the typed bundle decode()d from the bytes whose
                 // signature was checked (ADR-040 — no doc/model mismatch to exploit).
@@ -361,6 +469,14 @@ object PolicyAdmission {
                     applier.applyAndFsync(bundle)     // 13. apply + fsync (durable; may throw)
                     store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
                     applier.ack(outcome.policySeq)    // 15. ack (chain witness)
+                    // ADR-041 D4: re-anchor the freshness clock from this applied bundle's signed
+                    // issued_at, AFTER durable apply, monotonic-on-write. Best-effort: the apply +
+                    // floor are already durable, and a failed anchor write only makes the next
+                    // freshness estimate STALER (more restriction), never looser — so it must not undo
+                    // the (successful) apply. The watchdog re-asserts regardless.
+                    runCatching {
+                        store.advanceFreshnessAnchor(bundle.issued_at, nowElapsedMs, bundle.not_after)
+                    }
                     Result.Applied(outcome.policySeq, outcome.genesis)
                 } catch (e: Exception) {
                     // Apply/stage failure => fail-closed, floor NOT advanced => same bundle
