@@ -39,11 +39,17 @@ object ChildKeyBindingVerifier {
      * Accept iff, in order (each failure ⇒ `false`):
      *  1. a presented `K_bind` SPKI exists (else no anchor — pre-attestation / not provisioned);
      *  2. `v == 1`;
-     *  3. `child_ed25519_pub` and `child_x25519_pub` each base64url-decode to EXACTLY 32 bytes
-     *     (ADR-025 D6 byte-level validation — never accept an ill-formed/short field);
-     *  4. `provisioning_nonce` decodes to exactly 32 bytes AND equals [expectedNonce] — the nonce the
-     *     parent issued for *this* attempt (single-use freshness; a replayed prior-attempt binding,
-     *     though self-consistent, carries a stale nonce and is rejected — ADR-032 D2);
+     *  3. `child_ed25519_pub` and `child_x25519_pub` each base64url-decode (valid alphabet) to EXACTLY
+     *     32 bytes (ADR-025 D6 length + alphabet — never a non-empty string of the wrong size). Full
+     *     on-curve **point** validation of the pinned keys is the **parent's** job when it adopts them
+     *     (sealed-box audience `K_enc` / signature-verify key `K_id`): RFC 7748 admits every 32-byte
+     *     X25519 key, and reliable Ed25519 point validation needs the parent's key-adoption path (the
+     *     `net.i2p.crypto.eddsa` spec used here does not reject off-curve points). The binding sig (5)
+     *     already ties these exact bytes to attested hardware, so a swapped key is caught regardless.
+     *  4. [expectedNonce] is exactly 32 bytes, and `provisioning_nonce` decodes to 32 bytes that equal
+     *     it — the nonce the parent issued for *this* attempt (single-use freshness; a replayed
+     *     prior-attempt binding, though self-consistent, carries a stale nonce and is rejected —
+     *     ADR-032 D2). The parent guarantees the nonce is single-use + discarded (parent-side, deferred).
      *  5. `sig` is non-empty and verifies as ECDSA-P-256 by [bindingKeySpkiDer] over [canonicalBody]
      *     — an attacker who swaps `child_ed25519_pub`/`child_x25519_pub` (or the nonce) breaks this,
      *     and one lacking the `K_bind` private key cannot forge it.
@@ -54,6 +60,7 @@ object ChildKeyBindingVerifier {
      */
     fun verify(binding: ChildKeyBinding, bindingKeySpkiDer: ByteArray?, expectedNonce: ByteArray): Boolean {
         if (bindingKeySpkiDer == null) return false
+        if (expectedNonce.size != 32) return false // defense-in-depth: a real single-use nonce is 32 bytes
         if (binding.v != 1) return false
         if (!is32Bytes(binding.child_ed25519_pub)) return false
         if (!is32Bytes(binding.child_x25519_pub)) return false
@@ -65,7 +72,7 @@ object ChildKeyBindingVerifier {
         return P256.verify(canonicalBody(binding), binding.sig, bindingKeySpkiDer)
     }
 
-    /** True iff [b64url] is non-empty and base64url-decodes to exactly 32 bytes (ADR-025 D6). */
+    /** True iff [b64url] decodes (valid alphabet) to exactly 32 bytes (ADR-025 D6 length + alphabet). */
     private fun is32Bytes(b64url: String): Boolean = decode(b64url)?.size == 32
 
     private fun decode(b64url: String): ByteArray? = try {

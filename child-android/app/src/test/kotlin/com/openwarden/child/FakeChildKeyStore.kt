@@ -15,9 +15,10 @@ import java.security.MessageDigest
 class FakeChildKeyStore(
     private val bind: P256TestSigner.Keypair = P256TestSigner.newKeypair(),
     private val id: CommandTestSigner.Keypair = CommandTestSigner.newKeypair(),
-    private val encPub: ByteArray = ByteArray(32) { (it + 1).toByte() },
+    encPub: ByteArray = ByteArray(32) { (it + 1).toByte() },
 ) : ChildKeyStore {
 
+    private val encPub: ByteArray = encPub.copyOf() // defensive copy: caller can't mutate post-construction
     private var provisioned = false
     var lastNonce: ByteArray? = null
         private set

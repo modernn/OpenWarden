@@ -110,4 +110,36 @@ class ChildKeyBindingTest {
         val b = ChildKeyBindingSigner.bindingFor(nonce, store)!!.copy(child_ed25519_pub = "!!!not-base64!!!")
         assertFalse(ChildKeyBindingVerifier.verify(b, store.bindingSpki(), nonce))
     }
+
+    // The tamper tests above reject via sig-mismatch. The next three re-sign the tampered body so the
+    // signature is VALID over it — proving the byte/curve guards fire BEFORE (independent of) the sig.
+
+    @Test
+    fun `short ed field rejects at byte guard despite a valid sig`() {
+        val store = provisionedStore()
+        val base = ChildKeyBindingSigner.bindingFor(nonce, store)!!
+        val bad = reSigned(base.copy(child_ed25519_pub = b64(ByteArray(31))), store)
+        assertFalse(ChildKeyBindingVerifier.verify(bad, store.bindingSpki(), nonce))
+    }
+
+    @Test
+    fun `over-long ed field rejects at byte guard despite a valid sig`() {
+        val store = provisionedStore()
+        val base = ChildKeyBindingSigner.bindingFor(nonce, store)!!
+        val bad = reSigned(base.copy(child_ed25519_pub = b64(ByteArray(33))), store)
+        assertFalse(ChildKeyBindingVerifier.verify(bad, store.bindingSpki(), nonce))
+    }
+
+    @Test
+    fun `wrong-length expectedNonce rejects (defense-in-depth)`() {
+        val store = provisionedStore()
+        val b = ChildKeyBindingSigner.bindingFor(nonce, store)!!
+        assertFalse(ChildKeyBindingVerifier.verify(b, store.bindingSpki(), ByteArray(16)))
+    }
+
+    /** Re-sign a (possibly malformed) binding body with the store's K_bind so its sig is genuinely valid. */
+    private fun reSigned(b: ChildKeyBinding, store: FakeChildKeyStore): ChildKeyBinding {
+        val sig = store.signBinding(ChildKeyBindingVerifier.canonicalBody(b))!!
+        return b.copy(sig = sig.joinToString("") { "%02x".format(it) })
+    }
 }
