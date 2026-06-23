@@ -1,5 +1,6 @@
 package com.openwarden.parent.crypto.bip39
 
+import com.openwarden.parent.crypto.openwardenSha256
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -62,5 +63,16 @@ class Bip39Test {
         val entropy = ByteArray(32) { 0xFF.toByte() }
         val mnemonic = Bip39.encode(entropy)
         assertEquals("zoo", mnemonic[0]) // all-ones first 11 bits = index 2047 = "zoo"
+    }
+
+    @Test
+    fun wordlistMatchesCanonicalSha256() {
+        // Enforce the comment's claim: the assembled list hashes to the published BIP-39 SHA-256.
+        // A single transposed/typo'd word anywhere would silently corrupt every derived key; this
+        // catches it (each word followed by '\n', matching upstream `english.txt`).
+        val reconstructed = BIP39_ENGLISH_WORDLIST.joinToString("") { it + "\n" }
+        val hash = openwardenSha256(reconstructed.encodeToByteArray())
+            .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        assertEquals("2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda", hash)
     }
 }

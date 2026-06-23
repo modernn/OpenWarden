@@ -44,6 +44,8 @@ object RootKeyDerivation {
         // NFKD == identity on the all-ASCII BIP-39 English wordlist (ADR-033 D1 note).
         val password = mnemonic.joinToString(" ").encodeToByteArray()
         val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+            // Version 0x13 (v19) is LOAD-BEARING and must stay explicit: it matches libsodium's
+            // only argon2 version; v0x10 would silently produce different keys (breaks recoverability).
             .withVersion(Argon2Parameters.ARGON2_VERSION_13)
             .withMemoryAsKB(ARGON2_MEMORY_KB)
             .withIterations(ARGON2_ITERATIONS)
@@ -61,7 +63,11 @@ object RootKeyDerivation {
         val seed = deriveSeed(mnemonic)
         val ed25519Priv = hkdfExpand(seed, ED25519_INFO, 32)
         val x25519Priv = hkdfExpand(seed, X25519_INFO, 32)
+        // Ed25519 priv = the 32-byte RFC 8032 seed (the form both BC and libsodium accept).
         val ed25519Pub = Ed25519PrivateKeyParameters(ed25519Priv, 0).generatePublicKey().encoded
+        // x25519Priv is the RAW (unclamped) HKDF output; X25519 clamps the scalar at use (RFC 7748),
+        // exactly as libsodium's crypto_scalarmult_base does — so the public key is identical. Every
+        // future consumer of x25519Priv MUST clamp (see CRYPTO.md §2 X25519 clamp-at-use invariant).
         val x25519Pub = X25519PrivateKeyParameters(x25519Priv, 0).generatePublicKey().encoded
         return RootKeys(
             ed25519Seed = ed25519Priv,
@@ -71,7 +77,14 @@ object RootKeyDerivation {
         )
     }
 
-    /** HKDF-SHA256 (RFC 5869): Extract(salt = "openwarden-v1", ikm) then Expand(info) → [length]. */
+    /**
+     * HKDF-SHA256 (RFC 5869): Extract(salt = "openwarden-v1", ikm) then Expand(info) → [length].
+     *
+     * NOTE: Bouncy Castle's `HKDFParameters` constructor is `(ikm, salt, info)` — IKM first, NOT
+     * `(salt, ikm, info)`. With a non-null salt `HKDFBytesGenerator` runs Extract-then-Expand in one
+     * pass. Called once per info label; each call re-derives the SAME PRK from the same (ikm, salt),
+     * so the two keys share the single PRK that CRYPTO.md §2 publishes (no correctness difference).
+     */
     private fun hkdfExpand(ikm: ByteArray, info: ByteArray, length: Int): ByteArray {
         val generator = HKDFBytesGenerator(SHA256Digest())
         generator.init(HKDFParameters(ikm, HKDF_EXTRACT_SALT, info))

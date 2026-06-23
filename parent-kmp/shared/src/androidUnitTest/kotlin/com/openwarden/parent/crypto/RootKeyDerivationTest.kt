@@ -1,8 +1,11 @@
 package com.openwarden.parent.crypto
 
 import com.openwarden.parent.crypto.bip39.Bip39
+import org.bouncycastle.crypto.digests.SHA256Digest
+import org.bouncycastle.crypto.macs.HMac
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
+import org.bouncycastle.crypto.params.KeyParameter
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -79,5 +82,22 @@ class RootKeyDerivationTest {
         assertEquals("7716d982ba225b69533e60b90a66c670af966d2f95512b5b1f93cbcc00375a58", k.x25519Private.toHexString())
         assertEquals("1ca19c6f54b3841f0fa4dd8e9de6168b2509a0504043133bf1fc0c9522488b17", k.ed25519Public.toHexString())
         assertEquals("e6bfad93496d3149ed72a79e5ef0ab60c3d153f419e895d0abbaa6a930bc7819", k.x25519Public.toHexString())
+    }
+
+    @Test
+    fun ratifiedPrk() {
+        // The HKDF-Extract PRK published in CRYPTO.md §2 = HMAC-SHA256("openwarden-v1", seed).
+        val seed = RootKeyDerivation.deriveSeed(allZeroMnemonic)
+        val mac = HMac(SHA256Digest()).apply { init(KeyParameter("openwarden-v1".encodeToByteArray())) }
+        mac.update(seed, 0, seed.size)
+        val prk = ByteArray(mac.macSize)
+        mac.doFinal(prk, 0)
+        assertEquals("784f251d188acfbdf2bb86b61720bcc57b0e2d895b77463e15799973e0fed68d", prk.toHexString())
+    }
+
+    @Test
+    fun argon2PasswordIsSingleSpacedAscii() {
+        // Pins the password contract fed to Argon2id (NFKD == identity on the ASCII wordlist).
+        assertEquals("abandon ".repeat(23) + "art", allZeroMnemonic.joinToString(" "))
     }
 }
