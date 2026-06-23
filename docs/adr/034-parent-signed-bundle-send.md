@@ -1,6 +1,6 @@
 # ADR-034: Parent assembles, signs, and sends policy bundles (monotonic policy_seq) — issue #27
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-23
 Relates: **ADR-033** (the parent root key this signs with — resolves its deferred "#27 signing key" sign-off item), **ADR-015/019** (the one signing rule — Ed25519 over RFC 8785 JCS minus `sig`), **ADR-017** (replay/rollback: `policy_seq` monotonic floor + freshness window), PROTOCOL.md §2 (PolicyBundle field set) / §3 (child `verify_bundle`) / §5 (replay + freshness); docs/ATTACKS.md (H1/C8 replay = critical), docs/DEFENSES.md
 
@@ -42,4 +42,5 @@ The maintainer-approved forks (front-loaded): sign via **BC `RootKeyProvider.sig
 - **Full parent-anchor reconciliation deferred.** PROTOCOL §5's "parent reads the child's reported floor/chain tip and pushes above the highest ever seen on regression/fork" needs the child to report its floor (sync/ack plumbing) — #27 ships the monotonic local sequencer + ack parse; the regression/fork re-anchor is a follow-up.
 - **Transport is still demo-grade** (hardcoded cleartext `http://10.0.2.2:7180`); authenticity (this ADR) holds over any transport (the bundle carries no content), confidentiality lands with #21/#23 (ADR-030/031).
 - No `proto` change; no new crypto primitive (reuses ADR-033 BC Ed25519 + ADR-015 JCS).
-- On merge this ADR flips to **Accepted**.
+- **Maintainer ruling (at PR #89 merge):** ship the parent control path now (correct, complete, fail-closed, net-additive); the child-side residuals above are accepted as **tracked follow-ups**, not merge blockers — child `not_before`/`not_after` enforcement, the ADR-019 verify-over-received-bytes reconciliation (+ unicode golden vector), and the foreground push-UI wiring.
+- Accepted on maintainer approval (PR #89).
