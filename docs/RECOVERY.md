@@ -33,7 +33,7 @@ Four scenarios. R1-R3 are designed for; R4 is documented and pushed onto Google.
   1. Read full 24 words on a non-screenshottable surface (`FLAG_SECURE`).
   2. Confirm by re-typing 6 randomly-chosen indices (e.g. "word #3, #7, #11, #14, #19, #22"). Random indices defeat muscle-memory; a parent who scrolled past without reading will fail.
   3. Generate a printable sheet (§3) before the screen can be dismissed.
-- Argon2id with conservative parameters (RFC 9106; `m=64 MiB, t=3, p=1`) is the KDF from the 24 words to the Ed25519 / X25519 seed. We never use the phrase directly as key material.
+- Argon2id (RFC 9106; `m=256 MiB, t=4, p=2`, 64-byte output) is the KDF from the 24 words to the Ed25519 / X25519 seed — the canonical parameters live in [`CRYPTO.md`](CRYPTO.md) §2 (ADR-033 D2). We never use the phrase directly as key material.
 
 ---
 

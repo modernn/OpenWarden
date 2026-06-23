@@ -70,25 +70,32 @@ PGP keyrings carry subkey metadata, user IDs, web-of-trust signatures, expiratio
 
 ### Test vectors (required, see §12)
 
-Known mnemonic: `"abandon abandon abandon ... about"` (the all-zeros BIP-39 vector).
+Known mnemonic: the all-zeros 256-bit BIP-39 vector — `abandon` ×23 + `art`.
 
-Expected output (placeholder until ratified by `:shared:crypto` test suite):
+Ratified by `parent-kmp` `:shared` `RootKeyDerivationTest.ratifiedVector` (ADR-033 D8):
 
 ```
-seed     = a36097...   (64 hex bytes from Argon2id with above params)
-prk      = ...         (32 hex bytes)
-ed25519_pub = ...      (32 hex bytes)
-x25519_pub  = ...      (32 hex bytes)
+seed        = 371250dc567bbf489044c0780951b33484869df84394baea232b3a6af2a1128a
+              c60a67033822531e0887de304b4d260a10ea40d1026654cedad10cafbecdaae7   (64 bytes)
+prk         = 784f251d188acfbdf2bb86b61720bcc57b0e2d895b77463e15799973e0fed68d   (32 bytes)
+ed25519_pub = 1ca19c6f54b3841f0fa4dd8e9de6168b2509a0504043133bf1fc0c9522488b17   (32 bytes)
+x25519_pub  = e6bfad93496d3149ed72a79e5ef0ab60c3d153f419e895d0abbaa6a930bc7819   (32 bytes)
 ```
 
 ### Libraries
 
-| Layer | Library | License |
+On the **parent root-key derivation path** (ADR-033 D3) every primitive is **Bouncy Castle**
+(`bcprov-jdk18on`, JVM/Android), so the whole derivation runs and its vector is ratified host-side.
+Bouncy Castle's outputs are the same RFC primitives as libsodium's, so the parent-derived keys
+interoperate with the child's libsodium verifier. libsodium remains the child's verification path and
+the bundle-signing path (#27). iOS derivation is deferred (ADR-033 Consequences).
+
+| Layer | Library (parent derivation) | License |
 |---|---|---|
-| BIP-39 wordlist + checksum | port of [`NovaCrypto/BIP39`](https://github.com/NovaCrypto/BIP39) Java to KMP common | Apache 2.0 |
-| Argon2id | [`andreypfau/kotlinx-crypto`](https://github.com/andreypfau/kotlinx-crypto) Argon2 binding | MIT |
-| HKDF-SHA256 | libsodium `crypto_kdf_hkdf_sha256_*` | ISC |
-| Ed25519 / X25519 scalars | libsodium `crypto_sign_seed_keypair`, `crypto_scalarmult_base` | ISC |
+| BIP-39 wordlist + checksum | vendored pure-Kotlin port of [`NovaCrypto/BIP39`](https://github.com/NovaCrypto/BIP39) in `commonMain` (SHA-256 checksum via Bouncy Castle) | Apache 2.0 |
+| Argon2id | Bouncy Castle `Argon2BytesGenerator` (RFC 9106; `andreypfau/kotlinx-crypto` ships **no** Argon2 — ADR-033 D3) | MIT |
+| HKDF-SHA256 | Bouncy Castle `HKDFBytesGenerator` (RFC 5869) — byte-identical to libsodium `crypto_kdf_hkdf_sha256_*` | MIT / ISC |
+| Ed25519 / X25519 scalars | Bouncy Castle `Ed25519PrivateKeyParameters` / `X25519PrivateKeyParameters` (RFC 8032/7748) — same scalars as libsodium `crypto_sign_seed_keypair` / `crypto_scalarmult_base` | MIT / ISC |
 
 ---
 
