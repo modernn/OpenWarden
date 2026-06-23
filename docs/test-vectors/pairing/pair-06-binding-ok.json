@@ -1,0 +1,12 @@
+{
+  "id": "pair-06-binding-ok",
+  "spec": "PROTOCOL §7.3 check 4b / ADR-032 D2/D4 / ADR-037",
+  "description": "The §7.3 check-4b happy path. child_binding_sig is a real ECDSA-P-256 signature by the attested leaf K_bind over JCS{v, child_ed25519_pub, child_x25519_pub, provisioning_nonce}, and the body's pubkeys + nonce match what the parent presents. The verifier MUST accept check 4b (and, with a good chain, proceed toward the §7.4 SAS).",
+  "binding_body_jcs": "{\"child_ed25519_pub\":\"<b64url(32)>\",\"child_x25519_pub\":\"<b64url(32)>\",\"provisioning_nonce\":\"<b64url(32)>\",\"v\":1}",
+  "notes": {
+    "signing_input": "RFC 8785 JCS of the object above (keys sorted UTF-16; the single shared Canonical) — bytes the child K_bind signs and the parent re-derives verbatim",
+    "child_binding_sig": "hex(DER ECDSA-P-256 / SHA-256) by the leaf K_bind public key",
+    "child_attestation_cert_chain": "DEFERRED: a real Pixel-7 STRONGBOX chain over K_bind rides the ADR-032 bench-confirm capture (ADR-037 D5). The executable check-4b accept is proven host-side in AttestationVerifierRealCryptoTest with a P-256 twin signer."
+  },
+  "expect": "ACCEPTED (check 4b) — the signature verifies against the leaf K_bind over the matching JCS body"
+}
