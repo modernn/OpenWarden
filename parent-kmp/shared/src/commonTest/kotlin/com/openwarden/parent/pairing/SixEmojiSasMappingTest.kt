@@ -99,6 +99,13 @@ class SixEmojiSasMappingTest {
         assertFailsWith<IllegalArgumentException> { sas.derive(ok, ok, ok, ByteArray(33), ByteArray(32)) }
     }
 
+    @Test
+    fun wrongLengthNonceFailsClosed() {
+        val ok = ByteArray(32)
+        val sas = SixEmojiSas(CapturingKdf(ByteArray(16)))
+        assertFailsWith<IllegalArgumentException> { sas.derive(ok, ok, ok, ok, ByteArray(31)) }
+    }
+
     // ---- PairingSasStage lifecycle (ADR-038 D4) -------------------------------------------------
 
     private class CountingBurner : PairingNonceBurner {
@@ -107,6 +114,15 @@ class SixEmojiSasMappingTest {
         override fun burn() {
             burns++
         }
+    }
+
+    /** A [SessionAccess] pinned to one live session, for the stage tests' identity check. */
+    private class FixedSession(
+        private val s: PairingSession?,
+    ) : SessionAccess {
+        override fun active(): PairingSession? = s
+
+        override fun cancel() {}
     }
 
     private fun postWith(
@@ -139,24 +155,19 @@ class SixEmojiSasMappingTest {
     @Test
     fun deriveMapsKdfOutputToEmojis() {
         val out = byteArrayOf(0x00, 0x10, 0x83.toByte(), 0x10, 0x50) + ByteArray(11)
-        val stage = PairingSasStage(SixEmojiSas(CapturingKdf(out)), CountingBurner())
-        val challenge =
-            stage.derive(
-                postWith(ByteArray(32) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 }, ByteArray(32) { 5 }),
-            )
+        val post = postWith(ByteArray(32) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 }, ByteArray(32) { 5 })
+        val stage = PairingSasStage(FixedSession(post.session), SixEmojiSas(CapturingKdf(out)), CountingBurner())
+        val challenge = stage.derive(post)
         assertContentEquals(listOf(0, 1, 2, 3, 4, 5).map { SasEmojiTable.EMOJIS[it] }, challenge.emojis)
     }
 
     @Test
     fun mismatchBurnsTheNonceAndPinsNothing() {
         val burner = CountingBurner()
-        val stage = PairingSasStage(SixEmojiSas(CapturingKdf(ByteArray(16))), burner)
-        val challenge =
-            stage.derive(
-                postWith(ByteArray(32) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 }, ByteArray(32) { 5 }),
-            )
+        val post = postWith(ByteArray(32) { 1 }, ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 }, ByteArray(32) { 5 })
+        val stage = PairingSasStage(FixedSession(post.session), SixEmojiSas(CapturingKdf(ByteArray(16))), burner)
 
-        val outcome = stage.confirm(challenge, matched = false)
+        val outcome = stage.confirm(stage.derive(post), matched = false)
 
         assertTrue(outcome is SasOutcome.Mismatch, "a SAS mismatch aborts the pair")
         assertEquals(1, burner.burns, "mismatch burns the single-use nonce exactly once (ADR-036 D4)")
@@ -165,13 +176,12 @@ class SixEmojiSasMappingTest {
     @Test
     fun matchYieldsChildKeysAndBurnsNothing() {
         val burner = CountingBurner()
-        val stage = PairingSasStage(SixEmojiSas(CapturingKdf(ByteArray(16))), burner)
         val childEd = ByteArray(32) { 3 }
         val childX = ByteArray(32) { 4 }
-        val challenge =
-            stage.derive(postWith(ByteArray(32) { 1 }, ByteArray(32) { 2 }, childEd, childX, ByteArray(32) { 5 }))
+        val post = postWith(ByteArray(32) { 1 }, ByteArray(32) { 2 }, childEd, childX, ByteArray(32) { 5 })
+        val stage = PairingSasStage(FixedSession(post.session), SixEmojiSas(CapturingKdf(ByteArray(16))), burner)
 
-        val outcome = stage.confirm(challenge, matched = true)
+        val outcome = stage.confirm(stage.derive(post), matched = true)
 
         assertTrue(outcome is SasOutcome.Match, "a SAS match proceeds toward pinning")
         assertContentEquals(childEd, outcome.childEd25519Pub, "match carries the child Ed25519 key to slice (e)")

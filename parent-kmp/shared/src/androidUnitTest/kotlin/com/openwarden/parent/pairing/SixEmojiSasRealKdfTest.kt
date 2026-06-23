@@ -57,7 +57,9 @@ class SixEmojiSasRealKdfTest {
             hex(kdf.hkdfSha256(SixEmojiSas.SALT, parentEd + parentX + childEd + childX, nonce, 16)),
             "the 16-byte HKDF output for the golden inputs is frozen canon",
         )
-        val expected = listOf(24, 59, 38, 0, 1, 15).map { SasEmojiTable.EMOJIS[it] }
+        // Pinned as LITERAL glyphs (NOT via SasEmojiTable) so a table reorder/drift fails this test —
+        // the golden vector must be independent of the SUT's own table (Codex review #2).
+        val expected = listOf("🍎", "🔔", "⌛", "🐶", "🐱", "🌷")
         assertContentEquals(expected, sas.derive(parentEd, parentX, childEd, childX, nonce), "golden six-emoji SAS")
     }
 

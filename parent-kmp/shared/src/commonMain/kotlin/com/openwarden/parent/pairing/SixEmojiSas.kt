@@ -50,12 +50,17 @@ class SixEmojiSas(
         requireKey(parentX25519Pub, "parent_x25519_pub")
         requireKey(childEd25519Pub, "child_ed25519_pub")
         requireKey(childX25519Pub, "child_x25519_pub")
+        // The nonce is HKDF info, but it is canon-fixed at 32 bytes (§7.1) — fail-closed on any other
+        // length rather than derive a SAS over a malformed nonce a future caller might pass.
+        require(nonce.size == NONCE_BYTES) { "provisioning_nonce MUST be exactly $NONCE_BYTES bytes, got ${nonce.size}" }
 
         // ADR-038 D1: fixed four-key order. A wrong order would derive a different (but still
         // deterministic) SAS, so the order is canon both peers share.
         val ikm = parentEd25519Pub + parentX25519Pub + childEd25519Pub + childX25519Pub
         val out = kdf.hkdfSha256(SALT, ikm, nonce, OUTPUT_BYTES)
-        require(out.size >= OUTPUT_BYTES) { "SAS KDF returned ${out.size} bytes, need $OUTPUT_BYTES" }
+        // Exact length is canon (ADR-038 D1) — the SasKdf contract promises exactly OUTPUT_BYTES, and a
+        // longer output would silently discard bytes the §7.4 derivation is defined over. Fail-closed.
+        require(out.size == OUTPUT_BYTES) { "SAS KDF MUST return exactly $OUTPUT_BYTES bytes, got ${out.size}" }
         return SasEmojiTable.lookup(out)
     }
 
@@ -73,5 +78,8 @@ class SixEmojiSas(
 
         /** Each pinned public key is 32 bytes (Ed25519 / X25519). */
         const val KEY_BYTES: Int = 32
+
+        /** The `provisioning_nonce` is canon-fixed at 32 bytes (§7.1). */
+        const val NONCE_BYTES: Int = 32
     }
 }

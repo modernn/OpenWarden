@@ -64,12 +64,27 @@ consume the first **36 bits**; the remaining bits are unused. This yields a **36
 single-use nonce + per-session attempt cap (ADR-036) and the mandatory attestation (ADR-025
 D2/D7). Six emojis (not Matrix's seven) is the §7.4 canon count.
 
-**D4 — Scope = derive + display + capture Match/Mismatch; this slice pins nothing.** Per
-ADR-025 D5, slice (d) produces the SAS and captures the human's verdict. **Match** hands the
-child keys to slice (e) for pinning (ADR-025 D5e — a *separate* agent-blocked issue); **this
-slice does not write the pin.** **Mismatch** aborts the pair, surfaces the MITM warning, and
-**burns the single-use nonce** (the ADR-036 D4 HARD criterion this slice inherits) via the
-existing `PairingNonceBurner` seam — forcing a fresh QR, no silent retry on the same nonce.
+**D4 — Scope = derive + capture Match/Mismatch + burn-on-mismatch; this slice pins nothing and
+ships no UI.** Per ADR-025 D5, slice (d) produces the SAS and the lifecycle that consumes the
+human's verdict. **Match** hands the child keys to slice (e) for pinning (ADR-025 D5e — a
+*separate* agent-blocked issue); **this slice does not write the pin.** **Mismatch** aborts the
+pair, surfaces the MITM warning, and **burns the single-use nonce** (the ADR-036 D4 HARD
+criterion this slice inherits) through the `PairingNonceBurner` seam — forcing a fresh QR, no
+silent retry on the same nonce.
+
+**D4a — Disclosed residual: the burn mechanism is proven against a live `SessionAccess`, but no
+production caller drives the stage yet.** Exactly as slice (b) disclosed "slice (b) does not
+burn," this slice ships the SAS stage + the burn seam **without** the production coordinator that
+joins endpoint-`Accepted` → derive → human-compare → `confirm()`. That coordinator and the parent
+UI that surfaces the emojis and captures the Match/Mismatch tap **do not exist yet** (no parent
+pairing UI is built; `Section73AttestationVerifier` returns `Accepted` and stops). What **is**
+proven here, deterministically: `PairingSasStage.confirm(matched = false)` wired to a real
+`SessionAccess`-cancelling burner burns the live session so the endpoint's next POST is
+`NO_SESSION` (`PairingSasBurnIntegrationTest`, the SAS twin of slice (c)'s
+`PairingBurnIntegrationTest`). The remaining wiring — the coordinator that invokes `confirm()`
+from a real human decision in the UI, plus that UI burn/abort regression — lands with the
+pairing-coordinator / slice (e) work. This slice's HARD criterion is **discharged at the seam,
+not yet through the (absent) UI**; the boundary is intentional and tracked, not a silent gap.
 
 **D5 — Fail-closed everywhere.** A malformed parent-key snapshot in the pairing session, a
 wrong-length key, or any derivation error resolves to **no SAS / no pin**, never a
@@ -102,6 +117,10 @@ Bad / accepted limits:
   superseding ADR (peers must match). Accepted — that immutability is the point.
 - **No child-side SAS yet.** This slice is parent-only; the child derivation lands with its
   own (agent-blocked) issue and MUST consume this table/mapping unchanged.
+- **No iOS `SasKdf` actual yet.** The HKDF seam ships only an `androidMain` (Bouncy Castle)
+  implementation; the iOS parent target has no SAS derivation or KAT. Consistent with the
+  Android-first parent phase (iOS parent deferred to a later phase); the iOS `actual` + its
+  KAT land with the iOS parent work — tracked, not silently missing.
 
 ## Test plan (binds the implementation)
 
@@ -122,7 +141,10 @@ Bad / accepted limits:
 
 ## Appendix — the pinned 64-emoji table (indices 0–63)
 
-Matrix/Element `m.sas.v1` order. `index name codepoint(s)`:
+Matrix/Element `m.sas.v1` order. The **codepoints below are canon**, not the rendered glyph: a
+child implementer MUST index off these codepoints (variation selectors `FE0F` included), never
+copy-paste the rendered emoji, so a dropped selector cannot diverge the two sides. `index name
+codepoint(s)`:
 
 ```
  0 Dog        U+1F436      16 Tree       U+1F333      32 Hat        U+1F3A9      48 Hammer     U+1F528
