@@ -60,6 +60,7 @@ What this means going forward (good + bad).
 | [033](033-parent-root-key-recovery-phrase.md) | Accepted | Parent root key — BIP39 recovery phrase → Argon2id → HKDF → Ed25519/X25519 (issue #24) |
 | [034](034-parent-signed-bundle-send.md) | Accepted | Parent assembles, signs, and sends policy bundles (monotonic policy_seq) — issue #27 |
 | [035](035-parent-pairing-session-nonce-qr.md) | Accepted | Parent pairing session — CSPRNG nonce lifecycle + §7.1 QR payload (implements ADR-025 D5a; issue #94) |
+| [036](036-parent-pairing-endpoint-pre-auth.md) | Accepted | Parent pairing endpoint (b) — pre-auth gate + rate-limit + structural per-attempt token + D6 byte-level validation + fail-closed handoff to (c) (implements ADR-025 D5b; issue #95) |
 
 <!-- 028 is reserved for the in-flight Bluetooth-transport ADR (PR #70); the table fills in when it merges. -->
 

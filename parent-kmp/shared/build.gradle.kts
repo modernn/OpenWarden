@@ -65,6 +65,11 @@ kotlin {
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.ktor.client.okhttp)
             implementation(libs.bouncycastle.bcprov)
+            // #95 (ADR-036 D6): the parent pairing endpoint runs an embedded Ktor CIO server to
+            // receive the §7.2 child POST over the LAN. Server-side only; client deps stay above.
+            implementation(libs.ktor.server.core)
+            implementation(libs.ktor.server.cio)
+            implementation(libs.ktor.server.contentnegotiation)
         }
         if (isMac) {
             iosMain.dependencies {

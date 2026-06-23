@@ -1,0 +1,14 @@
+{
+  "id": "pair-03-fail-malformed-pubkey",
+  "spec": "ADR-025 D6 / ADR-036 D3",
+  "description": "Byte-level pubkey validation. Each `child_ed25519_pub` / `child_x25519_pub` MUST base64url-decode to EXACTLY 32 bytes. A mere string-length check is insufficient (the PR #64 gap: a ≥43-char string that is not 32 decoded bytes). Every case below MUST be REJECTED (BAD_PUBKEY) — the endpoint does not parse attestation or pin.",
+  "reject_pubkeys": [
+    { "value": "tooshort", "why": "decodes to far fewer than 32 bytes" },
+    { "value": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw", "why": "31 decoded bytes (one short)" },
+    { "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "why": "44 chars → 33 decoded bytes (the ≈32.25-byte over-long blob PR #64 accepted)" },
+    { "value": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=", "why": "trailing '=' padding is not allowed in unpadded base64url" },
+    { "value": "++//++//++//++//++//++//++//++//++//++//++/", "why": "standard-base64 '+'/'/' are outside the url-safe alphabet" },
+    { "value": "not*base64url*here*not*base64url*here*not**", "why": "non-alphabet characters" }
+  ],
+  "expect": "REJECTED for every entry (BAD_PUBKEY); the session is NOT burned by a malformed POST"
+}

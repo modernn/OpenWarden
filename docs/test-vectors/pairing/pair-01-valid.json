@@ -1,0 +1,19 @@
+{
+  "id": "pair-01-valid",
+  "spec": "PROTOCOL §7.2 / ADR-025 D6 / ADR-036 D3",
+  "description": "A well-formed §7.2 child POST. Both pubkeys base64url-decode to EXACTLY 32 bytes; v==1; cert chain non-empty; binding_sig is even-length hex. The slice-(b) endpoint must accept the shape and hand it to slice (c) for attestation/SAS (it does NOT itself attest or pin).",
+  "notes": {
+    "child_ed25519_pub": "base64url(unpadded) of 32 bytes each 0x03 — decodes to exactly 32 bytes",
+    "child_x25519_pub": "base64url(unpadded) of 32 bytes each 0x04 — decodes to exactly 32 bytes",
+    "child_attestation_cert_chain": "opaque placeholder here; full DER validation is slice (c), not (b)",
+    "child_binding_sig": "opaque even-length hex placeholder; full ECDSA-P-256 verify is slice (c)"
+  },
+  "post": {
+    "v": 1,
+    "child_ed25519_pub": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+    "child_x25519_pub": "BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ",
+    "child_attestation_cert_chain": ["Y2VydA"],
+    "child_binding_sig": "abababababababababababababababababababababababababababababababababababab"
+  },
+  "expect": "ACCEPTED_SHAPE — parsed, byte-validated, handed to slice (c) verifier"
+}
