@@ -26,7 +26,13 @@ interface ChildKeyStore {
      * Generate `K_bind` (StrongBox P-256, `setAttestationChallenge([nonce])`), `K_id` (TEE Ed25519),
      * and `K_enc` (TEE X25519), all `setUnlockedDeviceRequired(true)` and **no** per-use
      * `setUserAuthenticationRequired` (the keys sign autonomously server-side; a per-use biometric
-     * gate would deadlock — ADR-032 key-use-auth decision). Idempotent: a no-op if already provisioned.
+     * gate would deadlock — ADR-032 key-use-auth decision).
+     *
+     * **Not idempotent — each call generates a fresh key set bound to [nonce]:** it deletes any prior
+     * set first (re-pair regenerates; child keys are non-recoverable, CRYPTO §1) so the new attestation
+     * challenge takes effect, and on any keygen failure leaves nothing half-provisioned (fail-closed,
+     * ADR-032 D7). A redundant call therefore **rotates** the keys and invalidates an existing pin —
+     * call it once per pairing attempt, not as a guard.
      */
     fun provision(nonce: ByteArray)
 

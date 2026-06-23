@@ -16,7 +16,8 @@ package com.openwarden.child
 class ChildKeyManager(private val store: ChildKeyStore) {
 
     /**
-     * Generate the child keys (idempotent) and return the signed [ChildKeyBinding] to POST, with the
+     * Generate a fresh child key set (deletes any prior set — re-pair regenerates) and return the
+     * signed [ChildKeyBinding] to POST, with the
      * `K_bind` attestation chain. Fail-closed: returns `null` if provisioning left any key absent or
      * binding-signing failed (the child completes no pairing it cannot vouch for).
      *
