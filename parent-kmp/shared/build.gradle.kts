@@ -46,10 +46,25 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+        }
+        androidUnitTest.dependencies {
+            implementation(kotlin("test"))
+            implementation(libs.junit)
+        }
+        // Bouncy Castle backs the parent root-key derivation (ADR-033: Argon2id/HKDF/
+        // Ed25519/X25519). It is a pure-JVM lib, so the JVM + Android source sets share it
+        // and the whole derivation (plus its ratified vector) is host-testable — no device
+        // and no libsodium native lib needed. iOS derivation is deferred (host-gated off).
+        jvmMain.dependencies {
+            implementation(libs.bouncycastle.bcprov)
+        }
         androidMain.dependencies {
             implementation(libs.androidx.security.crypto)
             implementation(libs.androidx.work.runtime.ktx)
             implementation(libs.ktor.client.okhttp)
+            implementation(libs.bouncycastle.bcprov)
         }
         if (isMac) {
             iosMain.dependencies {
@@ -66,5 +81,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+    testOptions {
+        // The Argon2id root-key vector (ADR-033, m=256 MiB) runs in host-side unit tests.
+        unitTests.all { it.maxHeapSize = "1g" }
     }
 }
