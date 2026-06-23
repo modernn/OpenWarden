@@ -1,6 +1,6 @@
 # ADR-041: Child enforces the policy-bundle freshness window via a §5.1 monotonic anchor
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-23
 Relates: ADR-034 (residual #90 discharged here), ADR-017 (replay floor), ADR-024 (no-contact ratchet — reuses its tier + clock infra), ADR-040 (#91 verify-over-bytes, sibling residual). PROTOCOL §2.1 steps 9-11, §5, §5.1.
 
@@ -49,15 +49,21 @@ floor pass, BEFORE `Accept`:
   the current policy, retry on the next contact. A distinct outcome from a rejection.
 - step 10 — `Usable` && `monotonic_now >= not_after` → **`RejectExpired`** (EXPIRED): do NOT apply;
   caller drops to / stays in the stale baseline.
-- step 11 — `Usable` && (`candidate.not_after < not_after_watermark`) → `RejectStrict` (rollback
-  anomaly): an applied bundle's deadline can only move forward; a regression is a snapshot-revival
-  attempt (F1/F2/F3), fail-closed.
+- step 11 — anchor/watermark **monotonic-on-write** (D4): the persisted `parent_anchor` and
+  `not_after_watermark` never decrease — the child cannot lower its own anchor, so a *local* anchor
+  edit to revive an expired bundle fails closed. **Full snapshot-revival detection** (stored anchor
+  read *lower* than an independent witness — F1/F2/F3) needs a second witness, exactly like the
+  replay floor's not-yet-built chain mirror (`ReplayFloorStore.chainFloor()` == null today); it is
+  the **same tracked gap**, caught by the parent on next sync (ADR-017 part 1/2), not yet locally.
+  The watermark is persisted now so that detection can wire in with the chain mirror. The concrete
+  local defenses shipped here are steps 9/10 + monotonic-on-write + elapsed-regression (reboot).
 - `Unusable` anchor (genesis, or post-reboot before re-anchor): the window **cannot** be evaluated;
   the candidate is admitted on its signature + monotonic `policy_seq` floor alone and **re-seeds**
   the anchor from its own `issued_at` on apply (D4). This is fail-closed because (a) the `policy_seq`
-  floor survives reboot and still blocks any older bundle, and (b) the *watchdog* (D5) holds the
-  device in the stale baseline while the anchor is `Unusable`, so nothing is under-restricted in the
-  gap. Genesis self-anchoring happens only AFTER signature verification (ADR-040 admit ordering).
+  floor survives reboot and still blocks any older bundle, and (b) the device re-applies its stored
+  policy on boot (the watchdog) so restrictions stay intact, and (c) the ADR-024 no-contact ratchet
+  independently denies-all after the silence threshold. Genesis self-anchoring happens only AFTER
+  signature verification (ADR-040 admit ordering).
 
 **D4 — Anchor seeding is post-apply and never from the candidate under test.** A non-genesis
 freshness check uses the anchor from a *previously* applied bundle/heartbeat — never the bundle being
@@ -68,10 +74,13 @@ apply, monotonically (never backward).
 **D5 — Active-bundle freshness folds into the watchdog tier (continuous enforcement).** The window
 must also bite an *already-applied* bundle as time passes, not only at admission. `PolicyWatchdog`
 computes a freshness tier from the active bundle's `not_after` vs `FreshnessClock.estimate`: a
-`Usable` estimate past `not_after`, OR an `Unusable` anchor (post-reboot / rolled-back), escalates to
-at least `STALE` (deny-all allowlist + default DNS). The effective tier is
-`max(ratchetTier, freshnessTier)` — reusing the existing ADR-024 deny-all path; freshness can only
-*tighten*, never loosen.
+**`Usable` estimate past `not_after` escalates to `STALE`** (deny-all allowlist + default DNS). An
+`Unusable` anchor does **not** by itself force stale — it **defers to the ADR-024 no-contact
+ratchet** (which independently denies-all after the silence threshold), so a routine reboot does not
+blanket-block every allowlisted app until the next parent contact (preserving "restrictions intact +
+apps usable after restart"); the positive-expiry escalation and the silence ratchet are the two
+fail-closed backstops. The effective tier is `max(ratchetTier, freshnessTier)` — reusing the existing
+ADR-024 deny-all path; freshness can only *tighten*, never loosen.
 
 **D6 — Heartbeat re-anchors.** `admitHeartbeatContact` already carries `hb.issued_at`; it now also
 advances the freshness anchor (issued_at + elapsed), so a heartbeat re-establishes a `Usable` clock
@@ -95,10 +104,18 @@ codes `CLOCK_SKEW` / `EXPIRED` already exist in PROTOCOL.
   property is preserved.
 - No `proto`/wire change; no new crypto primitive. Reuses `ReplayFloorStore`, `Ratchet`,
   `ContactClock`, `PolicyWatchdog`.
-- **Disclosed residual:** full PROTOCOL §5.1 "wall-clock diverges from the monotonic estimate by
-  >24h → stale" is a secondary tripwire; the primary anchor/rollback/reboot handling above is
-  implemented. (Decide at implementation whether to include the >24h wall-divergence tripwire now or
-  track it.)
+- **Disclosed residuals (tracked, maintainer-accepted):**
+  - Full snapshot-revival detection (step 11 read-time anchor/watermark-rollback vs an independent
+    witness) is deferred to the same follow-up as the replay-floor chain mirror (`chainFloor()`);
+    the local defenses here are steps 9/10 + monotonic-on-write + reboot detection, with the whole-
+    snapshot case caught by the parent on next sync (ADR-017 part 1/2).
+  - The PROTOCOL §5.1 ">24h wall-clock vs monotonic divergence → stale" secondary tripwire is tracked
+    as a follow-up (the primary anchor/reboot/expiry handling is implemented).
+  - **HARD pre-prod gate:** the pure decision logic (`FreshnessClock`, `freshnessGate`, `freshnessTier`,
+    `nextAnchor`) is host-tested deterministically, but `ReplayFloorStore.advanceFreshnessAnchor`'s
+    `EncryptedSharedPreferences` round-trip (commit+readback durability across process restart, and
+    `elapsedRealtime` reboot behavior) is **device-only** — it needs an instrumented `connectedAndroidTest`
+    before production, matching the same gate accepted for other `ReplayFloorStore`-backed state (e.g. #98).
 
 ## References
 ADR-034, ADR-017, ADR-024, ADR-040; PROTOCOL §2.1 (steps 9-11), §5, §5.1; ATTACKS H1/C8/F1/F2/F3;

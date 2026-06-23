@@ -60,10 +60,18 @@ class ContactClock(
     fun admitHeartbeat(hb: SignedHeartbeat, pinnedParentPubkey: ByteArray?): Boolean =
         when (HeartbeatAdmission.decide(hb, store.childDeviceId(), pinnedParentPubkey, store.heartbeatFloor())) {
             is HeartbeatAdmission.Outcome.Accept -> {
+                // Capture the clock pair ONCE so the contact marker and the freshness anchor agree.
+                val nowWall = clock.wallMs()
+                val nowElapsed = clock.elapsedMs()
                 // Atomic: advance the replay floor AND record contact in one durable commit, so a
                 // crash can never leave the floor advanced (heartbeat consumed) but the timer unreset,
                 // nor the timer reset without consuming the replay floor.
-                store.admitHeartbeatContact(hb.issued_at, clock.wallMs(), clock.elapsedMs())
+                store.admitHeartbeatContact(hb.issued_at, nowWall, nowElapsed)
+                // ADR-041 D6: a signed heartbeat re-establishes the §5.1 freshness anchor (issued_at is
+                // a signed parent time). Best-effort + monotonic-on-write; a heartbeat carries no
+                // not_after, so the watermark is untouched. A failed re-anchor only leaves the clock
+                // staler (more restriction), never looser, so it must not fail the durable admission.
+                runCatching { store.advanceFreshnessAnchor(hb.issued_at, nowElapsed, null) }
                 true
             }
             is HeartbeatAdmission.Outcome.Reject -> false
@@ -101,4 +109,12 @@ interface ContactStore {
      * write, leaving prior state intact (the heartbeat is then treated as not-admitted).
      */
     fun admitHeartbeatContact(issuedAt: Long, wallMs: Long, elapsedMs: Long)
+
+    /**
+     * Re-establish the ADR-041 §5.1 freshness anchor from a signed parent time (heartbeat
+     * `issued_at`), paired with [nowElapsedMs]; [notAfterMs] is null for heartbeats (no window).
+     * Monotonic-on-write. Defaulted to a no-op so non-freshness fakes need not implement it;
+     * [ReplayFloorStore] satisfies it via its [PolicyAdmission.FloorState] implementation.
+     */
+    fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {}
 }

@@ -1,6 +1,7 @@
 package com.openwarden.child
 
 import android.content.Context
+import android.os.SystemClock
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.cio.*
@@ -87,6 +88,9 @@ class ApiServer(private val context: Context) {
                         applier = DefaultPolicyApplier(ctx),
                         pinParentKey = { store.pinParentPubkey(it) },
                         pinnedParentPubkey = store.parentPubkey(),
+                        // ADR-041: the kernel-monotonic clock for the §5.1 freshness estimate + the new
+                        // anchor's elapsed component (NOT the kid-settable wall clock).
+                        nowElapsedMs = SystemClock.elapsedRealtime(),
                     )
                     when (result) {
                         is PolicyAdmission.Result.Applied -> {
@@ -96,6 +100,20 @@ class ApiServer(private val context: Context) {
                             runCatching { ContactClock.forContext(ctx).recordContact() }
                             call.respond(HttpStatusCode.OK, mapOf("status" to "applied", "policy_seq" to result.policySeq))
                         }
+                        // ADR-041 §2.1 step 9 (CLOCK_SKEW): not yet valid — keep the current policy and
+                        // let the parent retry. Not applied, not an anomaly.
+                        is PolicyAdmission.Result.Deferred ->
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "CLOCK_SKEW", "reason" to result.reason),
+                            )
+                        // ADR-041 §2.1 step 10 (EXPIRED): window closed — not applied; the watchdog
+                        // holds the stale baseline via the active-bundle freshness tier.
+                        is PolicyAdmission.Result.Expired ->
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "EXPIRED", "reason" to result.reason),
+                            )
                         is PolicyAdmission.Result.Rejected ->
                             // Fail-closed: the previous (or strict baseline) policy stays in force.
                             call.respond(
