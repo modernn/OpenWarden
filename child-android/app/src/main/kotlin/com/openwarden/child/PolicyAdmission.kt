@@ -1,5 +1,8 @@
 package com.openwarden.child
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+
 /**
  * The ADR-017 child admission pipeline for a [SignedBundle].
  *
@@ -37,6 +40,18 @@ object PolicyAdmission {
     /** Max canonical bundle size (PROTOCOL.md §2.1 step 2 / ADR-017 verify step 2). */
     const val MAX_CANONICAL_SIZE = 65536
 
+    /**
+     * Decode the received wire object into the typed model AFTER verification (ADR-040 / ADR-019 D2:
+     * verify first, parse second). `ignoreUnknownKeys` so a parent-signed field the child does not
+     * model is dropped from the typed view (it still counted in the verified signing bytes); the
+     * other flags mirror [BundleVerifier] so the typed view round-trips the same fields.
+     */
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
+
     /** Pure decision result. */
     sealed interface Outcome {
         /**
@@ -44,8 +59,11 @@ object PolicyAdmission {
          * stage -> apply+fsync -> advance floor to [policySeq] -> ack.
          * [genesis] is true when this is a never-provisioned TOFU accept (the
          * caller must also pin the parent key + write the provisioning marker).
+         * [bundle] is the typed model decoded from the verified received document — the
+         * single source of truth the caller applies (ADR-040: parsed from the same bytes
+         * whose signature was verified, so there is no doc/model mismatch to exploit).
          */
-        data class Accept(val policySeq: Long, val genesis: Boolean) : Outcome
+        data class Accept(val policySeq: Long, val genesis: Boolean, val bundle: SignedBundle) : Outcome
 
         /** Structurally invalid (JC1, audience, version, size, jump). Reject; no apply. */
         data class RejectMalformed(val reason: String) : Outcome
@@ -60,7 +78,13 @@ object PolicyAdmission {
     /**
      * Pure admission decision. No I/O.
      *
-     * @param bundle the candidate bundle.
+     * **ADR-040: the crypto authority is [receivedDoc] — the wire JSON object the child actually
+     * received — NOT a re-serialization of the typed model.** JC1 bounds, canonical size, and the
+     * Ed25519 signature are all computed over [receivedDoc]; the typed [SignedBundle] is decoded from
+     * the SAME object only after verification (verify first, parse second, apply third). The decoded
+     * bundle rides back in [Outcome.Accept] so the caller applies exactly the verified document.
+     *
+     * @param receivedDoc the wire object received on `/policy` (the signed document).
      * @param myChildDeviceId this child's own id (audience target).
      * @param pinnedParentPubkey the pinned parent Ed25519 pubkey, or `null` if no
      *   key is pinned yet (genesis candidate).
@@ -71,34 +95,36 @@ object PolicyAdmission {
      *   (ADR-017 part 1/3). Inert until the chain-mirror follow-up lands.
      */
     fun decide(
-        bundle: SignedBundle,
+        receivedDoc: JsonObject,
         myChildDeviceId: String,
         pinnedParentPubkey: ByteArray?,
         provisioned: Boolean,
         effectiveFloor: Long?,
         floorAnomaly: Boolean = false,
     ): Outcome {
+        // Decode the typed model from the received object. A verified-but-unparseable body is rejected
+        // (ADR-019 D2); decoding here has no side effects and nothing is applied until Accept, so the
+        // dangerous "apply" step still strictly follows the signature check below.
+        val bundle: SignedBundle = try {
+            json.decodeFromJsonElement(SignedBundle.serializer(), receivedDoc)
+        } catch (e: Exception) {
+            return Outcome.RejectMalformed("unparseable policy bundle: ${e.message}")
+        }
+
         // Step 1: version.
         if (bundle.v != 1) return Outcome.RejectMalformed("unsupported bundle version ${bundle.v}")
 
-        // Step 2: canonical size bound.
+        // Steps 2-3: canonical size + JC1 integer bound, over the RECEIVED document (ADR-040),
+        // BEFORE signature (ADR-017 verify steps 2-3). signingBytes() asserts every integer in the
+        // whole tree is JCS-safe (ADR-019 D4) and throws on a float/overflow — fail-closed MALFORMED.
         val body: ByteArray = try {
-            BundleVerifier.canonicalBody(bundle)
+            BundleVerifier.signingBytes(receivedDoc)
         } catch (e: Exception) {
-            // Canonicalization failure (e.g. a float snuck into policy) is malformed, fail-closed.
-            return Outcome.RejectMalformed("canonicalization failed: ${e.message}")
+            // JC1 overflow / non-integer number / canonicalization failure — malformed, fail-closed.
+            return Outcome.RejectMalformed("JC1/canonicalization failed: ${e.message}")
         }
         if (body.size > MAX_CANONICAL_SIZE) {
             return Outcome.RejectMalformed("canonical size ${body.size} > $MAX_CANONICAL_SIZE")
-        }
-
-        // Step 3: JC1 integer bound, BEFORE signature (ADR-017 verify step 3).
-        // policy_seq is the canonical integer field present in the child schema today;
-        // when integer-ms timestamps land they MUST be bounds-checked here too.
-        if (!Canonical.isJcsSafe(bundle.policy_seq)) {
-            return Outcome.RejectMalformed(
-                "policy_seq ${bundle.policy_seq} outside JCS-safe range 0..${Canonical.MAX_JCS_SAFE_INTEGER} (ADR-017 JC1)",
-            )
         }
 
         // Step 4: audience binding, BEFORE signature (ADR-017 §6 / verify step 4).
@@ -109,7 +135,7 @@ object PolicyAdmission {
             )
         }
 
-        // Steps 5-6: signature over canonical body. Fail-closed.
+        // Steps 5-6: signature over the RECEIVED document (ADR-040). Fail-closed.
         if (pinnedParentPubkey == null) {
             // No pinned key. Only legitimate in the never-provisioned genesis path,
             // where the bundle is self-asserting its first key (TOFU). We still verify
@@ -134,7 +160,7 @@ object PolicyAdmission {
             // Clean never-provisioned genesis candidate: defer signature to admit(), which
             // pins+verifies atomically against genesisPubkey. Fall through to the genesis gate.
         } else {
-            if (!BundleVerifier.verify(bundle, pinnedParentPubkey)) {
+            if (!BundleVerifier.verifyDocument(receivedDoc, pinnedParentPubkey)) {
                 return Outcome.RejectStrict("Ed25519 signature verification failed (SIG_FAIL, fail-closed)")
             }
         }
@@ -151,7 +177,7 @@ object PolicyAdmission {
             // TOFU: accept the first valid bundle with policy_seq >= 1; seed the floor.
             // policy_seq = 0 is reserved and never a live policy.
             return if (bundle.policy_seq >= ReplayFloor.GENESIS_FIRST_VALID_SEQ) {
-                Outcome.Accept(bundle.policy_seq, genesis = true)
+                Outcome.Accept(bundle.policy_seq, genesis = true, bundle = bundle)
             } else {
                 Outcome.RejectMalformed(
                     "genesis bundle policy_seq ${bundle.policy_seq} < ${ReplayFloor.GENESIS_FIRST_VALID_SEQ} (0 is reserved, ADR-017 part 4)",
@@ -169,7 +195,7 @@ object PolicyAdmission {
 
         // Steps 9-10: monotonic + jump, via the ported pure ReplayFloor decision.
         return when (val d = ReplayFloor.admit(effectiveFloor, bundle.policy_seq)) {
-            is ReplayFloor.Decision.Accept -> Outcome.Accept(d.newFloor, genesis = false)
+            is ReplayFloor.Decision.Accept -> Outcome.Accept(d.newFloor, genesis = false, bundle = bundle)
             is ReplayFloor.Decision.RejectStrict -> {
                 // ReplayFloor folds JC1/jump (structural) and rollback (strict) into one
                 // RejectStrict; classify by reason so the wire surfaces MALFORMED for the
@@ -246,15 +272,18 @@ object PolicyAdmission {
     private val ADMIT_LOCK = Any()
 
     /**
-     * Stateful admission entry point. Reads floor/marker/id from [store], decides,
-     * and on accept runs the two-phase commit via [applier], pinning the parent key
-     * + writing the marker first on a genesis accept. Floor advances LAST.
+     * Stateful admission entry point. Reads floor/marker/id from [store], decides over the RECEIVED
+     * document [receivedDoc] (ADR-040), and on accept runs the two-phase commit via [applier] using
+     * the typed bundle [decide] decoded from that verified document, pinning the parent key + writing
+     * the marker first on a genesis accept. Floor advances LAST.
      *
-     * @param genesisPubkey for a genesis accept, the parent pubkey to pin
-     *   (the caller has verified the bundle's sig against it). Ignored otherwise.
+     * @param receivedDoc the wire JSON object received on `/policy` — the signed document the
+     *   signature is verified over (never a re-serialization of a typed model).
+     * @param genesisPubkey for a genesis accept, the parent pubkey to pin. The signature is verified
+     *   over [receivedDoc] against it here, BEFORE pinning. Ignored otherwise.
      */
     fun admit(
-        bundle: SignedBundle,
+        receivedDoc: JsonObject,
         store: FloorState,
         applier: Applier,
         pinParentKey: (ByteArray) -> Unit,
@@ -280,7 +309,7 @@ object PolicyAdmission {
         } ?: false
 
         val outcome = decide(
-            bundle = bundle,
+            receivedDoc = receivedDoc,
             myChildDeviceId = myId,
             pinnedParentPubkey = pinnedParentPubkey,
             provisioned = provisioned,
@@ -292,15 +321,18 @@ object PolicyAdmission {
             is Outcome.RejectMalformed -> Result.Rejected(malformed = true, reason = outcome.reason)
             is Outcome.RejectStrict -> Result.Rejected(malformed = false, reason = outcome.reason)
             is Outcome.Accept -> {
+                // Apply EXACTLY the verified document: the typed bundle decode()d from the bytes whose
+                // signature was checked (ADR-040 — no doc/model mismatch to exploit).
+                val bundle = outcome.bundle
                 try {
                     // Two-phase commit. Order is load-bearing (ADR-017 commit ordering).
                     // Genesis (TOFU): the pure decide() could not verify the signature (no key
-                    // material), so we MUST verify the bundle here against the key we are about to
-                    // pin, BEFORE pinning. A genesis accept with no pubkey, or a sig that does not
-                    // verify against it, is fail-closed — never pin an unverified key.
+                    // material), so we MUST verify the RECEIVED document here against the key we are
+                    // about to pin, BEFORE pinning. A genesis accept with no pubkey, or a sig that does
+                    // not verify against it, is fail-closed — never pin an unverified key.
                     val genesisPub: ByteArray? = if (outcome.genesis) {
                         genesisPubkey
-                            ?.takeIf { BundleVerifier.verify(bundle, it) }
+                            ?.takeIf { BundleVerifier.verifyDocument(receivedDoc, it) }
                             ?: return@synchronized Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
                     } else {
                         null

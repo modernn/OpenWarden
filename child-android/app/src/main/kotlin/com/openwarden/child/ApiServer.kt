@@ -11,6 +11,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.request.*
 import io.ktor.http.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Embedded Ktor server bound to the LAN (v1: bind to all interfaces, rely on Tailscale ACLs;
@@ -46,18 +47,29 @@ class ApiServer(private val context: Context) {
                     ))
                 }
                 post("/policy") {
-                    val bundle = call.receive<SignedBundle>()
                     val ctx = this@ApiServer.context
                     val store = PolicyStore(ctx)
                     val floorStore = ReplayFloorStore(ctx)
-                    // ADR-017 admission pipeline: JC1 -> audience -> signature -> genesis/floor
-                    // -> monotonic/jump, then two-phase commit (stage -> apply+fsync -> advance
-                    // floor -> ack). Floor advances LAST. The parent key is pinned out-of-band at
-                    // pairing (PolicyStore.pinParentPubkey), so the wire uses the pinned-key path;
-                    // bundle-carried genesis TOFU (decide(genesis=true)) is implemented + tested in
-                    // PolicyAdmission but is not reachable here because v1 bundles carry no pubkey.
+                    // ADR-040: verify over the RECEIVED bytes. Read the raw body and parse it to a
+                    // JsonObject (the signed document) — the child MUST NOT re-canonicalize a typed
+                    // re-serialization (ADR-019 D2). admit() does JC1 -> size -> audience -> signature
+                    // over this document, decodes the typed bundle from it (verify first, parse
+                    // second), then runs genesis/floor -> two-phase commit (stage -> apply+fsync ->
+                    // advance floor -> ack). Floor advances LAST. The parent key is pinned out-of-band
+                    // at pairing (PolicyStore.pinParentPubkey), so the wire uses the pinned-key path;
+                    // bundle-carried genesis TOFU is implemented + tested but not reachable here (v1
+                    // bundles carry no pubkey). An unparseable body is MALFORMED, fail-closed.
+                    val receivedDoc = try {
+                        Json.parseToJsonElement(call.receiveText()).jsonObject
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "MALFORMED", "reason" to "unparseable JSON body"),
+                        )
+                        return@post
+                    }
                     val result = PolicyAdmission.admit(
-                        bundle = bundle,
+                        receivedDoc = receivedDoc,
                         store = floorStore,
                         applier = DefaultPolicyApplier(ctx),
                         pinParentKey = { store.pinParentPubkey(it) },
