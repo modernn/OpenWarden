@@ -2,7 +2,7 @@
 
 Status: Accepted
 Date: 2026-06-23
-Implements: **docs/PROTOCOL.md §7.4** (the "Match → child pubkeys enter `pinned` state in parent app" step) + **§7.5** (pinning + recovery-gated rotation) + **ADR-025 D5(e)** (the parent-side "pin `(child_ed25519_pub, child_x25519_pub)` only on Match" slice) and **D8** (rotation requires the parent BIP39 phrase + 24-h delay)
+Implements: **docs/PROTOCOL.md §7.4** (its closing clause — *"Match → child's pubkeys enter `pinned` state in parent app"* — is the parent-side pin) + **ADR-025 D5(e)** (the "pin `(child_ed25519_pub, child_x25519_pub)` only on Match" slice) and **D8** (the parent-side recovery-gated-rotation gate this preserves). NB: PROTOCOL **§7.5**'s own text is the *child* writing the *parent* keys; the parent-side rotation rule is canon in **ADR-025 D8 + DEFENSES #15**, not §7.5.
 Discharges: the **ADR-038 D4a** disclosed residual — slice (d) shipped the SAS stage with "no production caller drives `confirm()` yet"; this slice adds the coordinator that does
 Relates: ADR-025 (pairing handshake ratified; the §7.5 pin is the trust anchor that closes H3), ADR-035/036/037/038 (parent slices a/b/c/d — session+QR / endpoint / attestation-verify / SAS), ADR-034 D4 (the existing `AndroidPairedChildStore` / `PairedChildStore` audience-binding contract this slice extends), ADR-015 (X25519 sealed-box audience = the child key pinned here); docs/ATTACKS.md H3 (pubkey substitution, CRITICAL); docs/DEFENSES.md #4 (identity pinning), #15 (recovery-gated rotation); issue #98 (re-scope of #23)
 Maintainer-approved: attended agent-blocked review, 2026-06-23 (scope = pin core + coordinator that discharges D4a; Compose UI + Android transport wiring deferred — see D5a).
@@ -10,7 +10,7 @@ Maintainer-approved: attended agent-blocked review, 2026-06-23 (scope = pin core
 ## Context
 
 PROTOCOL §7.4 (ratified by ADR-025) ends with: *"Parent taps 'Match' → child's pubkeys
-enter `pinned` state in parent app."* §7.5 makes that pin the **trust anchor** — the pinned
+enter `pinned` state in parent app."* That pin is the **trust anchor** (§7.5 / ADR-025 D8) — the pinned
 `(child_ed25519_pub, child_x25519_pub)` is the audience for every subsequent sealed-box event
 (ADR-015) and the identity the signed-bundle sender addresses (ADR-034 D4). Getting the pin
 wrong is the **H3 pubkey-substitution** attack (ATTACKS.md, CRITICAL): a parent that pins the
@@ -56,7 +56,11 @@ coordinator). There is **no un-gated overwrite path.** Replacing a pinned child 
 **requires the parent's BIP39 recovery phrase + a 24-h delay** (§7.5, Defense #15) — that mechanism
 is **deferred to its own issue and is NOT implemented or weakened here.** Until it lands, the only
 way to re-pair is the recovery flow; a fresh QR cannot silently steal an already-pinned slot. This
-is the second half of the H3 defense (pin + recovery-gated rotation).
+is the second half of the H3 defense (pin + recovery-gated rotation). The coordinator burns the
+already-paired attempt's session on this path (single-use: it reached a human Match), returning
+`AlreadyPaired`. **The future pairing UI (D5a) MUST surface `AlreadyPaired` distinctly from a SAS
+`Aborted`** — a paired parent must be told to use recovery-gated rotation, never left at a silent dead
+session (a behavior the maintainer signs off at merge).
 
 **D4 — Burn the single-use session only after a durable pin.** On a successful pin the coordinator
 calls `consume()` to burn the `provisioning_nonce` (single-use, §7.1) — **after** the store write
@@ -97,7 +101,7 @@ No new wire field, no `proto` change — the pin is parent-local state.
 ## Consequences
 
 Good:
-- **§7.5 is now buildable end-to-end on the parent:** Match writes the trust anchor; the
+- **The §7.4 parent-side pin is now buildable end-to-end:** Match writes the trust anchor; the
   one-ADR-per-slice rhythm (035/036/037/038) closes with (e).
 - **H3 is defended both halves:** the pin commits the SAS-confirmed keys, and rotation stays
   recovery-gated (D3) — neither a MITM at pair time nor a later silent re-pair can swap the audience.
@@ -116,8 +120,15 @@ Bad / accepted limits:
   ships no Robolectric (androidUnitTest is pure-crypto only) and the MasterKey needs the Android
   KeyStore, so the real adapter's read/write is covered on-device / by an instrumented test (deferred),
   while the **contract** (atomic write-once, no-half-pin, pin-then-burn, refuse-on-failure) is proven
-  deterministically in `commonTest` against the `PinnedChildStore` seam. Per docs/TESTING.md the
-  fail-closed logic lives in the host tier; the adapter is a thin platform shim.
+  deterministically in `commonTest` — against the `PinnedChildStore` seam (the coordinator tests) **and**
+  against a faithful string-backed store model (`PinnedChildStoreContractTest`: pin → read-back both
+  keys, second-pin throws + first stands, lone/malformed stored key reads unpaired). Per docs/TESTING.md
+  the fail-closed logic lives in the host tier; the adapter is a thin platform shim.
+  **Tracked HARD pre-prod gate (this trust anchor must not ship to production on host tests alone, same
+  pattern as #96's deferred X.509 path-validation):** an instrumented/Robolectric test of the *real*
+  `AndroidPairedChildStore` asserting (i) both keys present after a successful pin, (ii) a simulated
+  `commit() == false` leaves `pinnedChild() == null`, (iii) a second `pin()` throws and the first pin
+  stands, (iv) a malformed/lone stored key reads unpaired — filed against the slice-e follow-up.
 - **No iOS pinned-child store.** Android-first parent phase; the iOS `actual` lands with iOS parent work.
 
 ## Test plan (binds the implementation)
@@ -134,9 +145,13 @@ Bad / accepted limits:
   ⇒ `AlreadyPaired`, the original pin **unchanged** (no overwrite), the spent session burned; the
   store's own `pin()` throws on a second write (hard-floor backstop).
 - **Byte validation on read (D6):** a malformed/short stored key ⇒ `pinnedChild()` returns null
-  (unpaired), never a bad-length array.
+  (unpaired), never a bad-length array. Proven host-side against the string-backed store model
+  (`PinnedChildStoreContractTest`); the real-adapter case is the instrumented HARD gate above.
+- **Store-level write-once hard floor:** a direct second `pin()` on a store that already holds a child
+  throws (the backstop independent of the coordinator's soft check), and the first pin is unchanged
+  (`PinnedChildStoreContractTest`).
 
 ## Cross-refs
-- [docs/PROTOCOL.md](../PROTOCOL.md) §7.4 (Match → pin), §7.5 (pin + recovery-gated rotation)
+- [docs/PROTOCOL.md](../PROTOCOL.md) §7.4 (closing clause = the parent-side Match → pin), §7.5 (child-side pin of parent keys; the rotation *principle*), ADR-025 D8 (the parent-side recovery-gated rotation gate)
 - [ADR-025](025-pairing-handshake-direction-attestation-sas.md) D5(e)/D8/D6, [ADR-038](038-six-emoji-sas-encoding.md) D4/D4a (the residual discharged here), [ADR-037](037-parent-attestation-verifier-slice-c.md) (the `Accepted` gate before the SAS), [ADR-036](036-parent-pairing-endpoint-pre-auth.md) D4/D5 (burn-on-fail HARD criterion + the shared `sessionLock`), [ADR-034](034-parent-signed-bundle-send.md) D4 (the `PairedChildStore` audience contract extended here), [ADR-015](015-event-log-crypto-primitives.md) (X25519 sealed-box audience)
 - docs/ATTACKS.md H3; docs/DEFENSES.md #4 / #15; issue #98 (re-scope of #23)
