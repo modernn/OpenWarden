@@ -77,10 +77,23 @@ Ratified by `parent-kmp` `:shared` `RootKeyDerivationTest.ratifiedVector` (ADR-0
 ```
 seed        = 371250dc567bbf489044c0780951b33484869df84394baea232b3a6af2a1128a
               c60a67033822531e0887de304b4d260a10ea40d1026654cedad10cafbecdaae7   (64 bytes)
-prk         = 784f251d188acfbdf2bb86b61720bcc57b0e2d895b77463e15799973e0fed68d   (32 bytes)
-ed25519_pub = 1ca19c6f54b3841f0fa4dd8e9de6168b2509a0504043133bf1fc0c9522488b17   (32 bytes)
-x25519_pub  = e6bfad93496d3149ed72a79e5ef0ab60c3d153f419e895d0abbaa6a930bc7819   (32 bytes)
+prk          = 784f251d188acfbdf2bb86b61720bcc57b0e2d895b77463e15799973e0fed68d   (32 bytes)
+ed25519_priv = b7b3e447d8a0c0063a82dc86c7183604269557a6817cf91a2a5aa7dbdc11998f   (32 bytes)
+x25519_priv  = 7716d982ba225b69533e60b90a66c670af966d2f95512b5b1f93cbcc00375a58   (32 bytes)
+ed25519_pub  = 1ca19c6f54b3841f0fa4dd8e9de6168b2509a0504043133bf1fc0c9522488b17   (32 bytes)
+x25519_pub   = e6bfad93496d3149ed72a79e5ef0ab60c3d153f419e895d0abbaa6a930bc7819   (32 bytes)
 ```
+
+The private values are listed because the all-zeros mnemonic is a public test vector. `prk`,
+`ed25519_priv`, and `x25519_priv` are each asserted by the `:shared` test suite
+(`RootKeyDerivationTest`), so canon and tests pin the **same** complete vector.
+
+**X25519 clamp-at-use invariant (load-bearing).** `x25519_priv` is the **raw, unclamped** HKDF
+output. RFC 7748 X25519 clamps the scalar *inside* the function, and both Bouncy Castle and
+libsodium clamp at use — so the stored bytes are the canonical private form and the public key is
+identical across implementations. **Every consumer of `x25519_priv` (now and in #27+) MUST clamp per
+RFC 7748**; never feed it to a raw scalar-mult that skips clamping, or the derived shared secret
+diverges.
 
 ### Libraries
 
@@ -573,7 +586,7 @@ All listed libraries are Apache 2.0, MIT, BSD, or ISC. No GPL, no LGPL, no SSPL.
 | Ed25519 sign/verify | `libsodium` via [ionspin/kotlin-multiplatform-libsodium](https://github.com/ionspin/kotlin-multiplatform-libsodium) (ISC) | Identity key gen: `KeyPairGenerator` w/ `AndroidKeyStore`, StrongBox-backed (system) | CryptoKit `Curve25519.Signing` (Apple system framework) |
 | X25519 ECDH / sealed box | libsodium KMP (ISC) | Identity key gen: same as above (system) | CryptoKit `Curve25519.KeyAgreement` |
 | BIP-39 wordlist + checksum | KMP port of [NovaCrypto/BIP39](https://github.com/NovaCrypto/BIP39) (Apache 2.0) | n/a | n/a |
-| Argon2id | [andreypfau/kotlinx-crypto](https://github.com/andreypfau/kotlinx-crypto) (MIT) | n/a | n/a |
+| Argon2id (parent root KDF) | none — no production pure-Kotlin Argon2 (ADR-033 D3; `andreypfau/kotlinx-crypto` ships none) | Bouncy Castle `Argon2BytesGenerator` (`bcprov-jdk18on`, MIT) | deferred (ADR-033) |
 | BLAKE3 (optional integrity) | [komputing/khash](https://github.com/komputing/KHash) or [blake3-jvm](https://github.com/sken77/BLAKE3jni) (CC0/Apache) | n/a | n/a |
 | JCS / RFC 8785 | KMP port of [cyberphone/json-canonicalization](https://github.com/cyberphone/json-canonicalization) (Apache 2.0) | n/a | n/a |
 | Attestation cert parse | KMP-common ASN.1 over [google/android-key-attestation](https://github.com/google/android-key-attestation) vendored Java (Apache 2.0) | Consumed directly via JVM interop | n/a (child never iOS) |
