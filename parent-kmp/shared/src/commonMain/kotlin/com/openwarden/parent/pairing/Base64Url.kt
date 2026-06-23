@@ -85,6 +85,9 @@ internal object Base64Url {
                 val c0 = sextet(s[i])
                 val c1 = sextet(s[i + 1])
                 if (c0 < 0 || c1 < 0) return null
+                // Canonical encoding (RFC 4648 §3.5): the 4 unused low bits of the last sextet MUST be
+                // zero, else two distinct strings decode to the same byte. Reject the non-canonical alias.
+                if (c1 and 0x0F != 0) return null
                 out[oi] = (((c0 shl 18) or (c1 shl 12)) ushr 16 and 0xFF).toByte()
             }
 
@@ -93,6 +96,9 @@ internal object Base64Url {
                 val c1 = sextet(s[i + 1])
                 val c2 = sextet(s[i + 2])
                 if (c0 < 0 || c1 < 0 || c2 < 0) return null
+                // Canonical encoding (RFC 4648 §3.5): the 2 unused low bits of the last sextet MUST be
+                // zero (this is the 32-byte-key path: 43 chars → rem == 3). Reject the non-canonical alias.
+                if (c2 and 0x03 != 0) return null
                 val v = (c0 shl 18) or (c1 shl 12) or (c2 shl 6)
                 out[oi++] = ((v ushr 16) and 0xFF).toByte()
                 out[oi] = ((v ushr 8) and 0xFF).toByte()

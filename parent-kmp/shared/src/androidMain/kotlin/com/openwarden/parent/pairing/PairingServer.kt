@@ -38,14 +38,18 @@ class PairingServer(
     private var engine: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
     fun start() {
+        stop() // idempotent: tear down any prior engine before rebinding the port (no orphaned listener).
         engine =
             embeddedServer(CIO, port = port, host = "0.0.0.0") {
                 routing {
                     post(PAIR_PATH) {
-                        // Reject an over-cap declared length before reading the body into memory; the pure
-                        // handler re-checks the actual bytes (defense-in-depth) for absent/lying lengths.
+                        // Hard ingress bound (fail-closed): the §7.2 body is a small fixed-length JSON, so
+                        // REQUIRE a Content-Length within the cap and reject anything else BEFORE reading.
+                        // A chunked / no-Content-Length / over-cap request is refused without buffering its
+                        // body — closing the pre-auth unbounded-read DoS (a lying low length only bounds the
+                        // read further). The pure handler re-checks the actual bytes as belt-and-suspenders.
                         val declaredLen = call.request.header(HttpHeaders.ContentLength)?.toLongOrNull()
-                        if (declaredLen != null && declaredLen > maxBodyBytes) {
+                        if (declaredLen == null || declaredLen > maxBodyBytes) {
                             call.respondText(REFUSED_BODY, status = HttpStatusCode.PayloadTooLarge)
                             return@post
                         }

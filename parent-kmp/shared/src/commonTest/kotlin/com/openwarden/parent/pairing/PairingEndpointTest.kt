@@ -198,6 +198,8 @@ class PairingEndpointTest {
         assertEquals(PairingPostResult.Refused(RefusalReason.BAD_SIG_ENCODING), ep(body(sig = "")))
         assertEquals(PairingPostResult.Refused(RefusalReason.BAD_SIG_ENCODING), ep(body(sig = "abc")))
         assertEquals(PairingPostResult.Refused(RefusalReason.BAD_SIG_ENCODING), ep(body(sig = "zz")))
+        // Over-length hex (would-be 16 KiB blob) refused before the verifier seam (ADR-036 D2 / Finding F).
+        assertEquals(PairingPostResult.Refused(RefusalReason.BAD_SIG_ENCODING), ep(body(sig = "ab".repeat(200))))
     }
 
     /** An over-cap body is refused before parsing; the verifier is never reached. */

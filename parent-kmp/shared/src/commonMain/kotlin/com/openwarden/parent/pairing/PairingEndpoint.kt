@@ -68,7 +68,11 @@ class PairingEndpoint(
         ) {
             return PairingPostResult.Refused(RefusalReason.BAD_CERT_CHAIN)
         }
-        if (!isHex(parsed.childBindingSig)) return PairingPostResult.Refused(RefusalReason.BAD_SIG_ENCODING)
+        // Even-length hex, and a sane upper bound so a 16 KiB hex blob can't reach the verifier seam.
+        // A real ECDSA-P-256 DER sig is ~70-72 bytes (~144 hex); full parse is slice (c).
+        if (!isHex(parsed.childBindingSig) || parsed.childBindingSig.length > MAX_BINDING_SIG_HEX) {
+            return PairingPostResult.Refused(RefusalReason.BAD_SIG_ENCODING)
+        }
 
         // (5) Per-session attempt cap — counted ONLY here, over well-formed POSTs, so malformed garbage
         //     (rejected above) can never exhaust it and burn the legit session. Exhaustion burns.
@@ -104,6 +108,9 @@ class PairingEndpoint(
 
         /** Upper bound on cert-chain entries (a real chain is ~3); a longer list is refused. */
         const val DEFAULT_MAX_CERT_CHAIN_LEN = 10
+
+        /** Upper bound on `child_binding_sig` hex length (~144 for P-256 DER); shrinks what reaches (c). */
+        const val MAX_BINDING_SIG_HEX = 256
     }
 }
 

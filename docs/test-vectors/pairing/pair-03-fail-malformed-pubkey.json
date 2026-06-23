@@ -8,7 +8,8 @@
     { "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "why": "44 chars → 33 decoded bytes (the ≈32.25-byte over-long blob PR #64 accepted)" },
     { "value": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=", "why": "trailing '=' padding is not allowed in unpadded base64url" },
     { "value": "++//++//++//++//++//++//++//++//++//++//++/", "why": "standard-base64 '+'/'/' are outside the url-safe alphabet" },
-    { "value": "not*base64url*here*not*base64url*here*not**", "why": "non-alphabet characters" }
+    { "value": "not*base64url*here*not*base64url*here*not**", "why": "non-alphabet characters" },
+    { "value": "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwN", "why": "non-canonical trailing bits (RFC 4648 §3.5): 43 chars decoding to 32 bytes but the final char's low 2 bits are non-zero — a malleable second encoding of the canonical '...AwM' key; rejected" }
   ],
   "expect": "REJECTED for every entry (BAD_PUBKEY); the session is NOT burned by a malformed POST"
 }

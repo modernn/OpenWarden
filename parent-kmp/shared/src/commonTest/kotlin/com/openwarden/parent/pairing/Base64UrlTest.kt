@@ -83,4 +83,18 @@ class Base64UrlTest {
         assertNull(Base64Url.decode32(Base64Url.encode(ByteArray(33) { it.toByte() })))
         assertNull(Base64Url.decode32("not*base64url*"), "non-alphabet ⇒ null")
     }
+
+    /** RFC 4648 §3.5: non-canonical trailing bits are rejected (no malleable second encoding of a key). */
+    @Test
+    fun decodeRejectsNonCanonicalTrailingBits() {
+        // Canonical 32 bytes of 0x03 ends in 'M' (low 2 bits zero); 'N'/'O'/'P' decode to the same bytes.
+        val canonical = Base64Url.encode(ByteArray(32) { 3 })
+        assertTrue(canonical.endsWith("M"))
+        for (alias in listOf('N', 'O', 'P')) {
+            assertNull(Base64Url.decode32(canonical.dropLast(1) + alias), "non-canonical final '$alias' must reject")
+        }
+        // 2-char tail: "Zg" (canonical "f") is fine; "Zh" has non-zero low 4 bits → reject.
+        assertEquals("f", Base64Url.decode("Zg")!!.decodeToString())
+        assertNull(Base64Url.decode("Zh"), "non-canonical 2-char tail must reject")
+    }
 }
