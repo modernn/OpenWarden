@@ -11,6 +11,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.request.*
 import io.ktor.http.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Embedded Ktor server bound to the LAN (v1: bind to all interfaces, rely on Tailscale ACLs;
@@ -46,18 +47,42 @@ class ApiServer(private val context: Context) {
                     ))
                 }
                 post("/policy") {
-                    val bundle = call.receive<SignedBundle>()
                     val ctx = this@ApiServer.context
                     val store = PolicyStore(ctx)
                     val floorStore = ReplayFloorStore(ctx)
-                    // ADR-017 admission pipeline: JC1 -> audience -> signature -> genesis/floor
-                    // -> monotonic/jump, then two-phase commit (stage -> apply+fsync -> advance
-                    // floor -> ack). Floor advances LAST. The parent key is pinned out-of-band at
-                    // pairing (PolicyStore.pinParentPubkey), so the wire uses the pinned-key path;
-                    // bundle-carried genesis TOFU (decide(genesis=true)) is implemented + tested in
-                    // PolicyAdmission but is not reachable here because v1 bundles carry no pubkey.
+                    // ADR-040: verify over the RECEIVED bytes. Read the raw body and parse it to a
+                    // JsonObject (the signed document) — the child MUST NOT re-canonicalize a typed
+                    // re-serialization (ADR-019 D2). admit() does JC1 -> size -> audience -> signature
+                    // over this document, decodes the typed bundle from it (verify first, parse
+                    // second), then runs genesis/floor -> two-phase commit (stage -> apply+fsync ->
+                    // advance floor -> ack). Floor advances LAST. The parent key is pinned out-of-band
+                    // at pairing (PolicyStore.pinParentPubkey), so the wire uses the pinned-key path;
+                    // bundle-carried genesis TOFU is implemented + tested but not reachable here (v1
+                    // bundles carry no pubkey). An unparseable or non-object body is MALFORMED.
+                    // DoS guard (fail-closed): bound the body BEFORE buffering it. receiveText() would
+                    // otherwise read an unbounded LAN body into a heap String before the canonical-size
+                    // gate fires, an OOM vector any LAN host could fire pre-auth. Require a declared
+                    // Content-Length within MAX_POLICY_BODY_BYTES (canonical max + JSON/sig overhead).
+                    val declaredLen = call.request.contentLength()
+                    if (declaredLen == null || declaredLen > MAX_POLICY_BODY_BYTES) {
+                        call.respond(
+                            HttpStatusCode.PayloadTooLarge,
+                            mapOf("error" to "MALFORMED", "reason" to "missing or oversize Content-Length"),
+                        )
+                        return@post
+                    }
+                    val receivedDoc = try {
+                        Json.parseToJsonElement(call.receiveText()) as? JsonObject
+                            ?: throw IllegalArgumentException("policy body is not a JSON object")
+                    } catch (e: Exception) {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "MALFORMED", "reason" to "unparseable or non-object JSON body"),
+                        )
+                        return@post
+                    }
                     val result = PolicyAdmission.admit(
-                        bundle = bundle,
+                        receivedDoc = receivedDoc,
                         store = floorStore,
                         applier = DefaultPolicyApplier(ctx),
                         pinParentKey = { store.pinParentPubkey(it) },
@@ -153,5 +178,13 @@ class ApiServer(private val context: Context) {
     companion object {
         const val PORT = 7180
         const val BuildVersion = "0.1.0-dev"
+
+        /**
+         * Max accepted `/policy` request body (bytes). The signed canonical bundle is bounded to
+         * [PolicyAdmission.MAX_CANONICAL_SIZE] (65536); this adds headroom for JSON syntax + the hex
+         * `sig` field so a legitimate bundle is never rejected, while capping the pre-parse buffer so
+         * a LAN host cannot OOM the child with an unbounded body (fail-closed DoS guard).
+         */
+        const val MAX_POLICY_BODY_BYTES = 131072L
     }
 }

@@ -5,6 +5,10 @@ import net.i2p.crypto.eddsa.EdDSAPrivateKey
 import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
 import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec
 import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Test
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -46,12 +50,36 @@ class PolicyAdmissionTest {
     /** Sign the JCS canonical body (bundle minus sig) and return the bundle with a real sig. */
     private fun sign(bundle: SignedBundle, kp: Keypair): SignedBundle {
         val body = BundleVerifier.canonicalBody(bundle.copy(sig = ""))
+        return bundle.copy(sig = signBytesHex(body, kp))
+    }
+
+    /** Raw Ed25519 over arbitrary [body] bytes -> lowercase hex (for hand-built wire documents). */
+    private fun signBytesHex(body: ByteArray, kp: Keypair): String {
         val engine = EdDSAEngine(MessageDigest.getInstance("SHA-512"))
         engine.initSign(kp.privateKey)
         engine.update(body)
-        val sig = engine.sign()
-        return bundle.copy(sig = sig.joinToString("") { "%02x".format(it) })
+        return engine.sign().joinToString("") { "%02x".format(it) }
     }
+
+    // ---- ADR-040: the RECEIVED wire document is the verifier authority ------
+    // In production the child verifies over the JSON object it RECEIVED, never a re-serialization of
+    // its own typed model. Tests build that document from the typed (signed) bundle the same way the
+    // wire would carry it, then drive admit() over the document — so a regression that silently
+    // reverts to typed re-canonicalization is caught here.
+
+    /** The wire JSON object a typed bundle serializes to (what the parent would transmit). */
+    private fun docOf(bundle: SignedBundle): JsonObject = BundleVerifier.toWireDocument(bundle)
+
+    /** Admit a typed signed bundle by feeding [PolicyAdmission.admit] its wire document (ADR-040). */
+    private fun admit(
+        bundle: SignedBundle,
+        store: PolicyAdmission.FloorState,
+        applier: PolicyAdmission.Applier,
+        pinParentKey: (ByteArray) -> Unit,
+        pinnedParentPubkey: ByteArray?,
+        genesisPubkey: ByteArray? = null,
+    ): PolicyAdmission.Result =
+        PolicyAdmission.admit(docOf(bundle), store, applier, pinParentKey, pinnedParentPubkey, genesisPubkey)
 
     private fun bundle(
         policySeq: Long,
@@ -135,7 +163,7 @@ class PolicyAdmissionTest {
         var pinned: ByteArray? = null
 
         val b = sign(bundle(policySeq = 1L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b,
             store = state,
             applier = applier,
@@ -174,7 +202,7 @@ class PolicyAdmissionTest {
         val threads = listOf(b11, b10).map { b ->
             Thread {
                 barrier.await()
-                PolicyAdmission.admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+                admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
             }
         }
         threads.forEach { it.start() }
@@ -200,7 +228,7 @@ class PolicyAdmissionTest {
         val applier = RecordingApplier()
         val b = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
 
-        val result = PolicyAdmission.admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val result = admit(b, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
 
         assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable floor write must be Rejected, not Applied")
         assertFalse(applier.calls.any { it.startsWith("ack:") }, "no ack may be emitted when the floor write fails")
@@ -218,7 +246,7 @@ class PolicyAdmissionTest {
         val applier = RecordingApplier()
 
         val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
-        val r11 = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val r11 = admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(r11 is PolicyAdmission.Result.Rejected, "the failed floor write is Rejected (R6)")
         assertTrue(applier.calls.contains("apply:11"), "but seq 11 was actually applied (the dangerous partial state)")
         assertEquals(11L, state.appliedHighWater(), "the applied high-water must record seq 11")
@@ -226,7 +254,7 @@ class PolicyAdmissionTest {
         // The floor store recovers; an attacker replays the older valid seq 10.
         state.failAdvance = false
         val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
-        val r10 = PolicyAdmission.admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val r10 = admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
 
         assertTrue(r10 is PolicyAdmission.Result.Rejected, "seq 10 must be rejected — the high-water (11) blocks the rollback")
         assertFalse(applier.calls.contains("apply:10"), "the older bundle must never be applied")
@@ -244,14 +272,14 @@ class PolicyAdmissionTest {
         val applier = RecordingApplier()
         val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
 
-        val first = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val first = admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(first is PolicyAdmission.Result.Rejected, "the transient floor-write failure is Rejected (R6)")
         assertEquals(9L, state.atRestFloor(), "durable floor is still stale after the failed write")
         assertEquals(11L, state.appliedHighWater(), "high-water recorded the applied seq 11")
 
         // The store recovers; the parent retries the SAME bundle.
         state.failAdvance = false
-        val retry = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val retry = admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
 
         assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair the floor, not be rejected")
         assertEquals(11L, state.atRestFloor(), "the durable floor is now advanced (repaired)")
@@ -268,20 +296,20 @@ class PolicyAdmissionTest {
         val applier = RecordingApplier(failApply = true) // applyAndFsync throws after stage
         val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
 
-        val first = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val first = admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(first is PolicyAdmission.Result.Rejected, "a throwing apply is Rejected (fail-closed)")
         assertTrue(applier.calls.contains("stage:11"), "but the bundle was staged — now the active policy")
         assertEquals(11L, state.appliedHighWater(), "the witness must be recorded at stage, even though apply threw")
 
         // A lower valid seq must not roll back the staged newer policy.
         val b10 = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
-        val r10 = PolicyAdmission.admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val r10 = admit(b10, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(r10 is PolicyAdmission.Result.Rejected, "seq 10 must be rejected — staged seq 11 blocks the rollback")
         assertFalse(applier.calls.contains("stage:10"), "the older bundle must never even be staged")
 
         // The transient apply failure clears; retrying the same seq repairs (applies + advances floor).
         applier.failApply = false
-        val retry = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val retry = admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(retry is PolicyAdmission.Result.Applied, "retrying the same seq must repair once apply succeeds")
         assertEquals(11L, state.atRestFloor(), "the durable floor advanced after the successful retry")
     }
@@ -296,7 +324,7 @@ class PolicyAdmissionTest {
         val state1 = FakeFloorState(provisioned = true, atRest = 9L)
         val applier1 = RecordingApplier(failApply = true)
         val b11 = sign(bundle(policySeq = 11L, childId = state1.childDeviceId()), kp)
-        assertTrue(PolicyAdmission.admit(b11, state1, applier1, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw) is PolicyAdmission.Result.Rejected)
+        assertTrue(admit(b11, state1, applier1, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw) is PolicyAdmission.Result.Rejected)
         assertEquals(11L, state1.appliedHighWater(), "stage witness recorded")
 
         // Simulate restart: a fresh store with only the DURABLE state (floor 9, stage witness 11).
@@ -305,12 +333,12 @@ class PolicyAdmissionTest {
         val applier2 = RecordingApplier()
 
         val b10 = sign(bundle(policySeq = 10L, childId = state2.childDeviceId()), kp)
-        val r10 = PolicyAdmission.admit(b10, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val r10 = admit(b10, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(r10 is PolicyAdmission.Result.Rejected, "after restart the durable witness still blocks seq 10")
         assertFalse(applier2.calls.contains("stage:10"), "the older bundle must not be staged after restart")
 
         // seq 11 still repairs the durable floor after restart.
-        val r11 = PolicyAdmission.admit(b11, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val r11 = admit(b11, state2, applier2, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
         assertTrue(r11 is PolicyAdmission.Result.Applied, "seq 11 repairs the durable floor after restart")
         assertEquals(11L, state2.atRestFloor())
     }
@@ -325,7 +353,7 @@ class PolicyAdmissionTest {
         val applier = RecordingApplier()
         val b11 = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
 
-        val result = PolicyAdmission.admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+        val result = admit(b11, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
 
         assertTrue(result is PolicyAdmission.Result.Rejected, "a failed durable witness write must be Rejected")
         assertFalse(applier.calls.contains("stage:11"), "the bundle must NOT be staged when the witness can't be persisted")
@@ -343,7 +371,7 @@ class PolicyAdmissionTest {
         var pinned: ByteArray? = null
         val b1 = sign(bundle(policySeq = 1L, childId = state.childDeviceId()), kp)
 
-        val first = PolicyAdmission.admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
+        val first = admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
         assertTrue(first is PolicyAdmission.Result.Rejected, "genesis witness-write failure is Rejected")
         assertFalse(state.isProvisioned(), "must NOT mark provisioned when the witness failed")
         assertEquals(null, pinned, "must NOT pin the key when the witness failed")
@@ -351,7 +379,7 @@ class PolicyAdmissionTest {
 
         // Storage recovers; retry the SAME signed genesis bundle — must repair as a clean genesis.
         state.failNote = false
-        val retry = PolicyAdmission.admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
+        val retry = admit(b1, state, applier, pinParentKey = { pinned = it }, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw)
         assertTrue(retry is PolicyAdmission.Result.Applied, "retry must repair as a clean genesis, not strand as an anomaly")
         assertTrue((retry as PolicyAdmission.Result.Applied).genesis)
         assertEquals(1L, state.atRestFloor())
@@ -364,7 +392,7 @@ class PolicyAdmissionTest {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = false, atRest = null)
         val b = sign(bundle(policySeq = 0L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = null, genesisPubkey = kp.publicKeyRaw,
         )
@@ -382,7 +410,7 @@ class PolicyAdmissionTest {
         // Provisioned (marker set, key pinned) but floor is gone.
         val state = FakeFloorState(provisioned = true, atRest = null)
         val b = sign(bundle(policySeq = 5L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -396,7 +424,7 @@ class PolicyAdmissionTest {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val b = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = null, // provisioned but key gone
         )
@@ -413,7 +441,7 @@ class PolicyAdmissionTest {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val b = sign(bundle(policySeq = 10L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -427,7 +455,7 @@ class PolicyAdmissionTest {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val b = sign(bundle(policySeq = 9L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -448,7 +476,7 @@ class PolicyAdmissionTest {
         // the chain witness retaining 100 so effectiveFloor = max(50,100)=100 => reject.
         val state = FakeFloorState(provisioned = true, atRest = 50L, chain = 100L)
         val b = sign(bundle(policySeq = 60L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -465,7 +493,7 @@ class PolicyAdmissionTest {
         // (ADR-017 part 1/3: at-rest < chain is a rollback anomaly).
         val state = FakeFloorState(provisioned = true, atRest = 50L, chain = 100L)
         val b = sign(bundle(policySeq = 101L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -484,7 +512,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(myId = "child-aaaa", provisioned = true, atRest = 10L)
         // Bundle addressed to a DIFFERENT child, validly signed.
         val b = sign(bundle(policySeq = 11L, childId = "child-bbbb"), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -500,7 +528,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(myId = "child-aaaa", provisioned = true, atRest = 10L)
         val kp = newKeypair()
         val b = bundle(policySeq = 11L, childId = "child-bbbb").copy(sig = "deadbeef")
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -519,7 +547,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val overflow = Canonical.MAX_JCS_SAFE_INTEGER + 1
         val b = sign(bundle(policySeq = overflow, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -538,7 +566,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val tooFar = 10L + ReplayFloor.MAX_SEQ_JUMP + 1
         val b = sign(bundle(policySeq = tooFar, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -554,7 +582,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val edge = 10L + ReplayFloor.MAX_SEQ_JUMP
         val b = sign(bundle(policySeq = edge, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -573,7 +601,7 @@ class PolicyAdmissionTest {
         // Valid audience + seq, but signed by the WRONG key.
         val wrong = newKeypair()
         val b = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), wrong)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -588,7 +616,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val applier = RecordingApplier()
         val b = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = applier,
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -596,6 +624,155 @@ class PolicyAdmissionTest {
         assertEquals(11L, state.atRestFloor())
         // Floor must advance only AFTER apply (between apply and ack in call order).
         assertEquals(listOf("stage:11", "apply:11", "ack:11"), applier.calls)
+    }
+
+    // =========================================================================
+    // ADR-040 / #91: verify over received bytes, not typed re-canonicalization
+    // =========================================================================
+
+    @Test
+    fun verifiesOverReceivedBytesNotTypedReCanonicalization() {
+        // ADR-040: the child verifies over the RECEIVED document. A parent-signed field the child's
+        // typed SignedBundle does not model must NOT flip the signature — but a verifier that
+        // re-canonicalizes its own typed re-serialization (which DROPS the unmodeled field) computes
+        // different bytes and FAILS the valid signature. This pins the fix end of that drift.
+        val kp = newKeypair()
+        val base = bundle(policySeq = 7L, childId = "child-aaaa")
+        // The exact bytes the parent signs: the wire document INCLUDING a field the child omits.
+        val unsignedWire = JsonObject(
+            docOf(base).toMutableMap().apply {
+                remove("sig")
+                put("x_future_field", JsonPrimitive("parent-signed-but-child-unmodeled"))
+            },
+        )
+        val sigHex = signBytesHex(Canonical.canonicalize(unsignedWire).encodeToByteArray(), kp)
+        val receivedWire = JsonObject(unsignedWire.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+
+        // Verify over the RECEIVED bytes => the parent-signed field is honored => VALID.
+        assertTrue(
+            BundleVerifier.verifyDocument(receivedWire, kp.publicKeyRaw),
+            "verifyDocument must verify over the received document, incl. parent-signed fields the child does not model",
+        )
+
+        // The pre-ADR-040 behavior — canonicalize the child's typed re-serialization (no
+        // x_future_field) — computes different bytes and FAILS the very same valid signature.
+        val typedReSerialized = JsonObject(
+            docOf(base).toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) },
+        )
+        assertFalse(
+            BundleVerifier.verifyDocument(typedReSerialized, kp.publicKeyRaw),
+            "re-canonicalizing the typed model drops the unmodeled field and fails the valid sig (the drift ADR-040 fixes)",
+        )
+    }
+
+    @Test
+    fun verifiedButUnparseableBodyRejectedMalformedNeverApplied() {
+        // ADR-019 D2 / ADR-040: verify first, parse second. A document that VERIFIES (valid sig over
+        // the received bytes) but whose typed decode then fails must be rejected MALFORMED AFTER
+        // verification, and never applied. policy_seq is carried as a JSON string — JCS-safe (it is a
+        // string, not an integer), validly signed, but SignedBundle.policy_seq:Long cannot decode it.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 10L)
+        val applier = RecordingApplier()
+        val unsigned = JsonObject(
+            docOf(bundle(policySeq = 11L, childId = state.childDeviceId())).toMutableMap().apply {
+                remove("sig")
+                put("policy_seq", JsonPrimitive("not-a-number"))
+            },
+        )
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val doc = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+
+        val result = PolicyAdmission.admit(doc, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Rejected, "a verified-but-unparseable body must be rejected")
+        assertTrue((result as PolicyAdmission.Result.Rejected).malformed, "verified-but-unparseable is MALFORMED")
+        assertTrue(result.reason.contains("unparseable"), "reason should name the post-verify parse failure")
+        assertTrue(applier.calls.isEmpty(), "nothing may be staged/applied")
+    }
+
+    @Test
+    fun admitAppliesADocumentWithAParentSignedFieldTheChildDoesNotModel() {
+        // ADR-040 end-to-end (Codex review): a parent-signed field the child's typed model omits must
+        // NOT break admission — the sig verifies over the received doc and the bundle applies. Locks
+        // the FULL pipeline (admit), not just the verifier unit.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 10L)
+        val applier = RecordingApplier()
+        val unsigned = JsonObject(
+            docOf(bundle(policySeq = 11L, childId = state.childDeviceId())).toMutableMap().apply {
+                remove("sig")
+                put("x_future_field", JsonPrimitive("parent-signed-but-child-unmodeled"))
+            },
+        )
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val doc = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+
+        val result = PolicyAdmission.admit(doc, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Applied, "an unmodeled parent-signed field must not break admission")
+        assertEquals(11L, state.atRestFloor())
+        assertEquals(listOf("stage:11", "apply:11", "ack:11"), applier.calls)
+    }
+
+    @Test
+    fun verifyDocumentHandlesUnicodeAndEscapingOverReceivedBytes() {
+        // ADR-019 D5 / PROTOCOL §3.1 rule 5 (crypto review LOW-1): unicode + escaped strings must
+        // canonicalize identically on the received-bytes path. Sign over the canonical bytes of a doc
+        // with accented + tab + astral-plane characters, then verify through verifyDocument.
+        val kp = newKeypair()
+        val b = bundle(policySeq = 7L, childId = "child-aaaa", allowlist = listOf("café", "tab\there", "emoji😀"))
+        val unsigned = JsonObject(docOf(b).toMutableMap().apply { remove("sig") })
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val signed = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+        assertTrue(
+            BundleVerifier.verifyDocument(signed, kp.publicKeyRaw),
+            "a bundle with unicode/escaped strings must verify over the received bytes",
+        )
+        // Same signature, one accent stripped from the received doc => different canonical bytes => fail.
+        val b2 = bundle(policySeq = 7L, childId = "child-aaaa", allowlist = listOf("cafe", "tab\there", "emoji😀"))
+        val tampered = JsonObject(docOf(b2).toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+        assertFalse(
+            BundleVerifier.verifyDocument(tampered, kp.publicKeyRaw),
+            "altering a unicode character must break verification over received bytes",
+        )
+    }
+
+    @Test
+    fun duplicateKeyInReceivedJsonIsFailClosed() {
+        // crypto-review MED-1 / Codex INFO: kotlinx parseToJsonElement is last-wins on duplicate keys.
+        // The signature is over the value the parent signed; a received body with a duplicate key whose
+        // LAST value differs collapses to a different canonical form => SIG_FAIL. No bypass possible.
+        val kp = newKeypair()
+        val signed = sign(bundle(policySeq = 11L, childId = "child-aaaa"), kp)
+        val wire = Canonical.canonicalize(docOf(signed)) // canonical wire JSON incl sig
+        // Inject a duplicate policy_seq with a DIFFERENT last value (what a MITM would attempt).
+        val tamperedRaw = wire.replaceFirst("\"policy_seq\":11", "\"policy_seq\":11,\"policy_seq\":99")
+        val parsed = Json.parseToJsonElement(tamperedRaw) as JsonObject
+        assertEquals("99", (parsed["policy_seq"] as JsonPrimitive).content, "kotlinx collapses duplicates last-wins")
+        assertFalse(
+            BundleVerifier.verifyDocument(parsed, kp.publicKeyRaw),
+            "a duplicate key that changes the effective value must fail verification (fail-closed)",
+        )
+    }
+
+    @Test
+    fun nullValueInReceivedDocumentRejected() {
+        // PROTOCOL §3.1 rule 6 / ADR-019 D4 (Codex review): null is forbidden in a signed document.
+        // Even validly signed, a received doc carrying a null must be rejected before verification.
+        val kp = newKeypair()
+        val unsigned = JsonObject(
+            docOf(bundle(policySeq = 11L, childId = "child-aaaa")).toMutableMap().apply {
+                remove("sig")
+                put("private_dns_probe", JsonNull)
+            },
+        )
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val doc = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+        assertFalse(
+            BundleVerifier.verifyDocument(doc, kp.publicKeyRaw),
+            "a null anywhere in the signed document must fail closed (§3.1 rule 6)",
+        )
     }
 
     // =========================================================================
@@ -610,7 +787,7 @@ class PolicyAdmissionTest {
         val crashing = RecordingApplier(failApply = true)
         val b = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
 
-        val crashed = PolicyAdmission.admit(
+        val crashed = admit(
             bundle = b, store = state, applier = crashing,
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -620,7 +797,7 @@ class PolicyAdmissionTest {
         // Restart: the SAME bundle re-applies cleanly because the floor is still 10
         // (seq 11 > 10), so it is NOT a permanent REGRESSION.
         val healthy = RecordingApplier()
-        val retried = PolicyAdmission.admit(
+        val retried = admit(
             bundle = b, store = state, applier = healthy,
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -634,7 +811,7 @@ class PolicyAdmissionTest {
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val b = sign(bundle(policySeq = 11L, childId = state.childDeviceId()), kp)
 
-        val first = PolicyAdmission.admit(
+        val first = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -644,7 +821,7 @@ class PolicyAdmissionTest {
         // Replaying the identical bundle now hits seq == floor => REGRESSION reject,
         // which is the correct idempotent outcome: the live policy is already this one,
         // the floor does not change, and we never DOWN-grade.
-        val replay = PolicyAdmission.admit(
+        val replay = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -661,7 +838,7 @@ class PolicyAdmissionTest {
         val kp = newKeypair()
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val b = sign(bundle(policySeq = 11L, childId = state.childDeviceId(), v = 2), kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = b, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -702,7 +879,7 @@ class PolicyAdmissionTest {
             sig = "",
         )
         val signed = sign(full, kp)
-        val result = PolicyAdmission.admit(
+        val result = admit(
             bundle = signed, store = state, applier = RecordingApplier(),
             pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw,
         )
@@ -759,13 +936,14 @@ class PolicyAdmissionTest {
         // path that was broken in PR #50 when the two sides signed different field sets.
         val pubRaw = hex(KAT_PUB)
         val signed = interopBundle().copy(sig = KAT_SIG_GOLDEN)
+        // ADR-040: pin the LIVE verifier path — verifyDocument over the received wire document.
         assertTrue(
-            BundleVerifier.verify(signed, pubRaw),
+            BundleVerifier.verifyDocument(docOf(signed), pubRaw),
             "libsodium signature over the §2 canonical bytes must verify under the child verifier",
         )
         // Tamper check: flipping the audience invalidates the (whole-object) signature.
         assertFalse(
-            BundleVerifier.verify(signed.copy(child_device_id = "dev-2"), pubRaw),
+            BundleVerifier.verifyDocument(docOf(signed.copy(child_device_id = "dev-2")), pubRaw),
             "altering a signed field must break verification",
         )
     }
@@ -781,7 +959,7 @@ class PolicyAdmissionTest {
         engine.initSign(kp.privateKey)
         engine.update(body)
         val sig = engine.sign().joinToString("") { "%02x".format(it) }
-        assertTrue(BundleVerifier.verify(b.copy(sig = sig), kp.publicKeyRaw))
+        assertTrue(BundleVerifier.verifyDocument(docOf(b.copy(sig = sig)), kp.publicKeyRaw))
     }
 
     @Test

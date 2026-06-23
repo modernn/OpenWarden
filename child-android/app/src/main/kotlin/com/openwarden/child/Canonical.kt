@@ -41,6 +41,49 @@ object Canonical {
         }
     }
 
+    /**
+     * Recursively assert every JSON integer in [element] is within the JCS-safe range (ADR-017 JC1).
+     * Ported byte-rule-identical from `proto/SigningInput.requireAllIntegersJcsSafe`: the verifier
+     * runs this over the WHOLE received document (ADR-040) before computing the signing bytes, so a
+     * float/exponent or an out-of-range integer in ANY field — not just `policy_seq` — fails closed
+     * BEFORE signature verification (ADR-019 D4 / PROTOCOL.md §3.1 rule 4). Throws on violation.
+     */
+    fun requireAllIntegersJcsSafe(element: JsonElement) {
+        when (element) {
+            is JsonObject -> element.values.forEach { requireAllIntegersJcsSafe(it) }
+            is JsonArray -> element.forEach { requireAllIntegersJcsSafe(it) }
+            JsonNull -> Unit // null carries no integer; null-policy is a separate verifier concern
+            is JsonPrimitive ->
+                if (!element.isString) {
+                    val c = element.content
+                    if (c != "true" && c != "false") {
+                        // A bare JSON number. It MUST be an integer within the JCS-safe range.
+                        // toLongOrNull() == null means a float/exponent or beyond Long range — reject.
+                        val l = c.toLongOrNull()
+                            ?: throw IllegalArgumentException(
+                                "JSON number '$c' is not a JCS-safe integer (must be an integer in 0..2^53-1)",
+                            )
+                        requireJcsSafe(l)
+                    }
+                }
+        }
+    }
+
+    /**
+     * Fail-closed guard: reject any `null` value anywhere in [element] (PROTOCOL.md §3.1 rule 6 /
+     * ADR-019 D4 — `null` is forbidden in a signed document; omit the key instead). The verifier runs
+     * this over the received document before canonicalization so a parent-signed bundle carrying a
+     * null is rejected rather than canonicalized as the literal `null`. Throws on violation.
+     */
+    fun requireNoNulls(element: JsonElement) {
+        when (element) {
+            is JsonObject -> element.values.forEach { requireNoNulls(it) }
+            is JsonArray -> element.forEach { requireNoNulls(it) }
+            JsonNull -> throw IllegalArgumentException("null is forbidden in a signed document (PROTOCOL.md §3.1 rule 6)")
+            is JsonPrimitive -> Unit
+        }
+    }
+
     /** Canonical JCS string of [element]. */
     fun canonicalize(element: JsonElement): String = buildString { write(element, this) }
 

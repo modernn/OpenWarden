@@ -81,6 +81,8 @@ class PolicyStore(private val context: Context) {
      * route now routes through [PolicyAdmission]. Do not add new callers.
      */
     @Deprecated("Use PolicyAdmission.admit (ADR-017 replay floor + audience + two-phase commit)")
+    @Suppress("DEPRECATION") // legacy path holds only a TYPED bundle (no received bytes); the live
+    // verify-over-received-bytes path is PolicyAdmission.admit/BundleVerifier.verifyDocument (ADR-040).
     fun ingest(bundle: SignedBundle): IngestResult {
         val pubkey = parentPubkey() ?: return IngestResult.NoParentPinned
         if (!BundleVerifier.verify(bundle, pubkey)) return IngestResult.BadSignature
