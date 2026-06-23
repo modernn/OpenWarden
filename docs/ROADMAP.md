@@ -80,8 +80,8 @@ A parent can pair, see state, and push a policy — from a phone.
 - [ ] Pair via QR scan — re-scoped per ADR-025 D5 into #94–#98 (parent *displays* QR;
   the parent-scans inversion is forbidden). (a) session + §7.1 QR payload done
   *(#94, PR #99, ADR-035)*; (b) §7.2 endpoint + D6 validation done *(#95, PR #101,
-  ADR-036)*; (c) §7.3 attestation verify done *(#96, PR #103, ADR-037)*; (d) SAS,
-  (e) pin open
+  ADR-036)*; (c) §7.3 attestation verify done *(#96, PR #103, ADR-037)*; (d) six-emoji
+  SAS done *(#97, PR #105, ADR-038)*; (e) pin open
 - [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
 - [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
 - [x] "Lock now" / "Unlock now" *(#28, PR #76)*
