@@ -62,6 +62,9 @@ class BouncyCastleAttestationChainParser : AttestationChainParser {
     }
 
     private fun isEcP256(cert: X509Certificate): Boolean {
+        // A 256-bit prime-field EC key (secp256r1's field size). This is a coarse, defense-in-depth
+        // gate on check 4 — the authoritative bind is check 4b, whose SHA256withECDSA verify is
+        // curve-specific (a non-secp256r1 256-bit key would fail 4b against the secp256r1 binding sig).
         val pub = cert.publicKey
         return pub is ECPublicKey && pub.params.curve.field.fieldSize == 256
     }
