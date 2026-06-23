@@ -296,11 +296,17 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
         }
         if (watermarkChanged) editor.putLong(KEY_NOT_AFTER_HW, next.watermarkMs!!)
         check(editor.commit()) { "freshness anchor commit() failed (fail-closed)" }
+        // Readback-verify every field we wrote (same fail-closed contract as advanceFloor / contact).
         if (anchorChanged) {
             check(
                 prefs.getLong(KEY_ANCHOR_PARENT, Long.MIN_VALUE) == next.parentMs &&
                     prefs.getLong(KEY_ANCHOR_ELAPSED, Long.MIN_VALUE) == next.elapsedMs,
             ) { "freshness anchor readback mismatch after commit (fail-closed)" }
+        }
+        if (watermarkChanged) {
+            check(prefs.getLong(KEY_NOT_AFTER_HW, Long.MIN_VALUE) == next.watermarkMs) {
+                "not_after watermark readback mismatch after commit (fail-closed)"
+            }
         }
     }
 

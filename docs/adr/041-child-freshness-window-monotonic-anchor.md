@@ -57,13 +57,12 @@ floor pass, BEFORE `Accept`:
   the **same tracked gap**, caught by the parent on next sync (ADR-017 part 1/2), not yet locally.
   The watermark is persisted now so that detection can wire in with the chain mirror. The concrete
   local defenses shipped here are steps 9/10 + monotonic-on-write + elapsed-regression (reboot).
-- `Unusable` anchor (genesis, or post-reboot before re-anchor): the window **cannot** be evaluated;
-  the candidate is admitted on its signature + monotonic `policy_seq` floor alone and **re-seeds**
-  the anchor from its own `issued_at` on apply (D4). This is fail-closed because (a) the `policy_seq`
-  floor survives reboot and still blocks any older bundle, and (b) the device re-applies its stored
-  policy on boot (the watchdog) so restrictions stay intact, and (c) the ADR-024 no-contact ratchet
-  independently denies-all after the silence threshold. Genesis self-anchoring happens only AFTER
-  signature verification (ADR-040 admit ordering).
+- `Unusable` anchor (genesis, or post-reboot before re-anchor): the window **cannot** be evaluated.
+  At **admission** the candidate is admitted on its signature + monotonic `policy_seq` floor alone and
+  **re-seeds** the anchor from its own `issued_at` on apply (D4) — the recovery path (a parent push
+  re-anchors the clock). At the **watchdog** (D5) an `Unusable` clock forces **`STALE` (deny-all)**:
+  we cannot confirm the active bundle is still in its window, so fail-closed. Genesis self-anchoring
+  happens only AFTER signature verification (ADR-040 admit ordering).
 
 **D4 — Anchor seeding is post-apply and never from the candidate under test.** A non-genesis
 freshness check uses the anchor from a *previously* applied bundle/heartbeat — never the bundle being
@@ -73,14 +72,20 @@ apply, monotonically (never backward).
 
 **D5 — Active-bundle freshness folds into the watchdog tier (continuous enforcement).** The window
 must also bite an *already-applied* bundle as time passes, not only at admission. `PolicyWatchdog`
-computes a freshness tier from the active bundle's `not_after` vs `FreshnessClock.estimate`: a
-**`Usable` estimate past `not_after` escalates to `STALE`** (deny-all allowlist + default DNS). An
-`Unusable` anchor does **not** by itself force stale — it **defers to the ADR-024 no-contact
-ratchet** (which independently denies-all after the silence threshold), so a routine reboot does not
-blanket-block every allowlisted app until the next parent contact (preserving "restrictions intact +
-apps usable after restart"); the positive-expiry escalation and the silence ratchet are the two
-fail-closed backstops. The effective tier is `max(ratchetTier, freshnessTier)` — reusing the existing
-ADR-024 deny-all path; freshness can only *tighten*, never loosen.
+computes a freshness tier from the active bundle's `not_after` vs `FreshnessClock.estimate`:
+- a **`Usable` estimate past `not_after` → `STALE`** (deny-all allowlist + default DNS): the applied
+  policy has expired (PROTOCOL §5 step 10);
+- an **`Unusable` clock → `STALE`** (deny-all): **fail-closed** — the clock cannot confirm the active
+  bundle is still within its window. This is **load-bearing**: without it a bundle that already
+  EXPIRED (and was denied-all) would **un-expire on reboot** (`elapsedRealtime` resets → `Unusable` →
+  its allowlist returns), a kid regaining apps by rebooting (caught by the Codex review pass — an
+  earlier "defer to the ratchet" draft was a fail-OPEN). The deny-all is **brief**: the next
+  authenticated parent push / heartbeat re-anchors the clock and the allowlist returns. "Restrictions
+  intact after restart" holds — deny-all is *more* restriction, not less; the cost is a short
+  post-reboot allowlist suspension until the next parent contact (the accepted fail-closed trade).
+
+The effective tier is `max(ratchetTier, freshnessTier)` — reusing the existing ADR-024 deny-all path;
+freshness can only *tighten*, never loosen.
 
 **D6 — Heartbeat re-anchors.** `admitHeartbeatContact` already carries `hb.issued_at`; it now also
 advances the freshness anchor (issued_at + elapsed), so a heartbeat re-establishes a `Usable` clock
@@ -116,6 +121,23 @@ codes `CLOCK_SKEW` / `EXPIRED` already exist in PROTOCOL.
     `EncryptedSharedPreferences` round-trip (commit+readback durability across process restart, and
     `elapsedRealtime` reboot behavior) is **device-only** — it needs an instrumented `connectedAndroidTest`
     before production, matching the same gate accepted for other `ReplayFloorStore`-backed state (e.g. #98).
+  - **Post-reboot admission applies a new bundle without a window check** (crypto-review MED-1): under an
+    `Unusable` anchor `decide()` admits a signed, audience-bound, above-floor bundle and re-anchors from
+    its own `issued_at`. A captured **higher-seq-but-expired** bundle could thus be (re)applied once
+    post-reboot and self-anchor as "fresh". Bounded: it must out-rank the `policy_seq` floor (so the
+    parent must have gone silent — no newer bundle advanced the floor), and that same parent silence
+    drives the ADR-024 ratchet to deny-all; physical capture is required. Accepted residual, not a
+    blocker — the admission path favors recovery (a real parent push must take effect post-reboot).
+  - **Stale-policy realized as deny-all, not the §5 "essentials-only allowlist"** (crypto-review MED-2):
+    expiry routes to the ADR-024 `STALE` tier = empty allowlist (+ the ADR-022 enforcer-layer system
+    exemptions), which is *stricter* than PROTOCOL §5 item 3's "essentials only (dialer, parent app,
+    school app)" and so satisfies fail-closed. PROTOCOL §5 item 3 wording should be reconciled with the
+    deny-all realization so no future implementer reads it literally and *loosens* to a hand-rolled
+    essentials allowlist (maintainer/doc follow-up).
+  - **Couple the two deferred witnesses** (crypto-review LOW-1): the freshness step-11 anchor/watermark
+    rollback witness and the replay-floor chain mirror (`chainFloor()`) are the *same* whole-snapshot
+    gap and MUST land together — the chain-mirror follow-up must read the highest `AckPolicy` **and**
+    validate the `not_after` watermark, or freshness rollback detection is silently forgotten.
 
 ## References
 ADR-034, ADR-017, ADR-024, ADR-040; PROTOCOL §2.1 (steps 9-11), §5, §5.1; ATTACKS H1/C8/F1/F2/F3;

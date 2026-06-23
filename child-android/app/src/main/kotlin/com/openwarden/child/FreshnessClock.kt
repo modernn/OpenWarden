@@ -57,7 +57,13 @@ object FreshnessClock {
         val parentAnchor = anchor.parentAnchorMs ?: return Now.Unusable
         val elapsedAtAnchor = anchor.elapsedAtAnchorMs ?: return Now.Unusable
         if (nowElapsedMs < elapsedAtAnchor) return Now.Unusable // elapsed regressed ⇒ reboot ⇒ unusable
-        return Now.Usable(parentAnchor + (nowElapsedMs - elapsedAtAnchor))
+        val now = parentAnchor + (nowElapsedMs - elapsedAtAnchor)
+        // Defense-in-depth: JC1 already bounds parentAnchor to ≤ 2^53−1 so this cannot overflow in
+        // practice, but a wrapped (negative) estimate would compare as "before not_before" and could
+        // mis-defer or, worse, look in-window — fail closed instead. The delta is ≥ 0 (checked above),
+        // so a result below the anchor means Long overflow.
+        if (now < parentAnchor) return Now.Unusable
+        return Now.Usable(now)
     }
 
     /** The anchor values to persist for a new signed parent time (ADR-041 D4). */

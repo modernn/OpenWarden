@@ -51,6 +51,14 @@ class FreshnessClockTest {
         assertTrue(FreshnessClock.estimate(anchor(null, null, null), 0L) is FreshnessClock.Now.Unusable)
     }
 
+    @Test
+    fun overflowingEstimateIsUnusableNotANegativeUsable() {
+        // JC1 bounds parentAnchor ≤ 2^53−1 in practice, but a Long-overflowing sum must fail closed
+        // (a wrapped negative "now" could mis-compare against the window) rather than return Usable.
+        val now = FreshnessClock.estimate(anchor(parent = Long.MAX_VALUE, elapsed = 0L), nowElapsedMs = 1_000L)
+        assertTrue(now is FreshnessClock.Now.Unusable, "an overflowing estimate must be Unusable, never a negative Usable")
+    }
+
     // ---- nextAnchor: monotonic-on-write (ADR-041 D4) -----------------------
 
     @Test

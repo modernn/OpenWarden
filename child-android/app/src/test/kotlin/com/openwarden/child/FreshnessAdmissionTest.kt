@@ -54,12 +54,13 @@ class FreshnessAdmissionTest {
     private class FakeFreshnessFloorState(
         val myId: String = "child-aaaa",
         var atRest: Long? = 10L,
+        var provisioned: Boolean = true,
         var anchorParent: Long? = null,
         var anchorElapsed: Long? = null,
         var watermark: Long? = null,
     ) : PolicyAdmission.FloorState {
         override fun childDeviceId() = myId
-        override fun isProvisioned() = true
+        override fun isProvisioned() = provisioned
         override fun markProvisioned() {}
         override fun atRestFloor() = atRest
         override fun chainFloor(): Long? = null
@@ -169,5 +170,30 @@ class FreshnessAdmissionTest {
 
         assertTrue(r is PolicyAdmission.Result.Deferred, "window must be evaluated against the prior anchor, not the candidate")
         assertTrue(applier.calls.isEmpty())
+    }
+
+    @Test
+    fun genesisSkipsTheFreshnessWindow() {
+        // ADR-041 D3: a never-provisioned (genesis TOFU) accept returns before the freshness gate, so
+        // the window is NOT evaluated even with a (here artificially injected) Usable anchor that would
+        // mark a non-genesis bundle EXPIRED. Genesis can only ever have an Unusable clock in practice;
+        // this pins that genesis never gets rejected/deferred by freshness.
+        val kp = newKeypair()
+        val state = FakeFreshnessFloorState(
+            atRest = null, provisioned = false, // never provisioned ⇒ genesis candidate
+            anchorParent = 1_000_000L, anchorElapsed = 0L, // would make a non-genesis bundle look expired
+        )
+        val applier = RecordingApplier()
+        // not_after well before the injected monotonic_now (≈1_600_000) — would be EXPIRED if checked.
+        val b = bundle(seq = 1L, issuedAt = 1_000L, notBefore = 0L, notAfter = 2_000L)
+
+        val r = PolicyAdmission.admit(
+            BundleVerifier.toWireDocument(sign(b, kp)),
+            state, applier, pinParentKey = {}, pinnedParentPubkey = null,
+            genesisPubkey = kp.publicKeyRaw, nowElapsedMs = 600_000L,
+        )
+
+        assertTrue(r is PolicyAdmission.Result.Applied, "genesis TOFU must apply regardless of the freshness window")
+        assertTrue((r as PolicyAdmission.Result.Applied).genesis)
     }
 }

@@ -42,12 +42,27 @@ class FreshnessTierTest {
     }
 
     @Test
-    fun unusableClockDefersToTheRatchetNotForcedStale() {
-        // Post-reboot / not-yet-anchored: freshness must NOT itself force deny-all (the silence
-        // ratchet governs); a routine reboot does not blanket-block every allowlisted app.
+    fun unusableClockForcesStaleFailClosed() {
+        // Post-reboot / not-yet-anchored: the clock cannot confirm the active bundle is still in its
+        // window, so freshness MUST deny-all (fail-closed). Load-bearing: without this, a bundle that
+        // already expired (and was denied-all) would UN-EXPIRE on reboot (elapsedRealtime resets →
+        // Unusable → its allowlist returns). The deny-all is brief — the next parent push re-anchors.
         assertEquals(
-            Ratchet.Tier.FRESH,
+            Ratchet.Tier.STALE,
             PolicyWatchdog.freshnessTier(loaded(notAfter = 2000L), FreshnessClock.Now.Unusable),
+        )
+    }
+
+    @Test
+    fun expiredBundleStaysStaleAcrossRebootCannotUnExpire() {
+        // The concrete regression: a bundle that is Usable-and-expired (STALE) must remain STALE when
+        // a reboot makes the anchor Unusable — never silently revert to FRESH and restore the allowlist.
+        val expired = loaded(notAfter = 2000L)
+        assertEquals(Ratchet.Tier.STALE, PolicyWatchdog.freshnessTier(expired, usable(2500L)), "expired pre-reboot")
+        assertEquals(
+            Ratchet.Tier.STALE,
+            PolicyWatchdog.freshnessTier(expired, FreshnessClock.Now.Unusable),
+            "reboot (Unusable) must NOT un-expire the bundle",
         )
     }
 

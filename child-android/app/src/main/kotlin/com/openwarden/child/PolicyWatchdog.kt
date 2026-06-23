@@ -94,19 +94,28 @@ class PolicyWatchdog(
         /**
          * ADR-041 §5.1 freshness tier for the ACTIVE bundle (surface B — the window must bite an
          * already-applied bundle as time passes, not only at admission):
-         *   - active bundle present + a [FreshnessClock.Now.Usable] estimate **past `not_after`**
+         *   - active bundle present + [FreshnessClock.Now.Usable] estimate **past `not_after`**
          *     → [Ratchet.Tier.STALE] (deny-all): the applied policy has expired (PROTOCOL §5 step 10).
-         *   - otherwise → [Ratchet.Tier.FRESH]: an `Unusable` clock (post-reboot / not-yet-anchored)
-         *     does NOT itself force stale — it DEFERS to the ADR-024 no-contact ratchet (which denies
-         *     all after the silence threshold), so a routine reboot doesn't blanket-block every
-         *     allowlisted app until the next parent contact ("restrictions intact + apps usable after
-         *     restart"). No active bundle → the Missing/Corrupt deny-all path already covers it.
-         * Pure → unit-testable without a device.
+         *   - active bundle present + [FreshnessClock.Now.Unusable] clock (post-reboot / not-yet-
+         *     anchored) → [Ratchet.Tier.STALE] (deny-all): **fail-closed** — we CANNOT confirm the
+         *     active bundle is still within its window, so we must NOT keep its allowlist. This is
+         *     load-bearing: without it, a bundle that already EXPIRED (and was denied-all) would
+         *     **un-expire on reboot** (elapsedRealtime resets → `Unusable` → its allowlist returns) —
+         *     a kid regaining apps by rebooting (review finding). The deny-all is brief: the next
+         *     authenticated parent push / heartbeat re-anchors the clock (a fresh bundle re-applies
+         *     and `decide()` admits it), restoring the allowlist. "Restrictions intact after restart"
+         *     holds — deny-all is MORE restriction, not less.
+         *   - active bundle present + `Usable` within window → [Ratchet.Tier.FRESH].
+         *   - no active bundle → [Ratchet.Tier.FRESH]: the Missing/Corrupt deny-all path covers it.
+         * Pure → unit-testable without a device. Composed via [effectiveTier] (freshness only tightens).
          */
         fun freshnessTier(result: PolicyStore.LoadResult, now: FreshnessClock.Now): Ratchet.Tier {
             val bundle = (result as? PolicyStore.LoadResult.Loaded)?.bundle ?: return Ratchet.Tier.FRESH
-            val usable = now as? FreshnessClock.Now.Usable ?: return Ratchet.Tier.FRESH // defer to ratchet
-            return if (usable.monotonicNowMs >= bundle.not_after) Ratchet.Tier.STALE else Ratchet.Tier.FRESH
+            return when (now) {
+                is FreshnessClock.Now.Unusable -> Ratchet.Tier.STALE // can't confirm freshness ⇒ deny-all
+                is FreshnessClock.Now.Usable ->
+                    if (now.monotonicNowMs >= bundle.not_after) Ratchet.Tier.STALE else Ratchet.Tier.FRESH
+            }
         }
 
         /** The stricter of the no-contact ratchet tier and the freshness tier (freshness only tightens). */
