@@ -82,7 +82,7 @@ A parent can pair, see state, and push a policy — from a phone.
 - [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
 - [x] "Lock now" / "Unlock now" *(#28, PR #76)*
 - [x] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(#24, PR #86, ADR-033)*
-- [ ] Send signed policy bundles *(human-gated: crypto/proto)*
+- [x] Send signed policy bundles *(#27, PR #89, ADR-034)*
 - [ ] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
   WireGuard modes deferred.
 
