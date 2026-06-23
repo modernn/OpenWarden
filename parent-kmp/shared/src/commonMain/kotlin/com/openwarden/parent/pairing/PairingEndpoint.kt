@@ -203,13 +203,20 @@ interface SessionAccess {
     fun cancel()
 }
 
-/** Direct, **non-thread-safe** [SessionAccess] over a [PairingSessionManager] (host tests; the Android adapter wraps this in a lock). */
+/**
+ * Direct, **non-thread-safe** [SessionAccess] + [PairingSessionConsumer] over a [PairingSessionManager]
+ * (host tests; the Android adapter wraps this in a lock). Slice (e) (ADR-039 D4) consumes the live
+ * session on a successful pin via [consume]; slices (b)/(c)/(d) use [active]/[cancel].
+ */
 class DirectSessionAccess(
     private val manager: PairingSessionManager,
-) : SessionAccess {
+) : SessionAccess,
+    PairingSessionConsumer {
     override fun active(): PairingSession? = manager.active()
 
     override fun cancel() = manager.cancel()
+
+    override fun consume(): PairingSession? = manager.consume()
 }
 
 /**
