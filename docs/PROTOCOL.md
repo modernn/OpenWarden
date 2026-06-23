@@ -444,13 +444,20 @@ shared_secret_for_display := HKDF-SHA256(
     ikm  = parent_ed25519_pub || parent_x25519_pub || child_ed25519_pub || child_x25519_pub,
     info = provisioning_nonce
 )[0..15]
-6 emojis := SAS-emoji-table-lookup-from-Signal-spec(shared_secret_for_display)
+6 emojis := SAS-emoji-table-lookup(shared_secret_for_display)   // table + mapping pinned by ADR-038
 ```
 
 All four keys are concatenated in exactly this order (parent Ed25519, parent
 X25519, child Ed25519, child X25519). Any substituted key — including the X25519
 keys, which §7.3 attestation does **not** bind — changes the six emojis, so the
 human visual compare catches it.
+
+The lookup is pinned by [ADR-038](adr/038-six-emoji-sas-encoding.md): the **Matrix/Element
+`m.sas.v1` 64-emoji table** (index order 0–63), and the **bit→emoji mapping** = the first 36
+bits of the 16-byte output read big-endian as six 6-bit indices into that table. Both peers
+MUST derive identical emojis, so the table and mapping are load-bearing canon (KAT +
+golden vector: `docs/test-vectors/pairing/pair-09-sas-kat.json`). ("Signal" publishes no
+emoji-SAS table; the Matrix list is the documented 64-emoji SAS this resolves to.)
 
 Parent visually compares. Parent taps "Match" → child's pubkeys enter `pinned` state in parent app; parent's pubkeys are StrongBox-wrapped on child. Mismatch → abort pair, surface MITM warning.
 

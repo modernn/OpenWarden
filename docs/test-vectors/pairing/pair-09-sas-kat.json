@@ -1,0 +1,28 @@
+{
+  "id": "pair-09-sas-kat",
+  "spec": "PROTOCOL §7.4 / ADR-025 D2a / ADR-038",
+  "description": "The §7.4 six-emoji SAS known-answer test. HKDF-SHA256 over the four pinned public keys (fixed order parent_ed ‖ parent_x ‖ child_ed ‖ child_x) with the canonical salt and the provisioning_nonce as info, truncated to 16 bytes, then mapped to six emojis via the pinned Matrix/Element 64-emoji table (first 36 bits, six 6-bit big-endian indices). Both pairing peers MUST derive these exact six emojis; substituting any of the four keys (incl. either X25519 key) changes them.",
+  "inputs": {
+    "salt": "ascii \"openwarden-pair-v1\" (18 bytes)",
+    "parent_ed25519_pub": "32 bytes, each 0x01",
+    "parent_x25519_pub": "32 bytes, each 0x02",
+    "child_ed25519_pub": "32 bytes, each 0x03",
+    "child_x25519_pub": "32 bytes, each 0x04",
+    "provisioning_nonce": "32 bytes, each 0x05 (HKDF info)",
+    "ikm": "parent_ed25519_pub ‖ parent_x25519_pub ‖ child_ed25519_pub ‖ child_x25519_pub = 128 bytes",
+    "output_length": 16
+  },
+  "expected": {
+    "hkdf_output_16_hex": "63b98004f20f7ed1c6f52a51d421740a",
+    "emoji_indices": [24, 59, 38, 0, 1, 15],
+    "emoji_names": ["Apple", "Bell", "Hourglass", "Dog", "Cat", "Flower"],
+    "emojis": ["🍎", "🔔", "⌛", "🐶", "🐱", "🌷"]
+  },
+  "notes": {
+    "bit_mapping": "first 36 bits of the 16-byte output, big-endian (bit 0 = MSB of byte 0); six 6-bit indices into the 64-emoji table (ADR-038 D3); remaining bits unused",
+    "table": "Matrix/Element m.sas.v1 64-emoji list, index order 0–63, pinned in ADR-038 appendix and SasEmojiTable.EMOJIS",
+    "independently_computed": "the hkdf_output + indices were computed with a standalone Python hmac/HKDF implementation, then frozen; the host test (SixEmojiSasRealKdfTest) reproduces them with the Bouncy Castle KDF",
+    "substitution": "flipping one byte of any of the four keys, or of the nonce, changes the six emojis — the executable regression for the X25519-substitution MITM ADR-025 D2a closes"
+  },
+  "expect": "DERIVED — both sides display [🍎, 🔔, ⌛, 🐶, 🐱, 🌷]; human Match → slice (e) pins; Mismatch → abort + MITM warning + burn nonce"
+}
