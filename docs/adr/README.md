@@ -57,6 +57,9 @@ What this means going forward (good + bad).
 | [030](030-lan-server-auth-signed-commands.md) | Accepted | Child LAN server auth = app-layer Ed25519 signed lock/unlock commands against the pinned parent key (not transport HMAC); replay floor + freshness window; reads open-on-LAN v1 (closes #20 auth surface; reuses ADR-015/017/024/025) |
 | [031](031-lan-transport-confidentiality-identity-bound-spki.md) | Accepted | LAN transport confidentiality — mDNS discovery + TLS SPKI pinned to the child identity key via a child-signed `SpkiAssertion`; TLS is confidentiality-only, auth stays app-layer (closes #21 / red-team TR1) |
 | [032](032-child-identity-hardware-binding-strongbox-p256.md) | Proposed | Child identity-key hardware binding — StrongBox EC P-256 device-binding key attests + signs the TEE-resident Curve25519 identity (resolves the StrongBox/Curve25519 incompatibility; amends ADR-025/029, PROTOCOL §7, CRYPTO §3) |
+| [033](033-parent-root-key-recovery-phrase.md) | Accepted | Parent root key — BIP39 recovery phrase → Argon2id → HKDF → Ed25519/X25519 (issue #24) |
+| [034](034-parent-signed-bundle-send.md) | Accepted | Parent assembles, signs, and sends policy bundles (monotonic policy_seq) — issue #27 |
+| [035](035-parent-pairing-session-nonce-qr.md) | Proposed | Parent pairing session — CSPRNG nonce lifecycle + §7.1 QR payload (implements ADR-025 D5a; issue #94) |
 
 <!-- 028 is reserved for the in-flight Bluetooth-transport ADR (PR #70); the table fills in when it merges. -->
 
