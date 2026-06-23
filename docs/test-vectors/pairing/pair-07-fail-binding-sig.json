@@ -1,0 +1,12 @@
+{
+  "id": "pair-07-fail-binding-sig",
+  "spec": "PROTOCOL §7.3 check 4b / ADR-032 D2/D4 / ADR-037",
+  "description": "check 4b MUST reject a child_binding_sig that does not cover the presented keys with the attested leaf key. Each case below is REFUSED (and the nonce is burned — ADR-036 D4). These prove the binding actually ties the pinned Curve25519 keys to the attested hardware: an attacker who swaps a pubkey, or who signs with a key it controls instead of the StrongBox-attested K_bind, cannot pass.",
+  "reject_cases": [
+    { "case": "wrong_signing_key", "why": "child_binding_sig is a valid ECDSA-P-256 signature, but by an attacker key, not the attested leaf K_bind ⇒ verify against the leaf fails" },
+    { "case": "substituted_ed25519_pub", "why": "child_ed25519_pub in the presented body differs from the one signed ⇒ the parent re-derives a different JCS body ⇒ signature no longer verifies" },
+    { "case": "substituted_x25519_pub", "why": "child_x25519_pub swapped (the §7.3-attestation-unbound key the four-key SAS also guards) ⇒ JCS body differs ⇒ verify fails" },
+    { "case": "malformed_signature", "why": "child_binding_sig is not valid DER ECDSA ⇒ verify returns false (never throws), fail-closed" }
+  ],
+  "expect": "REFUSED + nonce burned for every case (proven host-side in AttestationVerifierRealCryptoTest with real ECDSA-P-256)"
+}

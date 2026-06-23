@@ -1,0 +1,10 @@
+{
+  "id": "pair-08-fail-binding-stale-nonce",
+  "spec": "PROTOCOL §7.3 check 2 + 4b / ADR-032 D2 / ADR-037",
+  "description": "Freshness: a child_binding_sig produced over a PRIOR attempt's provisioning_nonce MUST be refused for the current session. The nonce is bound in two independent places — the attestation challenge (check 2) and the JCS binding body (check 4b) — so a replayed binding from an earlier pair attempt fails against the current single-use nonce. Refused + nonce burned (ADR-036 D4).",
+  "notes": {
+    "check_2": "leaf attestationChallenge == current provisioning_nonce — a stale challenge fails here first",
+    "check_4b": "the JCS body's provisioning_nonce is the current nonce (Base64Url.encode(session.nonce())); a signature made over an old nonce does not verify against the re-derived current body"
+  },
+  "expect": "REFUSED + nonce burned (proven host-side in AttestationVerifierRealCryptoTest: signature over a prior nonce, verified against the current body)"
+}
