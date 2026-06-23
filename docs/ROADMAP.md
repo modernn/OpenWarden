@@ -81,7 +81,7 @@ A parent can pair, see state, and push a policy — from a phone.
 - [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
 - [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
 - [x] "Lock now" / "Unlock now" *(#28, PR #76)*
-- [ ] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(human-gated: crypto)*
+- [x] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(#24, PR #86, ADR-033)*
 - [ ] Send signed policy bundles *(human-gated: crypto/proto)*
 - [ ] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
   WireGuard modes deferred.
