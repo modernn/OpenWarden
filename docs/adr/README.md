@@ -59,7 +59,7 @@ What this means going forward (good + bad).
 | [032](032-child-identity-hardware-binding-strongbox-p256.md) | Proposed | Child identity-key hardware binding — StrongBox EC P-256 device-binding key attests + signs the TEE-resident Curve25519 identity (resolves the StrongBox/Curve25519 incompatibility; amends ADR-025/029, PROTOCOL §7, CRYPTO §3) |
 | [033](033-parent-root-key-recovery-phrase.md) | Accepted | Parent root key — BIP39 recovery phrase → Argon2id → HKDF → Ed25519/X25519 (issue #24) |
 | [034](034-parent-signed-bundle-send.md) | Accepted | Parent assembles, signs, and sends policy bundles (monotonic policy_seq) — issue #27 |
-| [035](035-parent-pairing-session-nonce-qr.md) | Proposed | Parent pairing session — CSPRNG nonce lifecycle + §7.1 QR payload (implements ADR-025 D5a; issue #94) |
+| [035](035-parent-pairing-session-nonce-qr.md) | Accepted | Parent pairing session — CSPRNG nonce lifecycle + §7.1 QR payload (implements ADR-025 D5a; issue #94) |
 
 <!-- 028 is reserved for the in-flight Bluetooth-transport ADR (PR #70); the table fills in when it merges. -->
 

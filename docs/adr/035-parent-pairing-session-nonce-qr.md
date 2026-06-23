@@ -1,6 +1,6 @@
 # ADR-035: Parent pairing session — CSPRNG nonce lifecycle + §7.1 QR payload (implements ADR-025 D5a)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-22
 Implements: **[ADR-025](025-pairing-handshake-direction-attestation-sas.md) D5(a)** — the first of the five re-scoped parent-side pairing slices. Resolves the **nonce-lifetime + single-use consumption** item from ADR-025 "Blocking before implementation".
 Relates: docs/PROTOCOL.md §7.1 (QR payload); [ADR-033](033-parent-root-key-recovery-phrase.md) (the parent root keys carried in the QR); [ADR-032](032-child-identity-hardware-binding-strongbox-p256.md) (the child side that consumes the nonce as its attestation challenge); docs/ATTACKS.md H3; docs/DEFENSES.md #14 / Pattern E. Closes part of issue **#94** (re-scope of closed #23).
