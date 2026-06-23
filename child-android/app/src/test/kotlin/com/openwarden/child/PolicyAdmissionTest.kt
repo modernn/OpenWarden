@@ -5,6 +5,8 @@ import net.i2p.crypto.eddsa.EdDSAPrivateKey
 import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable
 import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec
 import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Test
@@ -665,23 +667,112 @@ class PolicyAdmissionTest {
 
     @Test
     fun verifiedButUnparseableBodyRejectedMalformedNeverApplied() {
-        // ADR-019 D2 / ADR-040: verify first, parse second. A document that verifies structurally but
-        // cannot decode into the typed model must be rejected, never applied.
+        // ADR-019 D2 / ADR-040: verify first, parse second. A document that VERIFIES (valid sig over
+        // the received bytes) but whose typed decode then fails must be rejected MALFORMED AFTER
+        // verification, and never applied. policy_seq is carried as a JSON string — JCS-safe (it is a
+        // string, not an integer), validly signed, but SignedBundle.policy_seq:Long cannot decode it.
+        val kp = newKeypair()
         val state = FakeFloorState(provisioned = true, atRest = 10L)
         val applier = RecordingApplier()
-        // policy_seq carried as a STRING — valid JSON, JCS-safe (it's a string, not an integer), but
-        // the typed SignedBundle.policy_seq:Long cannot decode it => MALFORMED at the parse step.
-        val doc = JsonObject(
+        val unsigned = JsonObject(
             docOf(bundle(policySeq = 11L, childId = state.childDeviceId())).toMutableMap().apply {
+                remove("sig")
                 put("policy_seq", JsonPrimitive("not-a-number"))
             },
         )
-        val result = PolicyAdmission.admit(
-            doc, state, applier, pinParentKey = {}, pinnedParentPubkey = newKeypair().publicKeyRaw,
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val doc = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+
+        val result = PolicyAdmission.admit(doc, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Rejected, "a verified-but-unparseable body must be rejected")
+        assertTrue((result as PolicyAdmission.Result.Rejected).malformed, "verified-but-unparseable is MALFORMED")
+        assertTrue(result.reason.contains("unparseable"), "reason should name the post-verify parse failure")
+        assertTrue(applier.calls.isEmpty(), "nothing may be staged/applied")
+    }
+
+    @Test
+    fun admitAppliesADocumentWithAParentSignedFieldTheChildDoesNotModel() {
+        // ADR-040 end-to-end (Codex review): a parent-signed field the child's typed model omits must
+        // NOT break admission — the sig verifies over the received doc and the bundle applies. Locks
+        // the FULL pipeline (admit), not just the verifier unit.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = 10L)
+        val applier = RecordingApplier()
+        val unsigned = JsonObject(
+            docOf(bundle(policySeq = 11L, childId = state.childDeviceId())).toMutableMap().apply {
+                remove("sig")
+                put("x_future_field", JsonPrimitive("parent-signed-but-child-unmodeled"))
+            },
         )
-        assertTrue(result is PolicyAdmission.Result.Rejected, "an unparseable body must be rejected")
-        assertTrue((result as PolicyAdmission.Result.Rejected).malformed, "unparseable typed model is MALFORMED")
-        assertTrue(applier.calls.isEmpty(), "nothing may be staged/applied for an unparseable body")
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val doc = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+
+        val result = PolicyAdmission.admit(doc, state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw)
+
+        assertTrue(result is PolicyAdmission.Result.Applied, "an unmodeled parent-signed field must not break admission")
+        assertEquals(11L, state.atRestFloor())
+        assertEquals(listOf("stage:11", "apply:11", "ack:11"), applier.calls)
+    }
+
+    @Test
+    fun verifyDocumentHandlesUnicodeAndEscapingOverReceivedBytes() {
+        // ADR-019 D5 / PROTOCOL §3.1 rule 5 (crypto review LOW-1): unicode + escaped strings must
+        // canonicalize identically on the received-bytes path. Sign over the canonical bytes of a doc
+        // with accented + tab + astral-plane characters, then verify through verifyDocument.
+        val kp = newKeypair()
+        val b = bundle(policySeq = 7L, childId = "child-aaaa", allowlist = listOf("café", "tab\there", "emoji😀"))
+        val unsigned = JsonObject(docOf(b).toMutableMap().apply { remove("sig") })
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val signed = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+        assertTrue(
+            BundleVerifier.verifyDocument(signed, kp.publicKeyRaw),
+            "a bundle with unicode/escaped strings must verify over the received bytes",
+        )
+        // Same signature, one accent stripped from the received doc => different canonical bytes => fail.
+        val b2 = bundle(policySeq = 7L, childId = "child-aaaa", allowlist = listOf("cafe", "tab\there", "emoji😀"))
+        val tampered = JsonObject(docOf(b2).toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+        assertFalse(
+            BundleVerifier.verifyDocument(tampered, kp.publicKeyRaw),
+            "altering a unicode character must break verification over received bytes",
+        )
+    }
+
+    @Test
+    fun duplicateKeyInReceivedJsonIsFailClosed() {
+        // crypto-review MED-1 / Codex INFO: kotlinx parseToJsonElement is last-wins on duplicate keys.
+        // The signature is over the value the parent signed; a received body with a duplicate key whose
+        // LAST value differs collapses to a different canonical form => SIG_FAIL. No bypass possible.
+        val kp = newKeypair()
+        val signed = sign(bundle(policySeq = 11L, childId = "child-aaaa"), kp)
+        val wire = Canonical.canonicalize(docOf(signed)) // canonical wire JSON incl sig
+        // Inject a duplicate policy_seq with a DIFFERENT last value (what a MITM would attempt).
+        val tamperedRaw = wire.replaceFirst("\"policy_seq\":11", "\"policy_seq\":11,\"policy_seq\":99")
+        val parsed = Json.parseToJsonElement(tamperedRaw) as JsonObject
+        assertEquals("99", (parsed["policy_seq"] as JsonPrimitive).content, "kotlinx collapses duplicates last-wins")
+        assertFalse(
+            BundleVerifier.verifyDocument(parsed, kp.publicKeyRaw),
+            "a duplicate key that changes the effective value must fail verification (fail-closed)",
+        )
+    }
+
+    @Test
+    fun nullValueInReceivedDocumentRejected() {
+        // PROTOCOL §3.1 rule 6 / ADR-019 D4 (Codex review): null is forbidden in a signed document.
+        // Even validly signed, a received doc carrying a null must be rejected before verification.
+        val kp = newKeypair()
+        val unsigned = JsonObject(
+            docOf(bundle(policySeq = 11L, childId = "child-aaaa")).toMutableMap().apply {
+                remove("sig")
+                put("private_dns_probe", JsonNull)
+            },
+        )
+        val sigHex = signBytesHex(Canonical.canonicalize(unsigned).encodeToByteArray(), kp)
+        val doc = JsonObject(unsigned.toMutableMap().apply { put("sig", JsonPrimitive(sigHex)) })
+        assertFalse(
+            BundleVerifier.verifyDocument(doc, kp.publicKeyRaw),
+            "a null anywhere in the signed document must fail closed (§3.1 rule 6)",
+        )
     }
 
     // =========================================================================

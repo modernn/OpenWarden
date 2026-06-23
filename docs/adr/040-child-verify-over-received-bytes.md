@@ -63,6 +63,38 @@ explicitly; the pure decision cannot run without the bytes it must verify.
 JSON object with `sig` as an embedded field; "verify over received bytes" means *canonicalize the
 received object minus `sig`*, which is idempotent on already-canonical input the parent transmits.
 
+**D6 — "Verify over received bytes" = canonicalize-the-parsed-object (the ADR-019 D2 variant chosen).**
+ADR-019 D2 offers two forms: `SigningInput.forDocument` on the received JSON, *or* directly over the
+raw request body. Because `sig` is an **embedded** field, the raw-body form is not cleanly available
+(stripping `sig` from raw bytes itself requires parsing). We therefore verify by canonicalizing the
+parsed `JsonObject` minus `sig` — the canon-sanctioned `forDocument` variant. Its equivalence to the
+parent's transmitted bytes rests on the parent signer being, and remaining, the **byte-identical**
+canonical port (`proto/SigningInput.forBundle`); the cross-impl golden-hex + libsodium-KAT tests are
+the standing merge gate that pins this, and "if you change one, change both" is the code guardrail.
+A parent that ever transmits non-canonical-but-valid JSON (e.g. `A` for `A`) would `SIG_FAIL` a
+genuine bundle — a **liveness** failure (rejects a valid bundle), never a **safety** one (never
+admits a bad bundle), so it is fail-closed and acceptable.
+
+**D7 — Fail-closed structural gates over the received document, then parse.** Order on the child is
+exactly: parse-to-`JsonObject` → JC1 (`requireAllIntegersJcsSafe`, whole tree) → **null-rejection**
+(`requireNoNulls`, §3.1 rule 6 / ADR-019 D4 — discharged here, no longer a follow-up) → canonical
+size → version (`v` read from the doc) → audience (`child_device_id` read from the doc) → Ed25519
+verify → **then** typed decode → floor/genesis/apply. The pre-signature gates read the wire object
+directly and are **reject-only**, so a forged pre-verify field can only cause a rejection, never an
+apply (apply is strictly gated behind a verified `Accept`); a verified-but-unparseable body is
+rejected `MALFORMED`, never applied (ADR-019 D2 "verify first, parse second, apply third").
+
+**D8 — Duplicate keys are fail-closed; unknown fields are ignored (with a schema-evolution rule).**
+kotlinx `parseToJsonElement` collapses duplicate object keys last-wins; both the signature check and
+the typed decode see the *same* collapsed object, and any duplicate that changes an effective value
+yields different canonical bytes → `SIG_FAIL`. No bypass (pinned by a regression test). A
+**cross-language** verifier MUST adopt the same (reject-or-last-wins) rule or interop will diverge.
+Separately, `ignoreUnknownKeys = true` means an unknown parent-signed field is honored in the
+signature but **ignored** by enforcement (the additive-field interop win). To keep fail-closed under
+schema growth: **any future field whose absence would *weaken* enforcement MUST ship with a `v` bump**
+(PROTOCOL §8 format break) so an older child rejects (`v != 1` → `MALFORMED`) rather than silently
+under-enforces — never add a tightening field as an ignorable `v1` field.
+
 ## Consequences
 
 - Parent↔child interop is byte-stable against schema-shape drift: an extra parent-signed field, a
@@ -76,6 +108,18 @@ received object minus `sig`*, which is idempotent on already-canonical input the
 - The child still owns one canonicalizer that MUST stay byte-identical to the parent signer's
   (`If you change one, change both`). This ADR moves *what is fed into it* (received object, not
   typed re-encode); it does not change the JCS rules.
+- Also discharges the ADR-019 D4 `null`-rejection follow-up on the child verify path (D7): a `null`
+  anywhere in the received document fails closed before verification (PROTOCOL §3.1 rule 6).
+- `/policy` now bounds the request body (`MAX_POLICY_BODY_BYTES`, fail-closed Content-Length gate)
+  before buffering — closing a pre-auth LAN OOM-DoS vector the old `call.receive` path also had.
+- Tests added/strengthened: drift regression (unmodeled field) at both the verifier unit **and** the
+  full `admit()` pipeline; verified-but-unparseable → `MALFORMED` never applied; a unicode/escaping
+  golden vector through `verifyDocument`; duplicate-key fail-closed; null-rejection; and the libsodium
+  interop KATs re-pinned to the live `verifyDocument` path.
+- **Out of scope (tracked follow-up):** `/heartbeat`, `/lock`, `/unlock` still verify their signed
+  objects over a typed re-serialization (`HeartbeatVerifier` / command verifiers) — the same ADR-019
+  tension this ADR fixes for `/policy`. They should get the verify-over-received-bytes treatment in a
+  separate change (ADR-024/ADR-030 artifacts).
 - Discharges the ADR-034 / issue #91 residual. The remaining ADR-034 child residual — `not_before`/
   `not_after` freshness enforcement (#90) — is handled separately (ADR-041).
 

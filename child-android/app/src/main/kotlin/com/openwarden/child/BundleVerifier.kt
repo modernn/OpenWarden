@@ -43,6 +43,7 @@ object BundleVerifier {
      * signature check. Throws on JC1 violation or a non-integer number.
      */
     fun signingBytes(receivedDoc: JsonObject): ByteArray {
+        Canonical.requireNoNulls(receivedDoc) // §3.1 rule 6: null forbidden in a signed document
         Canonical.requireAllIntegersJcsSafe(receivedDoc)
         return Canonical.canonicalizeWithout(receivedDoc, "sig").encodeToByteArray()
     }
@@ -68,7 +69,7 @@ object BundleVerifier {
      * Signer-side test convenience ONLY (ADR-019 D3 / ADR-040): the wire JSON object a typed bundle
      * serializes to. NOT a verifier input — the live verifier uses the object it actually received.
      */
-    fun toWireDocument(bundle: SignedBundle): JsonObject =
+    internal fun toWireDocument(bundle: SignedBundle): JsonObject =
         json.encodeToJsonElement(SignedBundle.serializer(), bundle) as JsonObject
 
     /**
@@ -76,7 +77,7 @@ object BundleVerifier {
      * convenience ONLY (ADR-019 D3). The live verifier path is [verifyDocument] over the received
      * object — never this typed re-serialization.
      */
-    fun canonicalBody(bundle: SignedBundle): ByteArray =
+    internal fun canonicalBody(bundle: SignedBundle): ByteArray =
         Canonical.canonicalizeWithout(toWireDocument(bundle), "sig").encodeToByteArray()
 
     /**
@@ -90,6 +91,6 @@ object BundleVerifier {
             "re-serialization is for tests/golden vectors only.",
         ReplaceWith("verifyDocument(toWireDocument(bundle), pubkey)"),
     )
-    fun verify(bundle: SignedBundle, pubkey: ByteArray): Boolean =
+    internal fun verify(bundle: SignedBundle, pubkey: ByteArray): Boolean =
         verifyDocument(toWireDocument(bundle), pubkey)
 }

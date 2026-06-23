@@ -69,6 +69,21 @@ object Canonical {
         }
     }
 
+    /**
+     * Fail-closed guard: reject any `null` value anywhere in [element] (PROTOCOL.md §3.1 rule 6 /
+     * ADR-019 D4 — `null` is forbidden in a signed document; omit the key instead). The verifier runs
+     * this over the received document before canonicalization so a parent-signed bundle carrying a
+     * null is rejected rather than canonicalized as the literal `null`. Throws on violation.
+     */
+    fun requireNoNulls(element: JsonElement) {
+        when (element) {
+            is JsonObject -> element.values.forEach { requireNoNulls(it) }
+            is JsonArray -> element.forEach { requireNoNulls(it) }
+            JsonNull -> throw IllegalArgumentException("null is forbidden in a signed document (PROTOCOL.md §3.1 rule 6)")
+            is JsonPrimitive -> Unit
+        }
+    }
+
     /** Canonical JCS string of [element]. */
     fun canonicalize(element: JsonElement): String = buildString { write(element, this) }
 

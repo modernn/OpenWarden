@@ -2,6 +2,8 @@ package com.openwarden.child
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 
 /**
  * The ADR-017 child admission pipeline for a [SignedBundle].
@@ -102,17 +104,10 @@ object PolicyAdmission {
         effectiveFloor: Long?,
         floorAnomaly: Boolean = false,
     ): Outcome {
-        // Decode the typed model from the received object. A verified-but-unparseable body is rejected
-        // (ADR-019 D2); decoding here has no side effects and nothing is applied until Accept, so the
-        // dangerous "apply" step still strictly follows the signature check below.
-        val bundle: SignedBundle = try {
-            json.decodeFromJsonElement(SignedBundle.serializer(), receivedDoc)
-        } catch (e: Exception) {
-            return Outcome.RejectMalformed("unparseable policy bundle: ${e.message}")
-        }
-
-        // Step 1: version.
-        if (bundle.v != 1) return Outcome.RejectMalformed("unsupported bundle version ${bundle.v}")
+        // ADR-019 D2 / ADR-040 ordering: verify over the RECEIVED document FIRST, then parse. The
+        // pre-signature gates (size, JC1, version, audience) read the wire object directly — NOT a
+        // typed re-parse — and are all reject-only, so a forged pre-verify field can only cause a
+        // rejection, never an apply (the apply path is strictly gated behind a verified Accept).
 
         // Steps 2-3: canonical size + JC1 integer bound, over the RECEIVED document (ADR-040),
         // BEFORE signature (ADR-017 verify steps 2-3). signingBytes() asserts every integer in the
@@ -127,31 +122,33 @@ object PolicyAdmission {
             return Outcome.RejectMalformed("canonical size ${body.size} > $MAX_CANONICAL_SIZE")
         }
 
-        // Step 4: audience binding, BEFORE signature (ADR-017 §6 / verify step 4).
-        // An empty id can never be a real child id, so legacy/unaddressed bundles fail here.
-        if (bundle.child_device_id.isEmpty() || bundle.child_device_id != myChildDeviceId) {
+        // Step 1: version, read from the RECEIVED document (missing / non-integer / != 1 => MALFORMED).
+        val version = (receivedDoc["v"] as? JsonPrimitive)?.intOrNull
+        if (version != 1) return Outcome.RejectMalformed("unsupported or missing bundle version $version")
+
+        // Step 4: audience binding, from the RECEIVED document, BEFORE signature (ADR-017 §6 / step 4).
+        // A missing/non-string/empty id can never be a real child id, so it fails closed here.
+        val audience = (receivedDoc["child_device_id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (audience.isNullOrEmpty() || audience != myChildDeviceId) {
             return Outcome.RejectMalformed(
-                "child_device_id '${bundle.child_device_id}' != my id (audience mismatch, ADR-017 §6)",
+                "child_device_id '$audience' != my id (audience mismatch, ADR-017 §6)",
             )
         }
 
         // Steps 5-6: signature over the RECEIVED document (ADR-040). Fail-closed.
         if (pinnedParentPubkey == null) {
-            // No pinned key. Only legitimate in the never-provisioned genesis path,
-            // where the bundle is self-asserting its first key (TOFU). We still verify
-            // the bundle's signature against its OWN claimed-but-not-yet-pinned key is
-            // out of scope for the pure decision (no key material here); the genesis
-            // accept below is gated on the caller having verified the sig against the
-            // key it is about to pin. For provisioned children a null pinned key is an
-            // anomaly => strict.
+            // No pinned key. Only legitimate in the never-provisioned genesis path, where the bundle
+            // is self-asserting its first key (TOFU). The pure decision cannot verify it (no key
+            // material here); the genesis accept below is gated on admit() verifying the signature
+            // over this same document against the key it is about to pin. For provisioned children a
+            // null pinned key is an anomaly => strict.
             if (provisioned) {
                 return Outcome.RejectStrict("provisioned child with no pinned parent key — anomaly (ADR-017 part 4)")
             }
-            // No pinned key + not provisioned. ONLY legitimate as the clean
-            // never-provisioned genesis state (no floor either). If a floor is already
-            // seeded with no key and no marker, that is an inconsistent/partial state —
-            // an anomaly, fail-closed — never a genesis accept that would apply WITHOUT
-            // any signature verification.
+            // No pinned key + not provisioned. ONLY legitimate as the clean never-provisioned genesis
+            // state (no floor either). A floor seeded with no key and no marker is an
+            // inconsistent/partial state — an anomaly, fail-closed — never a genesis accept that would
+            // apply WITHOUT any signature verification.
             if (effectiveFloor != null) {
                 return Outcome.RejectStrict(
                     "no pinned key + not provisioned but floor present — inconsistent state, anomaly (ADR-017 part 4)",
@@ -163,6 +160,16 @@ object PolicyAdmission {
             if (!BundleVerifier.verifyDocument(receivedDoc, pinnedParentPubkey)) {
                 return Outcome.RejectStrict("Ed25519 signature verification failed (SIG_FAIL, fail-closed)")
             }
+        }
+
+        // Verify first, PARSE SECOND (ADR-019 D2): only now decode the typed model from the SAME
+        // verified document. A verified-but-unparseable body is rejected, never applied. (Genesis is
+        // sig-deferred above; admit() re-verifies over this document before any pin/stage/apply, so
+        // nothing is applied before verification on either path.)
+        val bundle: SignedBundle = try {
+            json.decodeFromJsonElement(SignedBundle.serializer(), receivedDoc)
+        } catch (e: Exception) {
+            return Outcome.RejectMalformed("verified-but-unparseable policy bundle: ${e.message}")
         }
 
         // Local floor anomaly (ADR-017 part 1/3): at-rest read below the chain witness.
