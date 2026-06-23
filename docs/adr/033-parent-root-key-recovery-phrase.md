@@ -1,6 +1,6 @@
 # ADR-033: Parent root key — BIP39 recovery phrase → Argon2id → HKDF → Ed25519/X25519 (issue #24)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-22
 Relates: **CRYPTO.md §1–§2** (the key inventory + the BIP39→root-key derivation this implements), **RECOVERY.md §2/§11** (phrase generation, confirm-back, entry security), **ADR-015/019** (the one signing rule the derived identity key feeds), **ADR-031** (the child-side `IdentityKeyProvider` seam this mirrors on the parent), **PARENT_KMP_STRUCTURE.md §3/§13** (the locked KMP crypto stack + library matrix this amends); docs/ATTACKS.md (H6 shoulder-surf, K2/K3), docs/DEFENSES.md (#15 phrase + time-lock)
 
@@ -87,5 +87,5 @@ No SLIP-10/BIP-32 hierarchy. Same mnemonic ⇒ same two keys, deterministically 
 - **Best-effort wipe only.** `RootKeys.wipe()` zeroes the private scalars after persist, but the serialized blob, its hex string in `EncryptedSharedPreferences`, and the mnemonic `List<String>` held during onboarding are JVM-managed and cannot be reliably zeroized — a known residual that matches the child's posture.
 - **At-rest format.** The 128-byte key blob is hex-encoded into `EncryptedSharedPreferences` (which takes `String`, not `ByteArray`); it is AES-256-GCM-wrapped under the StrongBox/TEE MasterKey, so the encryption-at-rest property holds. `EncryptedSharedPreferences` is deprecated in current `androidx.security:security-crypto`; the child uses the same idiom (`ReplayFloorStore`), so any future migration is a coordinated decision.
 - **Follow-ups tracked:** Compose onboarding screen (with `FLAG_SECURE`); on-device BC-sign → libsodium-verify cross-check (host-side RFC KATs cover the provable half); iOS derivation; printable sheet + randomized entry + biometric entry-lock.
-- **Open for maintainer sign-off (not agent-decided):** (a) whether silent StrongBox→TEE fallback for the recovery-grade parent KEK is acceptable or must be *disclosed* the way the child's TEE downgrade is (ADR-029 D4); (b) the constraint that #27's background bundle signing MUST NOT relax `setUserAuthenticationRequired` — a derived session key is the safe answer, not weakening the root KEK's at-rest gate.
-- On merge this ADR flips to **Accepted**.
+- **Maintainer sign-off (recorded):** (a) **StrongBox→TEE fallback for the parent KEK MUST be disclosed to the parent**, mirroring the child's disclosed-downgrade posture (ADR-029 D4) — maintainer ruling at merge; tracked as a follow-up (surface the attestation/TEE-fallback signal in the parent app). (b) #27's background bundle signing MUST NOT relax `setUserAuthenticationRequired` — a derived session key is the safe answer, not weakening the root KEK's at-rest gate.
+- Accepted on maintainer approval (PR #86).
