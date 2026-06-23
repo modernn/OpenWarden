@@ -62,6 +62,14 @@ Bad / accepted limits:
 - The 5-min TTL is a judgement call; it is configurable and can be tuned when slice (b)/(c) measure real StrongBox keygen + POST latency on device.
 - This slice does not render a scannable image (D9); the parent UI wiring completes that.
 
+## Forward hazards (recorded for slices b–e)
+
+The dual adversarial review of this slice surfaced three forward-looking constraints. None is a defect in slice (a) — they are preconditions the downstream slices inherit and must not silently drop:
+
+- **The QR JSON is deliberately non-canonical and unsigned.** `toJson()` emits kotlinx-serialization declaration-order JSON, not RFC 8785 JCS (PROTOCOL §3 / ADR-019). Correct here — the §7.1 QR carries no signature; trust comes from attestation (c) + the four-key SAS (d), and the child parses by field name. **Constraint:** any future transcript binding (the ADR-025 "full-transcript replay binding" item) MUST hash the raw key/nonce **bytes** or a JCS re-encoding — never this serializer output — or it reintroduces the signer/verifier byte-drift ADR-019 forbids.
+- **`consume()`/`active()` are not internally synchronized** (no `synchronized` in commonMain; slice (a) is single-threaded UI). The check-then-null in `consume()` is non-atomic. **Constraint (issue #95, the b endpoint):** the endpoint MUST confine or synchronize `consume()`/`active()` onto one context, with a concurrency test — else two concurrent child POSTs could be handed the same nonce, weakening the single-use property slice (c) depends on.
+- **`ttlMs` is caller-supplied and unbounded** (the 300 s default is correct). **Constraint:** when the parent pairing UI wires the real value, clamp it to a sane maximum so the live pre-pin window cannot be widened past D3's intent.
+
 ## Test plan
 
 Deterministic, seam-injected (fake `PairingNonceSource` + `nowMs` lambda), host-side in `commonTest`:
