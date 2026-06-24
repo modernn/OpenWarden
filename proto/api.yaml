@@ -3,9 +3,13 @@ info:
   title: OpenWarden Child API
   version: 1.0.0
   description: |
-    HTTP API exposed by the child DPC. Bound to the Tailscale interface only.
-    Every request requires HMAC-SHA256 auth (Authorization: OpenWarden <hex>) over the
-    canonicalized body + Unix timestamp. Timestamps within 60s window only.
+    HTTP API exposed by the child DPC on the LAN (port 7180).
+
+    Auth is APP-LAYER, not a transport HMAC (ADR-030): every state-changing request carries a
+    parent-signed wire object verified against the parent Ed25519 key pinned at pairing (ADR-025)
+    — /policy a SignedBundle, /heartbeat a SignedHeartbeat, /lock & /unlock a SignedCommand. The
+    read endpoints (/state, /usage) expose metadata only and stay open on the LAN in v1 (ADR-030 D6).
+    (The earlier HMAC-SHA256 + 60s-timestamp scheme described here was never built; superseded by ADR-030.)
 
 servers:
   - url: http://{child_tailscale_ip}:{port}
@@ -16,7 +20,11 @@ servers:
 paths:
   /state:
     get:
-      summary: Current child state
+      summary: Current child state (open metadata read, ADR-030 D6)
+      description: |
+        Reconciled to the implemented StateResponse (ADR-042 D5/D5a, #114). The prior schema
+        (ISO policy_expires_at + battery_pct/charging/current_app) was never built and is removed.
+        is_locked and paired are fail-closed (an unreadable store/key reports the safe default).
       responses:
         '200':
           description: OK
@@ -24,14 +32,21 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [version, policy_version, policy_not_after, is_locked, paired, reported_at]
                 properties:
                   version: {type: string}
+                  # "none" when no policy yet, else issued_at as integer-ms rendered to a string (§2).
                   policy_version: {type: string}
-                  policy_expires_at: {type: string, format: date-time}
-                  battery_pct: {type: integer}
-                  charging: {type: boolean}
-                  current_app: {type: string, nullable: true}
+                  # "n/a" when no policy yet, else not_after as integer-ms rendered to a string (§2).
+                  policy_not_after: {type: string}
+                  # Durable lock state set by signed /lock|/unlock (ADR-030 D5). Fail-closed: assume locked.
                   is_locked: {type: boolean}
+                  # True iff a parent Ed25519 key is pinned (ADR-025/ADR-042 D5). Fail-closed: false on read error.
+                  paired: {type: boolean}
+                  # Child wall-clock at response time, epoch ms (ADR-042 D5a). LIVENESS ONLY — not a trust
+                  # boundary, distinct from the ADR-041 monotonic policy-freshness clock; parent treats it
+                  # as untrusted and fails closed both sides of its freshness window.
+                  reported_at: {type: integer, format: int64}
 
   /policy:
     post:
@@ -75,29 +90,27 @@ paths:
 
   /usage:
     get:
-      summary: App usage stats
-      parameters:
-        - in: query
-          name: since
-          schema: {type: string, format: date-time}
+      summary: Per-app foreground usage, metadata only (open read, ADR-030 D6)
+      description: |
+        Reconciled to the implemented UsageResponse (ADR-042, #74/#114). METADATA ONLY — package +
+        label + floored foreground minutes over the last 24h (queryUsageStats aggregate, never
+        queryEvents). `source` reports the data provenance; no-grant fails closed to honest-empty on
+        release (`unavailable`) and a clearly-labelled demo list on debug builds (`demo-fallback`);
+        an unexpected error returns 500 with `source: error` and an empty per_app (never fabricated).
+        The prior schema (range_start/range_end + pkg/ms/launches + `since` param) was never built.
       responses:
         '200':
-          description: OK
+          description: OK (source = on-device | demo-fallback | unavailable)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  range_start: {type: string, format: date-time}
-                  range_end: {type: string, format: date-time}
-                  per_app:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        pkg: {type: string}
-                        ms: {type: integer}
-                        launches: {type: integer}
+                $ref: '#/components/schemas/UsageResponse'
+        '500':
+          description: Unexpected error — source = error, per_app empty (fail-closed, never fabricated)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageResponse'
 
   /location:
     get:
@@ -180,6 +193,32 @@ components:
       # SignedBundle schema (which uses integer-ms issued_at/not_before/not_after, child_device_id,
       # policy_seq, and allow/days/tz windows). Reconciling it is tracked separately; the Heartbeat
       # below matches the implemented child schema exactly.
+
+    AppUsageEntry:
+      type: object
+      required: [packageName, foregroundMinutes]
+      description: Metadata-only per-app entry (ADR-042 D1) — no in-app content ever.
+      properties:
+        packageName: {type: string}
+        # OS-provided app display name; OMITTED from the wire when unresolved (server explicitNulls=false).
+        label: {type: string, nullable: true}
+        foregroundMinutes: {type: integer, format: int64}
+
+    UsageResponse:
+      type: object
+      required: [source, window_hours, per_app]
+      properties:
+        source:
+          type: string
+          enum: [on-device, demo-fallback, unavailable, error]
+        window_hours: {type: integer}
+        per_app:
+          type: array
+          items: {$ref: '#/components/schemas/AppUsageEntry'}
+        # Present only for source=demo-fallback / unavailable / error respectively (omitted otherwise).
+        demo_notice: {type: string, nullable: true}
+        notice: {type: string, nullable: true}
+        error: {type: string, nullable: true}
 
     Heartbeat:
       type: object
