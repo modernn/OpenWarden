@@ -41,6 +41,9 @@ class DashboardViewModelTest {
     /** A timestamp that is stale (older than the 90s window from fixedNow). */
     private val staleTimestamp = Instant.fromEpochSeconds(1_717_999_900L) // 300s ago — stale
 
+    /** A timestamp implausibly in the FUTURE (beyond the 90s window) — clock skew / spoofed child. */
+    private val futureTimestamp = Instant.fromEpochSeconds(1_718_000_500L) // 300s ahead — future
+
     private val fixedClock = object : Clock {
         override fun now(): Instant = fixedNow
     }
@@ -285,6 +288,34 @@ class DashboardViewModelTest {
             state.onlineStatus,
             "Fresh reportedAt (50s < 90s window) must map to ONLINE",
         )
+    }
+
+    /**
+     * A snapshot whose [ChildDashboardSnapshot.reportedAt] is implausibly in the FUTURE (beyond
+     * the freshness window) must map to OFFLINE_OR_UNKNOWN — fail-closed on both sides (#20 review
+     * HIGH-1). reportedAt is untrusted network data; a future timestamp (clock skew or a spoofed
+     * child clock) must never read as a live ONLINE, which a one-sided window allowed indefinitely.
+     */
+    @Test
+    fun futureTimestamp_mapsToOffline_notOnline() = runTest {
+        val futureRepo = object : ChildStateRepository {
+            override suspend fun fetchSnapshot() = ChildDashboardSnapshot(
+                reportedAt = futureTimestamp, // 300s AHEAD of fixedNow — outside the 90s window
+                todayUsage = TodayUsage.Known(totalForegroundMs = 1_000_000L, perApp = emptyList()),
+                blocksData = BlocksData.Known(attempts = emptyList()),
+            )
+        }
+        val vm = vmWith(futureRepo, clock = fixedClock)
+        vm.refresh()
+        advanceUntilIdle()
+
+        val state = assertIs<DashboardUiState.Success>(vm.uiState.value)
+        assertEquals(
+            ChildOnlineStatus.OFFLINE_OR_UNKNOWN,
+            state.onlineStatus,
+            "Future-dated reportedAt (300s ahead > 90s window) must map to OFFLINE_OR_UNKNOWN — fail-closed",
+        )
+        assertIs<TodayUsage.Unknown>(state.todayUsage, "Future-dated snapshot usage must be Unknown")
     }
 
     /**

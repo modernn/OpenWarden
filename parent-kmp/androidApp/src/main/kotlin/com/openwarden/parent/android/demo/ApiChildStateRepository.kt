@@ -23,8 +23,11 @@ import kotlinx.datetime.Instant
  *    judges `reportedAt` against its freshness window.
  *  - **Metadata only** — package + label + foreground minutes; no content ever.
  */
+// The [ChildApiClient] is injected (no default) so its OkHttp lifecycle has exactly one owner —
+// the caller that constructs it also closes it via [close]. A default-constructed client would be
+// a leak footgun for any caller that forgets to close it.
 internal class ApiChildStateRepository(
-    private val client: ChildApiClient = ChildApiClient(),
+    private val client: ChildApiClient,
 ) : ChildStateRepository, java.io.Closeable {
 
     override suspend fun fetchSnapshot(): ChildDashboardSnapshot = runCatching {

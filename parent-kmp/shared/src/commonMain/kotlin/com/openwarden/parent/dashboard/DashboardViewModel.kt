@@ -138,7 +138,13 @@ class DashboardViewModel(
 
         val onlineStatus: ChildOnlineStatus = when {
             reportedAt == null -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
+            // Fail-closed on BOTH sides. reportedAt is untrusted, network-sourced data (#20):
+            // too old → stale → offline; implausibly in the FUTURE (clock skew, or a spoofed/
+            // compromised child clock) is equally untrustworthy and must NOT read ONLINE. A
+            // one-sided check let a future timestamp pin ONLINE forever even after the child
+            // went dark. Online only inside [now - window, now + window].
             (now - reportedAt) > freshnessWindow -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
+            (reportedAt - now) > freshnessWindow -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
             else -> ChildOnlineStatus.ONLINE
         }
 

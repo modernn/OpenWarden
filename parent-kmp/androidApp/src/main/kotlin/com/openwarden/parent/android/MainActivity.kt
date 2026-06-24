@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.openwarden.parent.android.demo.ApiChildStateRepository
+import com.openwarden.parent.android.demo.ChildApiClient
 import com.openwarden.parent.android.policy.DemoAllowlistRepository
 import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
 import com.openwarden.parent.android.ui.dashboard.DashboardScreen
@@ -28,7 +29,8 @@ import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
 class MainActivity : ComponentActivity() {
 
     // Held at Activity scope so the OkHttp pool is closed exactly once in onDestroy.
-    private val childRepo = ApiChildStateRepository()
+    // The client is constructed here (explicit, not defaulted) so this Activity is its sole owner.
+    private val childRepo = ApiChildStateRepository(ChildApiClient())
 
     private val dashboardVm: DashboardAndroidViewModel by viewModels {
         DashboardAndroidViewModel.Factory(repository = childRepo)
