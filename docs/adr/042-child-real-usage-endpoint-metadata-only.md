@@ -92,6 +92,19 @@ and not regressed** — `policy_not_after` already is the honest form of the dem
 branch's `policy_expires_at` (renamed to integer-ms in §2), so this ADR does not
 reintroduce the demo's hardcoded `is_locked = false` or ISO-string fields.
 
+**D5a — `/state` also carries `reported_at` (liveness only, NOT a trust boundary).**
+*(amended for #114/PR #115.)* `/state` includes `reported_at` — the child's current
+wall clock (`System.currentTimeMillis()`, epoch ms) at response time — so the parent
+dashboard can derive a freshness/online signal (#20). It is **explicitly liveness-only**:
+it grants no authority and relaxes no enforcement. A kid skewing the device clock can
+only flip the parent's dashboard dot to *offline/unknown* (which collapses usage/blocks
+to *Unknown* — less trust shown, never more). It is **distinct from and never confused
+with** the ADR-041 §5.1 policy-freshness clock, which is kernel-monotonic
+(`SystemClock.elapsedRealtime`) anchored to *signed* parent timestamps and never reads
+`System.currentTimeMillis()`. The parent MUST treat `reported_at` as untrusted,
+network-sourced data and fail closed on it on **both** sides of its freshness window
+(a future-dated value is as untrustworthy as a stale one — #20 review).
+
 **D6 — Read endpoints stay open on the LAN (unchanged, ADR-030 D6).** `/usage` and
 `/state` remain unauthenticated metadata reads in v1; this ADR adds no transport
 auth and no new permission. `paired`/usage metadata is the same class of
