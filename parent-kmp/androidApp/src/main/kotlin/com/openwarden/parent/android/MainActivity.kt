@@ -10,32 +10,32 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.openwarden.parent.android.demo.ApiChildStateRepository
+import com.openwarden.parent.android.demo.ChildApiClient
 import com.openwarden.parent.android.policy.DemoAllowlistRepository
 import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
 import com.openwarden.parent.android.ui.dashboard.DashboardScreen
 import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
-import com.openwarden.parent.dashboard.FakeChildStateRepository
 
 /**
  * Main activity.
  *
- * Wiring note: the real [ChildStateRepository] (HTTP to child /state + /usage)
- * is not yet built (depends on issue #20).  Until then the [FakeChildStateRepository]
- * online scenario is injected so the dashboard renders live fixture data.
- * Replace FakeChildStateRepository with the real HTTP implementation when #20 lands.
+ * Wiring (#20): the real [ApiChildStateRepository] (HTTP to the child's /state + /usage on
+ * http://10.0.2.2:7180) is injected, replacing the old FakeChildStateRepository fixture. The
+ * dashboard now renders the child's actual self-reported state — online status from the child's
+ * reported_at freshness, plus real per-app usage. DEMO transport (no auth/TLS) — the secure
+ * pairing/mDNS path is still unbuilt.
  */
 class MainActivity : ComponentActivity() {
 
+    // Held at Activity scope so the OkHttp pool is closed exactly once in onDestroy.
+    // The client is constructed here (explicit, not defaulted) so this Activity is its sole owner.
+    private val childRepo = ApiChildStateRepository(ChildApiClient())
+
     private val dashboardVm: DashboardAndroidViewModel by viewModels {
-        // TODO(#20): replace FakeChildStateRepository with the real HTTP client
-        //            once child /state and /usage endpoints are built.
-        DashboardAndroidViewModel.Factory(
-            repository = FakeChildStateRepository(FakeChildStateRepository.Scenario.Online),
-        )
+        DashboardAndroidViewModel.Factory(repository = childRepo)
     }
 
-    // Repository is held at Activity scope so it is closed exactly once in onDestroy,
-    // releasing the underlying OkHttp thread pool and connection pool.
     private val allowlistRepo = DemoAllowlistRepository()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        childRepo.close()
         allowlistRepo.close()
     }
 }

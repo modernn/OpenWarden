@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEMO transport scope (#20). The child showcase server is reached over cleartext HTTP at
+  10.0.2.2 (the Android emulator's host-loopback alias, bridged to the child via
+  `adb -s <child> forward tcp:7180 tcp:7180` — see ChildApiClient). Cleartext is permitted
+  ONLY for that host; every other domain keeps the secure default (cleartext denied).
+  The real transport (mDNS + pinned TLS) will remove this entirely.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

@@ -30,9 +30,13 @@ data class ChildStateResponse(
     val version: String = "",
     // Child sends a string here ("none" when no policy yet), NOT a number.
     @SerialName("policy_version") val policyVersion: String = "none",
-    @SerialName("policy_expires_at") val policyExpiresAt: String = "n/a",
+    // Child wire key is policy_not_after (§2/ADR-042), NOT policy_expires_at.
+    @SerialName("policy_not_after") val policyNotAfter: String = "n/a",
     val paired: Boolean = false,
     @SerialName("is_locked") val isLocked: Boolean = false,
+    // Child self-reported wall-clock (epoch ms) at response time — the liveness signal the
+    // dashboard's freshness window judges. 0 (default) when absent → treated as not-fresh.
+    @SerialName("reported_at") val reportedAt: Long = 0L,
 )
 
 @Serializable
