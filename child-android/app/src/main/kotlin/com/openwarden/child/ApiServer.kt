@@ -44,7 +44,9 @@ class ApiServer(private val context: Context) {
                         "policy_not_after" to (active?.not_after?.toString() ?: "n/a"),
                         // ADR-030 D5: real durable lock state set by signed /lock /unlock commands.
                         // Fail-closed: an unreadable store assumes locked, never reports false-unlocked.
-                        "is_locked" to CommandDispatch.isLockedFailClosed { ReplayFloorStore(ctx).isLocked() }
+                        "is_locked" to CommandDispatch.isLockedFailClosed { ReplayFloorStore(ctx).isLocked() },
+                        // ADR-042 D5: honest pairing state — true iff a parent Ed25519 key is pinned (ADR-025).
+                        "paired" to (PolicyStore(ctx).parentPubkey() != null)
                     ))
                 }
                 post("/policy") {
@@ -140,8 +142,44 @@ class ApiServer(private val context: Context) {
                 post("/lock") { handleCommand(call, SignedCommand.TYPE_LOCK) }
                 post("/unlock") { handleCommand(call, SignedCommand.TYPE_UNLOCK) }
                 get("/usage") {
-                    // TODO(v1): UsageStatsManager queryAndAggregateUsageStats
-                    call.respond(mapOf("per_app" to emptyList<Map<String, Any>>()))
+                    // ADR-042: real per-app foreground usage (METADATA ONLY — package + label +
+                    // foreground minutes; never in-app content). On-device data when the
+                    // PACKAGE_USAGE_STATS appops grant is present; otherwise honest-empty on release
+                    // and a clearly-labelled [DEMO] list on debug builds (D2). Errors fail closed to
+                    // an empty list, never to fabricated data (D4).
+                    val ctx = this@ApiServer.context
+                    when (val result = runCatching { UsageStatsHelper.query(ctx) }
+                        .getOrElse { UsageStatsHelper.UsageResult.Error(it.message ?: "unknown") }) {
+                        is UsageStatsHelper.UsageResult.OnDevice ->
+                            call.respond(mapOf(
+                                "source" to "on-device",
+                                "window_hours" to 24,
+                                "per_app" to result.entries,
+                            ))
+                        is UsageStatsHelper.UsageResult.DemoFallback ->
+                            call.respond(mapOf(
+                                "source" to "demo-fallback",
+                                "demo_notice" to "PACKAGE_USAGE_STATS not granted — illustrative demo data only (debug build)",
+                                "window_hours" to 24,
+                                "per_app" to result.entries,
+                            ))
+                        is UsageStatsHelper.UsageResult.Unavailable ->
+                            call.respond(mapOf(
+                                "source" to "unavailable",
+                                "notice" to "PACKAGE_USAGE_STATS not granted — no usage data available",
+                                "window_hours" to 24,
+                                "per_app" to emptyList<UsageStatsHelper.AppUsageEntry>(),
+                            ))
+                        is UsageStatsHelper.UsageResult.Error ->
+                            call.respond(
+                                HttpStatusCode.InternalServerError,
+                                mapOf(
+                                    "source" to "error",
+                                    "error" to result.message,
+                                    "per_app" to emptyList<UsageStatsHelper.AppUsageEntry>(),
+                                ),
+                            )
+                    }
                 }
             }
         }.start(wait = false)
