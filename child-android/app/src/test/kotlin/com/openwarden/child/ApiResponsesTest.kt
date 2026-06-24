@@ -73,12 +73,20 @@ class ApiResponsesTest {
     }
 
     @Test
-    fun `UsageResponse error carries error key`() {
+    fun `UsageResponse error carries source, error, and the normalized window_hours + empty per_app`() {
+        // The error body (HTTP 500) intentionally normalizes to the same envelope as the other
+        // source states — source + window_hours + per_app + error. (The old mapOf error omitted
+        // window_hours; the DTO adds it. The parent tolerates it via ignoreUnknownKeys + defaults.)
         val out = json.encodeToString(
             UsageResponse(source = "error", windowHours = 24, perApp = emptyList(), error = "boom"),
         )
         assertTrue(out.contains("\"source\":\"error\""), out)
         assertTrue(out.contains("\"error\":\"boom\""), out)
+        assertTrue(out.contains("\"window_hours\":24"), out)
+        assertTrue(out.contains("\"per_app\":[]"), out)
+        // Never fabricated notices on the error path.
+        assertFalse(out.contains("demo_notice"), out)
+        assertFalse(out.contains("\"notice\""), out)
     }
 
     @Test
