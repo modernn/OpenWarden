@@ -62,15 +62,29 @@ object UsageStatsHelper {
     fun query(
         context: Context,
         debuggable: Boolean = isDebuggable(context),
-    ): UsageResult {
-        return try {
+    ): UsageResult =
+        query(context, debuggable) {
             val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val now = System.currentTimeMillis()
-
             // queryUsageStats is well-supported and correctly shadowed in tests. We aggregate
             // foreground time per package ourselves rather than use the more obscure
             // queryAndAggregateUsageStats whose Robolectric shadow (4.13) is incomplete.
-            val statsList = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - WINDOW_MS, now)
+            usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - WINDOW_MS, now)
+        }
+
+    /**
+     * Seam overload. [fetchStats] supplies the raw daily [UsageStats] (the public overload
+     * defaults it to the real [UsageStatsManager] query). Injectable so the fail-closed
+     * [UsageResult.Error] branch (a thrown non-[SecurityException]) and the production
+     * [FLAG_DEBUGGABLE] default path are host-tested deterministically (ADR-042 D4).
+     */
+    internal fun query(
+        context: Context,
+        debuggable: Boolean,
+        fetchStats: () -> List<android.app.usage.UsageStats>?,
+    ): UsageResult {
+        return try {
+            val statsList = fetchStats()
 
             if (statsList.isNullOrEmpty()) {
                 Log.w(TAG, "UsageStatsManager returned empty/null — appops grant likely missing")

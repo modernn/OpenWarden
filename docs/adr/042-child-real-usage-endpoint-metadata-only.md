@@ -32,8 +32,10 @@ Two facts make this safe to land:
    "per-app totals". `TransparencyTest` machine-checks that every category renders.
    This ADR adds **no new monitored signal** — it makes an already-disclosed,
    already-permissioned signal actually flow.
-2. **The manifest already declares `PACKAGE_USAGE_STATS`** (a special appops grant,
-   not auto-granted). With no grant, `UsageStatsManager` returns empty.
+2. **The manifest already declares `PACKAGE_USAGE_STATS`** — a special-access
+   permission backed by the `GET_USAGE_STATS` appop (the names refer to the same
+   grant; the appop is what `adb shell appops set … GET_USAGE_STATS allow` toggles).
+   It is not auto-granted; with no grant, `UsageStatsManager` returns empty.
 
 ## Decision
 
@@ -41,10 +43,17 @@ Two facts make this safe to land:
 only `UsageStatsManager.queryUsageStats` aggregates and exposes exactly three
 fields per app: `packageName`, `label` (from `PackageManager`), `foregroundMinutes`
 (floor of `totalTimeInForeground / 60_000`). No event timestamps, no in-app
-activity, no message/photo/audio surface — none is read, none is serialized. The
-stalkerware boundary is enforced by the shape of `AppUsageEntry` and guarded by a
-reflection test (TST below). Results are aggregated per package, positive-time
-only, sorted descending, capped at the top 15.
+activity, no message/photo/audio surface — none is read, none is serialized.
+Deliberately uses `queryUsageStats` (aggregate) and never `queryEvents` (which
+would expose per-launch timestamps). Results are aggregated per package,
+positive-time only, sorted descending, capped at the top 15.
+
+The stalkerware boundary rests on **three** things together, not the test alone:
+(1) the `@Serializable AppUsageEntry` DTO shape — the only object that crosses the
+wire — guarded by a reflection test; (2) the aggregate-only source-query choice
+(`queryUsageStats`, not `queryEvents`); (3) the `/usage` response builder, which
+only ever emits `result.entries` and never a raw field. (1) is test-enforced; (2)
+and (3) are code-review-enforced until a Ktor response-shape harness exists.
 
 **D2 — No grant is fail-closed to *less* disclosure, and honest by default.** When
 the `PACKAGE_USAGE_STATS` appops grant is absent, `UsageStatsManager` yields an
@@ -74,8 +83,10 @@ deterministically without a second build variant.
 data and never leaks an exception-derived payload.
 
 **D5 — `/state` gains an honest `paired` field; the existing better fields stay.**
-`/state` adds `"paired" to (PolicyStore(ctx).parentPubkey() != null)` — true iff a
-parent Ed25519 key has been pinned at pairing. Main's existing `is_locked`
+`/state` adds `paired` — true iff a parent Ed25519 key has been pinned at pairing
+(`PolicyStore.parentPubkey() != null`). It is **fail-closed like `is_locked`**: the
+read is wrapped so an unreadable key file reports the less-disclosing default
+(`paired = false`) and never crashes `/state` nor claims a pairing it cannot read. Main's existing `is_locked`
 (fail-closed, ADR-030 D5) and `policy_not_after` (integer ms, §2) are **kept as-is
 and not regressed** — `policy_not_after` already is the honest form of the demo
 branch's `policy_expires_at` (renamed to integer-ms in §2), so this ADR does not
@@ -98,7 +109,9 @@ LAN-visible read ADR-030 D6 already ratified.
   pre-prod gate (grant the appops on an emulator/device and confirm `source:
   "on-device"` with real numbers) is recorded for the E2E harness, consistent with
   the project's "never E2E against a stale build" rule. Host tests prove the
-  aggregation/sort/cap/floor logic, the metadata-only field shape, and the
-  debug-vs-release no-grant branch deterministically.
+  aggregation/sort/cap/floor logic, the metadata-only field shape, the
+  debug-vs-release no-grant branch, the fail-closed `Error` branch (an injected
+  throw yields `Error`/empty, never demo data), and the production `query(context)`
+  path resolving the build type from `FLAG_DEBUGGABLE` — all deterministically.
 - The `demo/child-usage` branch remains an unmergeable old fork; only these two
   narrow surfaces were ported.

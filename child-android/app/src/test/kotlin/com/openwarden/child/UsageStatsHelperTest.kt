@@ -2,6 +2,7 @@ package com.openwarden.child
 
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -212,6 +213,61 @@ class UsageStatsHelperTest {
             setOf("packageName", "label", "foregroundMinutes"),
             props,
             "AppUsageEntry must expose only metadata fields; a new field risks the content boundary",
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Fail-closed Error branch (ADR-042 D4) — via the injectable fetch seam
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `unexpected throw fails closed to Error (never demo, never real) even on a debug build`() {
+        // debuggable=true proves the Error path does NOT fall through to fabricated demo data.
+        val result = UsageStatsHelper.query(context, debuggable = true) {
+            throw RuntimeException("boom")
+        }
+        assertIs<UsageStatsHelper.UsageResult.Error>(
+            result, "A non-SecurityException throw must produce Error, got $result",
+        )
+        assertEquals("boom", (result as UsageStatsHelper.UsageResult.Error).message)
+    }
+
+    @Test
+    fun `SecurityException from the stats fetch fails closed to noGrant, not Error`() {
+        // Permission denial must route to honest-empty (release), never to the Error/500 path.
+        val result = UsageStatsHelper.query(context, debuggable = false) {
+            throw SecurityException("denied")
+        }
+        assertIs<UsageStatsHelper.UsageResult.Unavailable>(
+            result, "SecurityException on a release build must produce Unavailable, got $result",
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Production entry point query(context) — FLAG_DEBUGGABLE resolution (ADR-042 D3)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `production query resolves release build from FLAG_DEBUGGABLE and never fabricates`() {
+        // Clear FLAG_DEBUGGABLE → release. Empty shadow → no grant. Single-arg call exercises
+        // isDebuggable(context), the exact path ApiServer uses.
+        val ai = context.applicationInfo
+        ai.flags = ai.flags and ApplicationInfo.FLAG_DEBUGGABLE.inv()
+
+        val result = UsageStatsHelper.query(context)
+        assertIs<UsageStatsHelper.UsageResult.Unavailable>(
+            result, "A release build (FLAG_DEBUGGABLE clear) with no grant must be Unavailable, got $result",
+        )
+    }
+
+    @Test
+    fun `production query resolves debug build from FLAG_DEBUGGABLE and shows demo`() {
+        val ai = context.applicationInfo
+        ai.flags = ai.flags or ApplicationInfo.FLAG_DEBUGGABLE
+
+        val result = UsageStatsHelper.query(context)
+        assertIs<UsageStatsHelper.UsageResult.DemoFallback>(
+            result, "A debug build (FLAG_DEBUGGABLE set) with no grant must be DemoFallback, got $result",
         )
     }
 }

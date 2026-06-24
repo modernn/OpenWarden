@@ -46,7 +46,9 @@ class ApiServer(private val context: Context) {
                         // Fail-closed: an unreadable store assumes locked, never reports false-unlocked.
                         "is_locked" to CommandDispatch.isLockedFailClosed { ReplayFloorStore(ctx).isLocked() },
                         // ADR-042 D5: honest pairing state — true iff a parent Ed25519 key is pinned (ADR-025).
-                        "paired" to (PolicyStore(ctx).parentPubkey() != null)
+                        // Fail-closed like is_locked: an unreadable key file reports the LESS-disclosing
+                        // default (not-paired), never crashes /state or claims a pairing that can't be read.
+                        "paired" to runCatching { PolicyStore(ctx).parentPubkey() != null }.getOrDefault(false)
                     ))
                 }
                 post("/policy") {
