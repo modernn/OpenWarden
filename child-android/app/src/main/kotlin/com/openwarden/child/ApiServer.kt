@@ -32,24 +32,31 @@ class ApiServer(private val context: Context) {
 
     fun start() {
         engine = embeddedServer(CIO, port = PORT, host = "0.0.0.0") {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            // explicitNulls = false so optional response fields (e.g. UsageResponse notices)
+            // are omitted when null rather than emitted as `null` (#114).
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true; explicitNulls = false }) }
             routing {
                 get("/state") {
                     val ctx = this@ApiServer.context
                     val active = PolicyStore(ctx).loadActive()
-                    call.respond(mapOf(
-                        "version" to BuildVersion,
-                        // §2: issued_at / not_after are integer ms (u53-bounded), not ISO strings.
-                        "policy_version" to (active?.issued_at?.toString() ?: "none"),
-                        "policy_not_after" to (active?.not_after?.toString() ?: "n/a"),
-                        // ADR-030 D5: real durable lock state set by signed /lock /unlock commands.
-                        // Fail-closed: an unreadable store assumes locked, never reports false-unlocked.
-                        "is_locked" to CommandDispatch.isLockedFailClosed { ReplayFloorStore(ctx).isLocked() },
-                        // ADR-042 D5: honest pairing state — true iff a parent Ed25519 key is pinned (ADR-025).
-                        // Fail-closed like is_locked: an unreadable key file reports the LESS-disclosing
-                        // default (not-paired), never crashes /state or claims a pairing that can't be read.
-                        "paired" to runCatching { PolicyStore(ctx).parentPubkey() != null }.getOrDefault(false)
-                    ))
+                    call.respond(
+                        StateResponse(
+                            version = BuildVersion,
+                            // §2: issued_at / not_after are integer ms (u53-bounded), not ISO strings.
+                            policyVersion = active?.issued_at?.toString() ?: "none",
+                            policyNotAfter = active?.not_after?.toString() ?: "n/a",
+                            // ADR-030 D5: real durable lock state set by signed /lock /unlock commands.
+                            // Fail-closed: an unreadable store assumes locked, never reports false-unlocked.
+                            isLocked = CommandDispatch.isLockedFailClosed { ReplayFloorStore(ctx).isLocked() },
+                            // ADR-042 D5: honest pairing state — true iff a parent Ed25519 key is pinned
+                            // (ADR-025). Fail-closed like is_locked: an unreadable key file reports the
+                            // LESS-disclosing default (not-paired), never crashes /state.
+                            paired = runCatching { PolicyStore(ctx).parentPubkey() != null }.getOrDefault(false),
+                            // Liveness heartbeat for the parent dashboard (#20): the child's current
+                            // wall clock. Freshness is judged parent-side against its 90s window.
+                            reportedAt = System.currentTimeMillis(),
+                        ),
+                    )
                 }
                 post("/policy") {
                     val ctx = this@ApiServer.context
@@ -153,32 +160,35 @@ class ApiServer(private val context: Context) {
                     when (val result = runCatching { UsageStatsHelper.query(ctx) }
                         .getOrElse { UsageStatsHelper.UsageResult.Error(it.message ?: "unknown") }) {
                         is UsageStatsHelper.UsageResult.OnDevice ->
-                            call.respond(mapOf(
-                                "source" to "on-device",
-                                "window_hours" to 24,
-                                "per_app" to result.entries,
-                            ))
+                            call.respond(
+                                UsageResponse(source = "on-device", windowHours = 24, perApp = result.entries),
+                            )
                         is UsageStatsHelper.UsageResult.DemoFallback ->
-                            call.respond(mapOf(
-                                "source" to "demo-fallback",
-                                "demo_notice" to "PACKAGE_USAGE_STATS not granted — illustrative demo data only (debug build)",
-                                "window_hours" to 24,
-                                "per_app" to result.entries,
-                            ))
+                            call.respond(
+                                UsageResponse(
+                                    source = "demo-fallback",
+                                    windowHours = 24,
+                                    perApp = result.entries,
+                                    demoNotice = "PACKAGE_USAGE_STATS not granted — illustrative demo data only (debug build)",
+                                ),
+                            )
                         is UsageStatsHelper.UsageResult.Unavailable ->
-                            call.respond(mapOf(
-                                "source" to "unavailable",
-                                "notice" to "PACKAGE_USAGE_STATS not granted — no usage data available",
-                                "window_hours" to 24,
-                                "per_app" to emptyList<UsageStatsHelper.AppUsageEntry>(),
-                            ))
+                            call.respond(
+                                UsageResponse(
+                                    source = "unavailable",
+                                    windowHours = 24,
+                                    perApp = emptyList(),
+                                    notice = "PACKAGE_USAGE_STATS not granted — no usage data available",
+                                ),
+                            )
                         is UsageStatsHelper.UsageResult.Error ->
                             call.respond(
                                 HttpStatusCode.InternalServerError,
-                                mapOf(
-                                    "source" to "error",
-                                    "error" to result.message,
-                                    "per_app" to emptyList<UsageStatsHelper.AppUsageEntry>(),
+                                UsageResponse(
+                                    source = "error",
+                                    windowHours = 24,
+                                    perApp = emptyList(),
+                                    error = result.message,
                                 ),
                             )
                     }
