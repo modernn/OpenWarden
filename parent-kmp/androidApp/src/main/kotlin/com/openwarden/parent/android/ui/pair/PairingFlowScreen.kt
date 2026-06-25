@@ -250,6 +250,11 @@ private fun AbortedStep(
                 "Nothing to confirm" to
                     "There was no active pairing to confirm. Start over to try again."
             }
+
+            PairingAbortReason.INTERNAL_ERROR -> {
+                "Pairing failed" to
+                    "Something went wrong during pairing. Nothing was linked. Start over to try again."
+            }
         }
     // ALREADY_PAIRED is not retryable from here (rotation is recovery-gated, §7.5/D8 — ADR-039 D3).
     val retryable = reason != PairingAbortReason.ALREADY_PAIRED

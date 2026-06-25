@@ -49,7 +49,21 @@ object AndroidPairingFactory {
         // are invoked under sessionLock, so the burn can never race a concurrent POST (ADR-036 D5).
         val burner = PairingNonceBurner { sessionManager.cancel() }
 
-        val realVerifier = AndroidAttestationVerifierFactory.create(googleRootSpkiDer, burner)
+        // Disabled-gate hardening (crypto review MED-1): when no Tier-1 root is pinned yet, refuse EVERY
+        // attestation **explicitly** (with the same burn-on-refuse as the real verifier, ADR-037 D2) rather
+        // than relying on the empty-SPKI-vs-empty-pin coincidence inside AttestationPolicy. Fail-closed:
+        // nothing can pin until the real Google-root SPKI is committed (ADR-043 D6, ADR-037 D3).
+        val realVerifier =
+            if (googleRootSpkiDer.isEmpty()) {
+                object : AttestationVerifier {
+                    override fun verify(post: ValidatedPairingPost): AttestationOutcome {
+                        burner.burn()
+                        return AttestationOutcome.Refused("attestation disabled: no pinned root (fail-closed)")
+                    }
+                }
+            } else {
+                AndroidAttestationVerifierFactory.create(googleRootSpkiDer, burner)
+            }
         val sasStage = PairingSasStage(access, SixEmojiSas(BouncyCastleSasKdf()), burner)
         val store = AndroidPairedChildStore(context)
         val coordinator = PairingPinCoordinator(sasStage, store, access)

@@ -16,9 +16,11 @@ import kotlin.test.assertTrue
  *
  *  - begin ⇒ ShowingQr (+ transport started) | NotProvisioned (no start, fail-closed);
  *  - a verifier Accept ⇒ AwaitingSas with the derived emojis (and verify() returns Accepted verbatim);
- *  - a verifier Refuse ⇒ Aborted(ATTESTATION_FAILED), nothing pinned, transport stopped;
+ *  - a verifier Refuse ⇒ Aborted(ATTESTATION_FAILED), nothing pinned, nonce burned;
  *  - confirm(true)/false/stale/already-paired ⇒ the right terminal phase, fail-closed pinning unchanged;
  *  - cancel ⇒ Idle (+ session burned + transport stopped);
+ *  - the fail-closed gaps Codex flagged: a 2nd Accepted post can't swap the human-compared challenge (F1),
+ *    and a verifier throw / pin-write failure / listener-bind failure all abort fail-closed (F2/F3/F4);
  *  - every mutating entry routes through the monitor (ADR-043 D3).
  */
 class PairingControllerTest {
@@ -47,6 +49,7 @@ class PairingControllerTest {
     /** Write-once atomic [PinnedChildStore] double (same shape as PairingPinCoordinatorTest). */
     private class FakePinnedChildStore(
         var pinned: PinnedChild? = null,
+        private val failWrite: Boolean = false,
     ) : PinnedChildStore {
         var pinCalls = 0
             private set
@@ -56,26 +59,39 @@ class PairingControllerTest {
         override fun pin(child: PinnedChild) {
             pinCalls += 1
             check(pinned == null) { "child already pinned (write-once)" }
+            if (failWrite) error("simulated commit() failure (fail-closed)")
             pinned = child
         }
     }
 
-    /** A verifier double with the Section73 burn-on-refuse contract: Refused burns the nonce (ADR-037 D2). */
+    /** A verifier double: ACCEPT, REFUSE (burns the nonce, ADR-037 D2), or THROW (verifier seam blows up). */
     private class FakeVerifier(
-        private val accept: Boolean,
+        private val mode: Mode,
         private val burner: PairingNonceBurner,
     ) : AttestationVerifier {
+        enum class Mode { ACCEPT, REFUSE, THROW }
+
         override fun verify(post: ValidatedPairingPost): AttestationOutcome =
-            if (accept) {
-                AttestationOutcome.Accepted
-            } else {
-                burner.burn()
-                AttestationOutcome.Refused("attestation: test-refuse")
+            when (mode) {
+                Mode.ACCEPT -> {
+                    AttestationOutcome.Accepted
+                }
+
+                Mode.REFUSE -> {
+                    burner.burn()
+                    AttestationOutcome.Refused("attestation: test-refuse")
+                }
+
+                Mode.THROW -> {
+                    error("verifier boom")
+                }
             }
     }
 
-    /** Counts listener start/stop so the lifecycle (ADR-043 D4) is asserted, not assumed. */
-    private class FakeTransport : PairingTransport {
+    /** Counts listener start/stop so the lifecycle (ADR-043 D4) is asserted; can simulate a bind failure. */
+    private class FakeTransport(
+        private val failStart: Boolean = false,
+    ) : PairingTransport {
         var starts = 0
             private set
         var stops = 0
@@ -83,6 +99,7 @@ class PairingControllerTest {
 
         override fun start() {
             starts += 1
+            if (failStart) error("simulated bind failure")
         }
 
         override fun stop() {
@@ -104,8 +121,10 @@ class PairingControllerTest {
     /** The full wiring under test: a real session manager + the (b)–(e) seams over one fake store. */
     private inner class Harness(
         provisioned: Boolean = true,
-        accept: Boolean = true,
+        verifierMode: FakeVerifier.Mode = FakeVerifier.Mode.ACCEPT,
         prePinned: PinnedChild? = null,
+        storeFailsWrite: Boolean = false,
+        transportFailsStart: Boolean = false,
     ) {
         val manager =
             PairingSessionManager(
@@ -116,26 +135,29 @@ class PairingControllerTest {
         val access = DirectSessionAccess(manager)
         val burner = PairingNonceBurner { manager.cancel() }
         val stage = PairingSasStage(access, SixEmojiSas { _, _, _, length -> ByteArray(length) }, burner)
-        val store = FakePinnedChildStore(pinned = prePinned)
+        val store = FakePinnedChildStore(pinned = prePinned, failWrite = storeFailsWrite)
         val coordinator = PairingPinCoordinator(stage, store, access)
-        val verifier = FakeVerifier(accept, burner)
-        val transport = FakeTransport()
+        val verifier = FakeVerifier(verifierMode, burner)
+        val transport = FakeTransport(failStart = transportFailsStart)
         val monitor = CountingMonitor()
         val controller =
             PairingController(manager, stage, coordinator, verifier, transport, monitor)
 
-        /** The shape-validated §7.2 post bound to the manager's currently-live session. */
-        fun livePost(): ValidatedPairingPost {
+        /** The shape-validated §7.2 post bound to the manager's currently-live session (default child keys). */
+        fun livePost(
+            ed: ByteArray = childEd,
+            x: ByteArray = childX,
+        ): ValidatedPairingPost {
             val session = manager.active()!!
             val response =
                 ChildPairingResponse(
                     v = 1,
-                    childEd25519Pub = Base64Url.encode(childEd),
-                    childX25519Pub = Base64Url.encode(childX),
+                    childEd25519Pub = Base64Url.encode(ed),
+                    childX25519Pub = Base64Url.encode(x),
                     childAttestationCertChain = listOf("Y2VydA"),
                     childBindingSig = "ab".repeat(35),
                 )
-            return ValidatedPairingPost(session, response, childEd, childX)
+            return ValidatedPairingPost(session, response, ed, x)
         }
     }
 
@@ -163,7 +185,7 @@ class PairingControllerTest {
 
     @Test
     fun acceptedPostDerivesSasAndAwaitsTap() {
-        val h = Harness(accept = true)
+        val h = Harness()
         h.controller.begin()
 
         val outcome = h.controller.verify(h.livePost())
@@ -175,8 +197,8 @@ class PairingControllerTest {
     }
 
     @Test
-    fun refusedPostAbortsFailClosedAndStopsListener() {
-        val h = Harness(accept = false)
+    fun refusedPostAbortsFailClosedAndBurnsNonce() {
+        val h = Harness(verifierMode = FakeVerifier.Mode.REFUSE)
         h.controller.begin()
 
         val outcome = h.controller.verify(h.livePost())
@@ -189,12 +211,88 @@ class PairingControllerTest {
         )
         assertNull(h.store.pinned, "nothing is pinned on an attestation failure")
         assertNull(h.manager.active(), "the verifier burned the single-use nonce (ADR-037 D2)")
-        assertEquals(1, h.transport.stops, "the listener is torn down on the dead attempt (ADR-043 D4)")
+        // verify() runs on the network thread under the server lock; it does NOT run the blocking Ktor stop
+        // (Codex F5). The burned session makes the endpoint inert; the UI's cancel() stops the listener.
+        assertEquals(0, h.transport.stops, "verify() never runs the blocking listener stop (Codex F5)")
+    }
+
+    @Test
+    fun secondAcceptedPostDoesNotSwapTheHumanComparedChallenge() {
+        // Codex F1 (CRITICAL, H3): once a SAS is awaiting the tap, a later POST with DIFFERENT child keys
+        // must be refused WITHOUT overwriting the pending challenge — confirm() must pin the FIRST keys the
+        // human actually compared, never the second post's substituted keys.
+        val attackerEd = ByteArray(32) { 88 }
+        val attackerX = ByteArray(32) { 99 }
+        val h = Harness()
+        h.controller.begin()
+
+        h.controller.verify(h.livePost()) // post 1: the legit child keys, now AwaitingSas
+        val second = h.controller.verify(h.livePost(ed = attackerEd, x = attackerX)) // post 2: substituted keys
+
+        assertTrue(second is AttestationOutcome.Refused, "a second post during AwaitingSas is refused (F1)")
+        assertTrue(h.controller.phase.value is PairingPhase.AwaitingSas, "the displayed challenge is unchanged")
+
+        h.controller.confirm(matched = true)
+
+        assertContentEquals(childEd, h.store.pinned!!.ed25519Pub, "the FIRST (human-compared) key is pinned, not the swap")
+        assertContentEquals(childX, h.store.pinned!!.x25519Pub)
+    }
+
+    @Test
+    fun verifierThrowAbortsFailClosed() {
+        // Codex F2: a verifier/derive exception must not leave a live session/listener — burn + abort + refuse.
+        val h = Harness(verifierMode = FakeVerifier.Mode.THROW)
+        h.controller.begin()
+
+        val outcome = h.controller.verify(h.livePost())
+
+        assertTrue(outcome is AttestationOutcome.Refused, "a thrown verifier resolves to a generic refusal")
+        assertEquals(
+            PairingPhase.Aborted(PairingAbortReason.INTERNAL_ERROR),
+            h.controller.phase.value,
+            "a verifier throw aborts fail-closed (Codex F2)",
+        )
+        assertNull(h.store.pinned, "nothing is pinned")
+        assertNull(h.manager.active(), "the session is burned on the throw (no live attempt left)")
+    }
+
+    @Test
+    fun pinWriteFailureAbortsFailClosedAndBurnsSession() {
+        // Codex F3: a store/commit failure (ADR-039 D2 throws) must not strand a live half-state.
+        val h = Harness(storeFailsWrite = true)
+        h.controller.begin()
+        h.controller.verify(h.livePost())
+
+        h.controller.confirm(matched = true)
+
+        assertEquals(
+            PairingPhase.Aborted(PairingAbortReason.INTERNAL_ERROR),
+            h.controller.phase.value,
+            "a pin/commit failure aborts fail-closed (Codex F3)",
+        )
+        assertNull(h.store.pinned, "a failed write leaves NOTHING pinned (no half-pin)")
+        assertNull(h.manager.active(), "the still-live session is burned on the failed pin (no stuck attempt)")
+        assertEquals(1, h.transport.stops, "the listener is stopped on the failure")
+    }
+
+    @Test
+    fun listenerBindFailureRollsBackFailClosed() {
+        // Codex F4: if the Ktor bind fails, do not strand a scannable QR over a session with no listener.
+        val h = Harness(transportFailsStart = true)
+
+        h.controller.begin()
+
+        assertEquals(
+            PairingPhase.Aborted(PairingAbortReason.INTERNAL_ERROR),
+            h.controller.phase.value,
+            "a listener-bind failure rolls back to a fail-closed abort (Codex F4)",
+        )
+        assertNull(h.manager.active(), "the session is burned — no stranded QR over a dead listener")
     }
 
     @Test
     fun matchPinsBothKeysBurnsSessionAndStopsListener() {
-        val h = Harness(accept = true)
+        val h = Harness()
         h.controller.begin()
         h.controller.verify(h.livePost())
 
@@ -210,7 +308,7 @@ class PairingControllerTest {
 
     @Test
     fun mismatchAbortsPinsNothingAndStopsListener() {
-        val h = Harness(accept = true)
+        val h = Harness()
         h.controller.begin()
         h.controller.verify(h.livePost())
 
@@ -229,7 +327,7 @@ class PairingControllerTest {
 
     @Test
     fun staleConfirmAbortsAndLeavesTheFreshAttemptLive() {
-        val h = Harness(accept = true)
+        val h = Harness()
         h.controller.begin()
         h.controller.verify(h.livePost()) // AwaitingSas, challenge bound to attempt 1
 
@@ -252,7 +350,7 @@ class PairingControllerTest {
     fun alreadyPairedAbortsDistinctlyAndDoesNotOverwrite() {
         val firstEd = ByteArray(32) { 7 }
         val firstX = ByteArray(32) { 8 }
-        val h = Harness(accept = true, prePinned = PinnedChild(firstEd, firstX))
+        val h = Harness(prePinned = PinnedChild(firstEd, firstX))
         h.controller.begin()
         h.controller.verify(h.livePost())
 
@@ -296,7 +394,7 @@ class PairingControllerTest {
 
     @Test
     fun mutatingEntriesRouteThroughTheMonitor() {
-        val h = Harness(accept = true)
+        val h = Harness()
 
         h.controller.begin() // 1
         h.controller.verify(h.livePost()) // verify() is guarded by the caller's lock, NOT the monitor (ADR-043 D2)

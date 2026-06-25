@@ -34,7 +34,8 @@ fun QrCodeImage(
             val hints =
                 mapOf(
                     EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
-                    EncodeHintType.MARGIN to 1,
+                    // 4-module quiet zone — the QR spec minimum most camera scanners expect (Codex F7).
+                    EncodeHintType.MARGIN to 4,
                 )
             QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, QR_PIXELS, QR_PIXELS, hints)
         }

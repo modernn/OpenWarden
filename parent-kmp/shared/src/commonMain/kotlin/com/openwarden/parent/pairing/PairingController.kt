@@ -58,11 +58,17 @@ class PairingController(
     private var pendingChallenge: SasChallenge? = null
 
     /**
-     * Begin a pairing attempt: mint the §7.1 nonce + QR and publish [PairingPhase.ShowingQr], starting the
+     * Begin a pairing attempt: mint the §7.1 nonce + QR, publish [PairingPhase.ShowingQr], then bind the
      * [PairingTransport] so the child can POST. If the parent has no confirmed root key the attempt is
      * refused fail-closed ([PairingPhase.NotProvisioned], ADR-035 D7) and the transport is **not** started.
+     *
+     * The blocking listener bind runs **outside** the monitor (Codex F5 / ADR-043 D3 — never run the Ktor
+     * lifecycle under `sessionLock`, where an in-flight POST handler also waits on it). If the bind fails,
+     * the attempt rolls back fail-closed (burn the session, [PairingPhase.Aborted]) rather than stranding a
+     * scannable QR with no listener (Codex F4).
      */
-    fun begin(): Unit =
+    fun begin() {
+        var startListener = false
         monitor.runGuarded {
             pendingChallenge = null
             when (val result = sessions.start()) {
@@ -70,7 +76,7 @@ class PairingController(
                     _phase.value = PairingPhase.ShowingQr(result.session.payloadJson)
                     // Start the listener only once a real attempt exists (ADR-043 D4) — never on the
                     // NotProvisioned path, so a not-yet-provisioned parent never opens the /pair port.
-                    transport.start()
+                    startListener = true
                 }
 
                 PairingStartResult.NotProvisioned -> {
@@ -78,80 +84,133 @@ class PairingController(
                 }
             }
         }
+        if (startListener) {
+            try {
+                transport.start()
+            } catch (t: Throwable) {
+                // Bind failed: roll back fail-closed — no stranded QR over a session with no listener.
+                monitor.runGuarded {
+                    pendingChallenge = null
+                    sessions.cancel()
+                    _phase.value = PairingPhase.Aborted(PairingAbortReason.INTERNAL_ERROR)
+                }
+                runCatching { transport.stop() }
+            }
+        }
+    }
 
     /**
      * The slice-(c) [AttestationVerifier] seam (ADR-043 D2). Called by [PairingEndpoint] on the network
      * thread, already under the server's `sessionLock`. Delegates to the real verifier; on `Accepted`
-     * derives the §7.4 SAS and moves to [PairingPhase.AwaitingSas]; on `Refused` moves to
-     * [PairingPhase.Aborted] (fail-closed — the nonce was already burned by the verifier, ADR-037 D2) and
-     * stops the listener. Returns the verifier's verdict verbatim so the endpoint's HTTP mapping is unchanged.
+     * derives the §7.4 SAS and moves to [PairingPhase.AwaitingSas]. Returns the verifier's verdict verbatim
+     * so the endpoint's HTTP mapping is unchanged.
+     *
+     * **Single-challenge invariant (Codex F1, CRITICAL — the H3 defense):** once a SAS is already awaiting
+     * the human's tap, any further post is refused **without** overwriting [pendingChallenge] or the
+     * displayed emojis. Otherwise a second POST (the per-session attempt cap allows several) could swap in
+     * keys the human never compared, and a later Match would pin **those** — the exact pubkey-substitution
+     * (ATTACKS H3) the six-emoji compare exists to stop. The first Accepted wins; the human compares and
+     * pins exactly it.
+     *
+     * **Fail-closed on throw (Codex F2):** a verifier or `derive()` exception burns the nonce, aborts, and
+     * refuses generically — never leaves the attempt live. (`derive()` throws only on a malformed
+     * parent-authored QR, a build-invariant break, but we still refuse rather than strand a live session.)
      *
      * NOTE: this is the one entry point **not** wrapped in [monitor] — it is already serialized by the
      * caller (the server holds `sessionLock`, the same monitor object), so re-guarding would be redundant.
+     * It deliberately does **not** stop the transport: the verifier's burn-on-refuse (ADR-037 D2) already
+     * makes the endpoint reject every further POST (`NO_SESSION`), so the listener is inert and is torn
+     * down when the parent leaves the screen — running the blocking Ktor stop here, under the server lock
+     * from inside a request handler, is exactly what Codex F5 warns against.
      */
     override fun verify(post: ValidatedPairingPost): AttestationOutcome {
-        val outcome = attestation.verify(post)
-        when (outcome) {
-            is AttestationOutcome.Accepted -> {
-                // The post is live exactly here (ADR-043 D2): derive the SAS for both sides to compare.
-                val challenge = sasStage.derive(post)
-                pendingChallenge = challenge
-                _phase.value = PairingPhase.AwaitingSas(challenge.emojis)
-            }
-
-            is AttestationOutcome.Refused -> {
-                // Fail-closed: the verifier already burned the single-use nonce (ADR-037 D2); the attempt
-                // is dead, so surface the abort and tear the listener down. Internal reason not echoed
-                // (no local oracle value; the UI shows the generic §7.3 message — ADR-043 D5).
-                pendingChallenge = null
-                _phase.value = PairingPhase.Aborted(PairingAbortReason.ATTESTATION_FAILED)
-                transport.stop()
-            }
+        // F1: do not disturb an in-flight, human-visible challenge — refuse extra posts, pin only the first.
+        if (pendingChallenge != null) {
+            return AttestationOutcome.Refused("pairing already awaiting six-emoji confirmation")
         }
-        return outcome
+        return try {
+            val outcome = attestation.verify(post)
+            when (outcome) {
+                is AttestationOutcome.Accepted -> {
+                    // The post is live exactly here (ADR-043 D2): derive the SAS for both sides to compare.
+                    val challenge = sasStage.derive(post)
+                    pendingChallenge = challenge
+                    _phase.value = PairingPhase.AwaitingSas(challenge.emojis)
+                }
+
+                is AttestationOutcome.Refused -> {
+                    // Fail-closed: the verifier already burned the single-use nonce (ADR-037 D2); the
+                    // attempt is dead. Internal reason not echoed (the UI shows the generic §7.3 message —
+                    // ADR-043 D5 / ADR-036 D3 oracle stance).
+                    pendingChallenge = null
+                    _phase.value = PairingPhase.Aborted(PairingAbortReason.ATTESTATION_FAILED)
+                }
+            }
+            outcome
+        } catch (t: Throwable) {
+            // F2: never leave a live session behind a verifier/derive throw. Burn + abort + refuse.
+            pendingChallenge = null
+            sessions.cancel()
+            _phase.value = PairingPhase.Aborted(PairingAbortReason.INTERNAL_ERROR)
+            AttestationOutcome.Refused("pairing internal error")
+        }
     }
 
     /**
      * Record the human's §7.4 verdict for the awaiting SAS. Delegates to [PairingPinCoordinator]:
      * Match pins both child keys (write-once) + burns the session; Mismatch/Stale/AlreadyPaired pin
-     * nothing. Maps the [PinOutcome] to a terminal [PairingPhase] and stops the listener. A `confirm`
-     * with no awaiting challenge resolves to [PairingAbortReason.NO_LIVE_ATTEMPT] (fail-closed no-op).
+     * nothing. Maps the [PinOutcome] to a terminal [PairingPhase], then stops the listener **outside** the
+     * monitor (Codex F5). A `confirm` with no awaiting challenge resolves to
+     * [PairingAbortReason.NO_LIVE_ATTEMPT] (fail-closed no-op).
+     *
+     * **Fail-closed on pin throw (Codex F3):** a store/commit failure (ADR-039 D2 throws) does not consume
+     * the session, so the controller burns it here and aborts — never a stuck half-trusted state. Nothing
+     * is pinned (the store throws before/at commit).
      */
-    fun confirm(matched: Boolean): Unit =
+    fun confirm(matched: Boolean) {
         monitor.runGuarded {
-            val challenge =
-                pendingChallenge ?: run {
-                    _phase.value = PairingPhase.Aborted(PairingAbortReason.NO_LIVE_ATTEMPT)
-                    transport.stop()
-                    return@runGuarded
-                }
+            val challenge = pendingChallenge
+            if (challenge == null) {
+                _phase.value = PairingPhase.Aborted(PairingAbortReason.NO_LIVE_ATTEMPT)
+                return@runGuarded
+            }
             pendingChallenge = null
             _phase.value =
-                when (coordinator.confirmAndPin(challenge, matched)) {
-                    is PinOutcome.Pinned -> PairingPhase.Pinned
+                try {
+                    when (coordinator.confirmAndPin(challenge, matched)) {
+                        is PinOutcome.Pinned -> PairingPhase.Pinned
 
-                    PinOutcome.Aborted -> PairingPhase.Aborted(PairingAbortReason.SAS_MISMATCH)
+                        PinOutcome.Aborted -> PairingPhase.Aborted(PairingAbortReason.SAS_MISMATCH)
 
-                    PinOutcome.Stale -> PairingPhase.Aborted(PairingAbortReason.STALE)
+                        PinOutcome.Stale -> PairingPhase.Aborted(PairingAbortReason.STALE)
 
-                    // ADR-039 D3: surfaced distinctly from a SAS mismatch (it is a recovery-gated rotation,
-                    // not a MITM warning) so the UI can route to the right message.
-                    PinOutcome.AlreadyPaired -> PairingPhase.Aborted(PairingAbortReason.ALREADY_PAIRED)
+                        // ADR-039 D3: surfaced distinctly from a SAS mismatch (it is a recovery-gated
+                        // rotation, not a MITM warning) so the UI can route to the right message.
+                        PinOutcome.AlreadyPaired -> PairingPhase.Aborted(PairingAbortReason.ALREADY_PAIRED)
+                    }
+                } catch (t: Throwable) {
+                    // F3: the coordinator did NOT consume on a failed pin, so the session is still live —
+                    // burn it so nothing is left half-trusted. Nothing was pinned (the store throws).
+                    sessions.cancel()
+                    PairingPhase.Aborted(PairingAbortReason.INTERNAL_ERROR)
                 }
-            transport.stop()
         }
+        transport.stop()
+    }
 
     /**
      * Abandon the in-flight attempt (the parent backed out of the QR/SAS screen). Burns the pending
-     * session (a fresh QR is required to retry), stops the listener, and returns to [PairingPhase.Idle].
+     * session (a fresh QR is required to retry) and returns to [PairingPhase.Idle]; the listener is stopped
+     * **outside** the monitor (Codex F5).
      */
-    fun cancel(): Unit =
+    fun cancel() {
         monitor.runGuarded {
             pendingChallenge = null
             sessions.cancel()
-            transport.stop()
             _phase.value = PairingPhase.Idle
         }
+        transport.stop()
+    }
 }
 
 /** The §7 pairing phase the UI renders (ADR-043 D1). */
@@ -197,6 +256,12 @@ enum class PairingAbortReason {
 
     /** A confirm arrived with no SAS awaiting a tap (defensive fail-closed no-op). */
     NO_LIVE_ATTEMPT,
+
+    /**
+     * An unexpected failure mid-flow (a verifier/derive throw, a pin/commit failure, or a listener-bind
+     * failure) — burned + aborted fail-closed rather than left in a live half-state (Codex F2/F3/F4).
+     */
+    INTERNAL_ERROR,
 }
 
 /**
