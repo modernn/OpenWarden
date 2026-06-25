@@ -81,9 +81,12 @@ A parent can pair, see state, and push a policy — from a phone.
   the parent-scans inversion is forbidden). (a) session + §7.1 QR payload done
   *(#94, PR #99, ADR-035)*; (b) §7.2 endpoint + D6 validation done *(#95, PR #101,
   ADR-036)*; (c) §7.3 attestation verify done *(#96, PR #103, ADR-037)*; (d) six-emoji
-  SAS done *(#97, PR #105, ADR-038)*; (e) pin on Match done *(#98, PR #107, ADR-039)*.
-  Parent-side crypto chain (a)–(e) complete; the pairing **UI + transport wiring** and the
-  **child side** remain (ADR-039 D5a) before end-to-end pairing works.
+  SAS done *(#97, PR #105, ADR-038)*; (e) pin on Match done *(#98, PR #107, ADR-039)*;
+  (f) orchestration controller + transport lifecycle + Compose QR/SAS UI wired *(ADR-043)* —
+  the parent half now runs end-to-end from the app (show QR → receive POST → attestation →
+  six-emoji compare → pin), discharging the ADR-039 D5a residual. The **child side** (QR scan +
+  §7.2 POST + child-side SAS compute + child pin of the parent keys, §7.5) and parent-side
+  **mDNS advertising** remain before full end-to-end pairing works.
 - [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
 - [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
 - [x] "Lock now" / "Unlock now" *(#28, PR #76)*
