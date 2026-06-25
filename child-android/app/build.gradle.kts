@@ -71,4 +71,8 @@ dependencies {
 
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+    // kotlin.test on the androidTest classpath: DeviceOwnerProvisioningTest uses kotlin.test.*,
+    // which was never actually on this source set (the file had never compiled). Resolves it and
+    // keeps the connectedAndroidTest suite buildable.
+    androidTestImplementation(kotlin("test-junit"))
 }
