@@ -17,6 +17,7 @@ androidx-work = "2.10.0"
 androidx-activity-compose = "1.9.3"
 androidx-lifecycle = "2.8.7"
 bouncycastle = "1.78.1"
+zxing = "3.5.3"
 
 [libraries]
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -47,6 +48,8 @@ compose-navigation = { module = "androidx.navigation:navigation-compose", versio
 molecule-runtime = { module = "app.cash.molecule:molecule-runtime", version.ref = "molecule" }
 koalaplot-core = { module = "io.github.koalaplot:koalaplot-core", version.ref = "koalaplot" }
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+# Pure-JVM QR encoder (Apache-2.0, no network/telemetry) — §7.1 pairing-QR rendering only (ADR-043 D7).
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

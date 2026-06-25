@@ -43,6 +43,9 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    // §7.1 pairing-QR rendering (ADR-043 D7): encode the QR payload to a bit-matrix the UI draws.
+    // Pure-JVM, Apache-2.0, no network/telemetry — confined to the pairing screen.
+    implementation(libs.zxing.core)
     // TODO(#27): demo-only transport; replace with signed transport (gated by #27/#24), drop ktor from release.
     // These four deps exist solely for DemoLockCommandSender and DemoAllowlistRepository and must
     // be removed once the real mDNS + pinned-TLS + signed-command transport is implemented.

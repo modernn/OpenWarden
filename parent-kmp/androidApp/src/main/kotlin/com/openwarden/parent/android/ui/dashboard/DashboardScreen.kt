@@ -70,6 +70,7 @@ fun DashboardScreen(
     viewModel: DashboardAndroidViewModel,
     modifier: Modifier = Modifier,
     onOpenAllowlist: () -> Unit = {},
+    onOpenPairing: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -100,7 +101,7 @@ fun DashboardScreen(
                 when (val s = uiState) {
                     is DashboardUiState.Loading -> LoadingState()
                     is DashboardUiState.Error -> ErrorState(s.message)
-                    is DashboardUiState.Success -> SuccessContent(s, presenter, onOpenAllowlist)
+                    is DashboardUiState.Success -> SuccessContent(s, presenter, onOpenAllowlist, onOpenPairing)
                 }
             }
         }
@@ -196,6 +197,7 @@ private fun SuccessContent(
     state: DashboardUiState.Success,
     presenter: LockPresenter,
     onOpenAllowlist: () -> Unit = {},
+    onOpenPairing: () -> Unit = {},
 ) {
     LazyColumn(
         modifier = Modifier
@@ -222,6 +224,16 @@ private fun SuccessContent(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Edit app allowlist")
+            }
+        }
+
+        // ---- Pair a child device nav (issue #98 / ADR-043) ----
+        item {
+            Button(
+                onClick = onOpenPairing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Pair a child device")
             }
         }
 

@@ -15,7 +15,12 @@ import com.openwarden.parent.android.demo.ChildApiClient
 import com.openwarden.parent.android.policy.DemoAllowlistRepository
 import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
 import com.openwarden.parent.android.ui.dashboard.DashboardScreen
+import com.openwarden.parent.android.ui.pair.PairingFlowScreen
 import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
+import com.openwarden.parent.crypto.AndroidSecureKeyStorage
+import com.openwarden.parent.crypto.StoredRootKeyProvider
+import com.openwarden.parent.pairing.AndroidPairingFactory
+import com.openwarden.parent.pairing.PairingController
 
 /**
  * Main activity.
@@ -27,7 +32,6 @@ import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
  * pairing/mDNS path is still unbuilt.
  */
 class MainActivity : ComponentActivity() {
-
     // Held at Activity scope so the OkHttp pool is closed exactly once in onDestroy.
     // The client is constructed here (explicit, not defaulted) so this Activity is its sole owner.
     private val childRepo = ApiChildStateRepository(ChildApiClient())
@@ -38,6 +42,21 @@ class MainActivity : ComponentActivity() {
 
     private val allowlistRepo = DemoAllowlistRepository()
 
+    /**
+     * The parent pairing flow controller (ADR-043). Built once from the Android seams via
+     * [AndroidPairingFactory]. The Tier-1 Google-root SPKI pin is not committed yet, so an **empty** pin
+     * is passed: every §7.3 attestation then refuses fail-closed (no allow-listed root) — the UI + flow
+     * run end-to-end up to a fail-closed `ATTESTATION_FAILED`, and the real root + on-device StrongBox
+     * chain remain the inherited HARD pre-prod gate (ADR-037 D3 / ADR-039).
+     */
+    private val pairingController: PairingController by lazy {
+        AndroidPairingFactory.create(
+            context = applicationContext,
+            rootKeys = StoredRootKeyProvider(AndroidSecureKeyStorage(applicationContext)),
+            googleRootSpkiDer = ByteArray(0),
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -45,6 +64,7 @@ class MainActivity : ComponentActivity() {
                 AppRoot(
                     dashboardVm = dashboardVm,
                     allowlistRepo = allowlistRepo,
+                    pairingController = pairingController,
                 )
             }
         }
@@ -61,18 +81,33 @@ class MainActivity : ComponentActivity() {
 private fun AppRoot(
     dashboardVm: DashboardAndroidViewModel,
     allowlistRepo: DemoAllowlistRepository,
+    pairingController: PairingController,
 ) {
     var showAllowlist by remember { mutableStateOf(false) }
+    var showPairing by remember { mutableStateOf(false) }
 
-    if (showAllowlist) {
-        AllowlistEditorScreen(
-            repo = allowlistRepo,
-            onBack = { showAllowlist = false },
-        )
-    } else {
-        DashboardScreen(
-            viewModel = dashboardVm,
-            onOpenAllowlist = { showAllowlist = true },
-        )
+    when {
+        showAllowlist -> {
+            AllowlistEditorScreen(
+                repo = allowlistRepo,
+                onBack = { showAllowlist = false },
+            )
+        }
+
+        showPairing -> {
+            PairingFlowScreen(
+                controller = pairingController,
+                onBack = { showPairing = false },
+                onPaired = { showPairing = false },
+            )
+        }
+
+        else -> {
+            DashboardScreen(
+                viewModel = dashboardVm,
+                onOpenAllowlist = { showAllowlist = true },
+                onOpenPairing = { showPairing = true },
+            )
+        }
     }
 }
