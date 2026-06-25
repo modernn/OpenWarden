@@ -18,7 +18,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -42,24 +41,29 @@ import com.openwarden.parent.pairing.PairingPhase
  * material — it only collects `phase` and calls `begin()/confirm()/cancel()`; the controller owns the
  * whole handshake.
  *
- * Lifecycle: [LaunchedEffect] starts an attempt on entry; [DisposableEffect] cancels it on exit so the
- * `/pair` listener never outlives the screen (ADR-043 D4).
+ * Lifecycle (#119): [onEnsureStarted] begins an attempt on entry **idempotently** — a config-change
+ * re-entry does not restart a live attempt (the controller is retained in [PairingViewModel]). The
+ * attempt is **not** cancelled on `onDispose` (that would burn it on every rotation); teardown is the
+ * ViewModel's `onCleared()` (real finish) or the explicit Back/Cancel here, which burns then navigates.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PairingFlowScreen(
     controller: PairingController,
+    onEnsureStarted: () -> Unit = { controller.ensureStarted() },
     onBack: () -> Unit = {},
     onPaired: () -> Unit = {},
 ) {
     val phase by controller.phase.collectAsState()
 
-    LaunchedEffect(controller) { controller.begin() }
-    DisposableEffect(controller) {
-        onDispose {
-            // Stop the listener + burn any live attempt when the parent leaves the screen.
-            controller.cancel()
-        }
+    // Idempotent: begins only if Idle, so a rotation that rebuilds this screen keeps the live attempt.
+    LaunchedEffect(controller) { onEnsureStarted() }
+
+    // Explicit leave (Back / Cancel): burn the attempt + stop the listener, then navigate. (A mere
+    // config change does NOT route through here — the ViewModel retains the attempt.)
+    val leave = {
+        controller.cancel()
+        onBack()
     }
 
     Scaffold(
@@ -68,7 +72,7 @@ fun PairingFlowScreen(
                 title = { Text("Pair a child device") },
                 navigationIcon = {
                     Button(
-                        onClick = onBack,
+                        onClick = leave,
                         contentPadding =
                             androidx.compose.foundation.layout
                                 .PaddingValues(horizontal = 8.dp),
@@ -94,7 +98,7 @@ fun PairingFlowScreen(
                 is PairingPhase.ShowingQr -> {
                     ShowQrStep(
                         qrPayloadJson = p.qrPayloadJson,
-                        onCancel = onBack,
+                        onCancel = leave,
                     )
                 }
 
@@ -118,7 +122,7 @@ fun PairingFlowScreen(
                                 "Create the parent recovery phrase, then try again.",
                         isError = true,
                         primaryLabel = "Back",
-                        onPrimary = onBack,
+                        onPrimary = leave,
                     )
                 }
 
@@ -126,7 +130,7 @@ fun PairingFlowScreen(
                     AbortedStep(
                         reason = p.reason,
                         onRetry = { controller.begin() },
-                        onBack = onBack,
+                        onBack = leave,
                     )
                 }
             }

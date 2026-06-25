@@ -8,7 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.openwarden.parent.android.demo.ApiChildStateRepository
 import com.openwarden.parent.android.demo.ChildApiClient
@@ -16,11 +16,8 @@ import com.openwarden.parent.android.policy.DemoAllowlistRepository
 import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
 import com.openwarden.parent.android.ui.dashboard.DashboardScreen
 import com.openwarden.parent.android.ui.pair.PairingFlowScreen
+import com.openwarden.parent.android.ui.pair.PairingViewModel
 import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
-import com.openwarden.parent.crypto.AndroidSecureKeyStorage
-import com.openwarden.parent.crypto.StoredRootKeyProvider
-import com.openwarden.parent.pairing.AndroidPairingFactory
-import com.openwarden.parent.pairing.PairingController
 
 /**
  * Main activity.
@@ -43,19 +40,11 @@ class MainActivity : ComponentActivity() {
     private val allowlistRepo = DemoAllowlistRepository()
 
     /**
-     * The parent pairing flow controller (ADR-043). Built once from the Android seams via
-     * [AndroidPairingFactory]. The Tier-1 Google-root SPKI pin is not committed yet, so an **empty** pin
-     * is passed: every §7.3 attestation then refuses fail-closed (no allow-listed root) — the UI + flow
-     * run end-to-end up to a fail-closed `ATTESTATION_FAILED`, and the real root + on-device StrongBox
-     * chain remain the inherited HARD pre-prod gate (ADR-037 D3 / ADR-039).
+     * The parent pairing flow (ADR-043), held in a [PairingViewModel] so the controller — and any
+     * in-flight attempt — **survives Activity config changes** (#119). Teardown is the ViewModel's
+     * `onCleared()` (real finish) or an explicit Back/Cancel, never a mere rotation.
      */
-    private val pairingController: PairingController by lazy {
-        AndroidPairingFactory.create(
-            context = applicationContext,
-            rootKeys = StoredRootKeyProvider(AndroidSecureKeyStorage(applicationContext)),
-            googleRootSpkiDer = ByteArray(0),
-        )
-    }
+    private val pairingVm: PairingViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,7 +53,7 @@ class MainActivity : ComponentActivity() {
                 AppRoot(
                     dashboardVm = dashboardVm,
                     allowlistRepo = allowlistRepo,
-                    pairingController = pairingController,
+                    pairingVm = pairingVm,
                 )
             }
         }
@@ -81,10 +70,12 @@ class MainActivity : ComponentActivity() {
 private fun AppRoot(
     dashboardVm: DashboardAndroidViewModel,
     allowlistRepo: DemoAllowlistRepository,
-    pairingController: PairingController,
+    pairingVm: PairingViewModel,
 ) {
-    var showAllowlist by remember { mutableStateOf(false) }
-    var showPairing by remember { mutableStateOf(false) }
+    // rememberSaveable so the visible screen survives a config change (#119) — otherwise a rotation
+    // would drop back to the dashboard even though the pairing attempt is retained in the ViewModel.
+    var showAllowlist by rememberSaveable { mutableStateOf(false) }
+    var showPairing by rememberSaveable { mutableStateOf(false) }
 
     when {
         showAllowlist -> {
@@ -96,7 +87,8 @@ private fun AppRoot(
 
         showPairing -> {
             PairingFlowScreen(
-                controller = pairingController,
+                controller = pairingVm.controller,
+                onEnsureStarted = { pairingVm.ensureStarted() },
                 onBack = { showPairing = false },
                 onPaired = { showPairing = false },
             )
