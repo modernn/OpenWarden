@@ -100,6 +100,17 @@ class PairingController(
     }
 
     /**
+     * Begin a pairing attempt **only if none is in flight** ([PairingPhase.Idle]). Idempotent across a
+     * screen re-entry / Activity config change (#119): an already-live attempt ([PairingPhase.ShowingQr] /
+     * [PairingPhase.AwaitingSas]) or a terminal phase is left untouched, so a rotation that tears down and
+     * rebuilds the Compose screen does **not** restart pairing or burn the live session. The UI calls this
+     * (not [begin]) on screen entry; an explicit "Start over" still calls [begin] to force a fresh attempt.
+     */
+    fun ensureStarted() {
+        if (phase.value is PairingPhase.Idle) begin()
+    }
+
+    /**
      * The slice-(c) [AttestationVerifier] seam (ADR-043 D2). Called by [PairingEndpoint] on the network
      * thread, already under the server's `sessionLock`. Delegates to the real verifier; on `Accepted`
      * derives the §7.4 SAS and moves to [PairingPhase.AwaitingSas]. Returns the verifier's verdict verbatim

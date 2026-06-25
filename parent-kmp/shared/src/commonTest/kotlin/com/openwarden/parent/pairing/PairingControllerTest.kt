@@ -403,4 +403,31 @@ class PairingControllerTest {
 
         assertEquals(3, h.monitor.guarded, "begin + confirm + cancel each run under the monitor; verify does not")
     }
+
+    @Test
+    fun ensureStartedFromIdleBeginsTheAttempt() {
+        // #119: on screen entry from a clean state, ensureStarted() mints the attempt (like begin()).
+        val h = Harness()
+
+        h.controller.ensureStarted()
+
+        assertTrue(h.controller.phase.value is PairingPhase.ShowingQr, "ensureStarted from Idle shows the QR")
+        assertEquals(1, h.transport.starts, "the listener starts")
+    }
+
+    @Test
+    fun ensureStartedWhileAwaitingDoesNotRestartTheLiveAttempt() {
+        // #119 (the config-change-survival invariant): a screen re-entry (rotation) calls ensureStarted on
+        // an already-live attempt — it must be a NO-OP, never a fresh begin() that burns the live session.
+        val h = Harness()
+        h.controller.begin()
+        h.controller.verify(h.livePost()) // AwaitingSas, a live session + challenge
+        val liveSession = h.manager.active()
+
+        h.controller.ensureStarted() // simulates the post-rotation LaunchedEffect re-firing
+
+        assertTrue(h.controller.phase.value is PairingPhase.AwaitingSas, "the live attempt is preserved, not restarted")
+        assertSame(liveSession, h.manager.active(), "the same session survives — ensureStarted did not re-begin")
+        assertEquals(1, h.transport.starts, "the listener is not re-started")
+    }
 }
