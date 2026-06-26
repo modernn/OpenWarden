@@ -49,8 +49,12 @@ class AttestationEvidence(
  * The §7.3 trust allow-lists, injected into [Section73AttestationVerifier] (ADR-037 D3). It is
  * **data, not code** so the Tier-2 widening (ADR-029) is a different policy value + root pins,
  * never a verifier rewrite. Anything not in an allow-set is refused (fail-closed by construction).
+ *
+ * `open` so a test can inject a permissive [isAllowedRoot] and prove the verifier's own empty-root
+ * refusal is load-bearing independently of this policy (the two guards are intentional belt-and-suspenders,
+ * ADR-037 D7). Production wiring always uses the concrete [tier1] value.
  */
-class AttestationPolicy(
+open class AttestationPolicy(
     allowedRootSpkiDer: List<ByteArray>,
     private val allowedModels: Set<String>,
     private val allowedSecurityLevels: Set<AttestationSecurityLevel>,
@@ -67,7 +71,7 @@ class AttestationPolicy(
      * `rootSpkiDer` never matches — there are no empty pins to match it (above), and an empty
      * argument is rejected outright (ADR-037 D7) so no future caller can resurrect the coincidence.
      */
-    fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = rootSpkiDer.isNotEmpty() && allowedRoots.any { it.contentEquals(rootSpkiDer) }
+    open fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = rootSpkiDer.isNotEmpty() && allowedRoots.any { it.contentEquals(rootSpkiDer) }
 
     /** Check 3: the attested device model is allow-listed. */
     fun isAllowedModel(model: String): Boolean = model in allowedModels

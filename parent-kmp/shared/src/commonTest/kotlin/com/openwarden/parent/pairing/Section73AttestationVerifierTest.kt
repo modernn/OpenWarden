@@ -197,6 +197,24 @@ class Section73AttestationVerifierTest {
         assertRefusedAndBurned(evidence = goodEvidence(rootSpkiDer = ByteArray(0)), policy = emptyPinPolicy)
 
     @Test
+    fun verifierRefusesEmptyParsedRootEvenIfPolicyWouldAccept() {
+        // Isolates the *verifier-layer* guard (Section73AttestationVerifier `root.isEmpty()`): inject a
+        // policy that accepts ANY root, so only the verifier's own empty-root refusal stands between an
+        // empty parsed root and Accept. Deleting that line would let this reach Accepted ⇒ test goes red.
+        // (The other empty-root tests are belt-and-suspenders: the policy layer also refuses, so they
+        // would stay green if only the verifier line were reverted — this one would not.)
+        val acceptAnyRoot =
+            object : AttestationPolicy(
+                allowedRootSpkiDer = listOf(goodRoot),
+                allowedModels = AttestationPolicy.PIXEL_7_MODELS,
+                allowedSecurityLevels = setOf(AttestationSecurityLevel.STRONGBOX),
+            ) {
+                override fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = true
+            }
+        assertRefusedAndBurned(evidence = goodEvidence(rootSpkiDer = ByteArray(0)), policy = acceptAnyRoot)
+    }
+
+    @Test
     fun policyDropsEmptyPinEntriesFailClosed() {
         // A pin list of only zero-length entries collapses to "no root pinned": nothing matches.
         assertFalse(emptyPinPolicy.isAllowedRoot(ByteArray(0)), "empty arg never matches an empty pin")
