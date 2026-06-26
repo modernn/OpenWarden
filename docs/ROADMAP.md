@@ -104,7 +104,9 @@ Make setup repeatable and make the gates real before inviting anyone in.
   `connectedAndroidTest` *(#30, PR #122 — criteria 1 (DO) + 3 (latency) automated; criterion 2
   (restrictions intact) is verified out-of-band because enforcing `DISALLOW_DEBUGGING_FEATURES`
   disables ADB)*
-- [ ] CI: enforce ktlint + unit tests + `connectedAndroidTest` gating on PRs *(#31)*
+- [x] CI: enforce ktlint + unit tests + `connectedAndroidTest` gating on PRs *(#31, PR #125,
+  ADR-044 — ktlint (whole tree) + JVM unit tests gate every PR; `connectedAndroidTest` deferred
+  to #124, the `DISALLOW_DEBUGGING_FEATURES`/ADB-severance constraint)*
 - [ ] Contributor autopilot — `/openwarden` role-picker + agent-ready routing *(#32)*
 
 ### "Oliver's phone works" — internal proof (lands within v0.2–v0.4)
