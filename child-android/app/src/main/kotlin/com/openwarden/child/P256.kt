@@ -16,12 +16,15 @@ import java.security.spec.X509EncodedKeySpec
  * uniqueness/replay/dedup key, so ECDSA `(r, n-s)` malleability is not exploitable (ADR-032 D2).
  */
 object P256 {
-
     /**
      * Verify [sigHex] (hex of a DER-encoded ECDSA signature) over [message] against [spkiDer], the
      * X.509 SubjectPublicKeyInfo of a P-256 public key (e.g. the attested `K_bind` leaf key).
      */
-    fun verify(message: ByteArray, sigHex: String, spkiDer: ByteArray): Boolean {
+    fun verify(
+        message: ByteArray,
+        sigHex: String,
+        spkiDer: ByteArray,
+    ): Boolean {
         return try {
             val sig = sigHex.hexToBytes()
             if (sig.isEmpty()) return false

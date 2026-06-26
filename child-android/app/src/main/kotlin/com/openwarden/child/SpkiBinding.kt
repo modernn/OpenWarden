@@ -19,13 +19,13 @@ import java.util.Base64
  * Fail-closed throughout: any missing, mismatched, or malformed input returns `false`.
  */
 object SpkiBinding {
-
     // Identical canonical-JSON rules as CommandVerifier/BundleVerifier/HeartbeatVerifier so the one
     // signing rule never diverges: encodeDefaults so defaulted fields are signed; omit nulls.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /**
      * RFC 7469 SPKI pin: base64url(SHA-256([spkiDer])), where [spkiDer] is the DER-encoded
@@ -67,17 +67,19 @@ object SpkiBinding {
         // ADR-025 D6 doctrine, carried to the sync channel: decode the claimed pin to bytes and require
         // EXACTLY a 32-byte SHA-256 (not merely a non-empty string, which is the gap PR #64 had on the
         // pairing channel), then compare BYTES — never accept an ill-formed/wrong-length pin string.
-        val claimed = try {
-            Base64.getUrlDecoder().decode(assertion.spki_sha256)
-        } catch (e: Exception) {
-            return false
-        }
+        val claimed =
+            try {
+                Base64.getUrlDecoder().decode(assertion.spki_sha256)
+            } catch (e: Exception) {
+                return false
+            }
         if (claimed.size != 32) return false
-        val presented = try {
-            MessageDigest.getInstance("SHA-256").digest(presentedSpkiDer)
-        } catch (e: Exception) {
-            return false
-        }
+        val presented =
+            try {
+                MessageDigest.getInstance("SHA-256").digest(presentedSpkiDer)
+            } catch (e: Exception) {
+                return false
+            }
         if (!MessageDigest.isEqual(claimed, presented)) return false
         return try {
             Ed25519.verify(canonicalBody(assertion), assertion.sig, pinnedIdentityPubkey)

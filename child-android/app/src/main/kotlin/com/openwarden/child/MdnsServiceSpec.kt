@@ -31,7 +31,10 @@ data class MdnsServiceSpec(
          * @throws IllegalArgumentException if [childId] is empty or [port] is outside 1..65535 —
          *   fail-closed: we never advertise a malformed service record.
          */
-        fun forChild(childId: String, port: Int): MdnsServiceSpec {
+        fun forChild(
+            childId: String,
+            port: Int,
+        ): MdnsServiceSpec {
             require(childId.isNotEmpty()) { "childId must be non-empty" }
             require(port in 1..65535) { "port $port out of range 1..65535" }
             return MdnsServiceSpec(

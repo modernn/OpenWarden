@@ -58,7 +58,7 @@ dependencies {
 
     // JSON + crypto
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    implementation("net.i2p.crypto:eddsa:0.3.0")          // Ed25519
+    implementation("net.i2p.crypto:eddsa:0.3.0") // Ed25519
     // BIP39 mnemonic lib added when #15 (recovery phrase) is built — pick a Maven Central lib then
 
     // QR

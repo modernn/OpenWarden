@@ -18,7 +18,6 @@ import kotlin.test.assertTrue
  * device, no libsodium). The all-zeros mnemonic ratifies CRYPTO.md §2's placeholder vector.
  */
 class RootKeyDerivationTest {
-
     private val allZeroMnemonic = Bip39.encode(ByteArray(32))
 
     @Test
@@ -49,15 +48,17 @@ class RootKeyDerivationTest {
     fun signatureVerifiesUnderDerivedPublicKey() {
         val k = RootKeyDerivation.deriveRootKeys(allZeroMnemonic)
         val msg = "openwarden-root".encodeToByteArray()
-        val signer = Ed25519Signer().apply {
-            init(true, Ed25519PrivateKeyParameters(k.ed25519Seed, 0))
-            update(msg, 0, msg.size)
-        }
+        val signer =
+            Ed25519Signer().apply {
+                init(true, Ed25519PrivateKeyParameters(k.ed25519Seed, 0))
+                update(msg, 0, msg.size)
+            }
         val sig = signer.generateSignature()
-        val verifier = Ed25519Signer().apply {
-            init(false, Ed25519PublicKeyParameters(k.ed25519Public, 0))
-            update(msg, 0, msg.size)
-        }
+        val verifier =
+            Ed25519Signer().apply {
+                init(false, Ed25519PublicKeyParameters(k.ed25519Public, 0))
+                update(msg, 0, msg.size)
+            }
         assertTrue(verifier.verifySignature(sig))
     }
 

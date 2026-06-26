@@ -14,15 +14,15 @@ import org.junit.Test
  * fail-closed / metadata-only / no-fabricated-timestamp rules are asserted deterministically.
  */
 class ApiChildStateRepositoryTest {
-
-    private fun state(reportedAt: Long) = ChildStateResponse(
-        version = "0.1.0-dev",
-        policyVersion = "none",
-        policyNotAfter = "n/a",
-        paired = false,
-        isLocked = false,
-        reportedAt = reportedAt,
-    )
+    private fun state(reportedAt: Long) =
+        ChildStateResponse(
+            version = "0.1.0-dev",
+            policyVersion = "none",
+            policyNotAfter = "n/a",
+            paired = false,
+            isLocked = false,
+            reportedAt = reportedAt,
+        )
 
     @Test
     fun reportedAtPositive_mapsToInstant() {
@@ -46,10 +46,11 @@ class ApiChildStateRepositoryTest {
 
     @Test
     fun usage_convertsMinutesToMs_sumsTotal_andFallsBackLabel() {
-        val usage = listOf(
-            AppUsageEntry(packageName = "com.android.chrome", foregroundMinutes = 10, label = "Chrome"),
-            AppUsageEntry(packageName = "com.roblox.client", foregroundMinutes = 5, label = ""),
-        )
+        val usage =
+            listOf(
+                AppUsageEntry(packageName = "com.android.chrome", foregroundMinutes = 10, label = "Chrome"),
+                AppUsageEntry(packageName = "com.roblox.client", foregroundMinutes = 5, label = ""),
+            )
         val snap = ApiChildStateRepository.mapToSnapshot(state(1L), usage)
         val known = snap.todayUsage as TodayUsage.Known
         assertEquals(15 * 60_000L, known.totalForegroundMs)

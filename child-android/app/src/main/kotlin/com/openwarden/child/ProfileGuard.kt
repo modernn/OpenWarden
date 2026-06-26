@@ -53,7 +53,6 @@ class ProfileGuard(
     // omitted; [forContext] wires the real fail-closed `lockNow()`, tests inject their own seam.
     private val contain: () -> Unit,
 ) {
-
     /**
      * Check the current profile count against the baseline. On an extra profile, fire
      * [onExtraProfile] (record) then [contain] (lock), and return true. Returns false only when the
@@ -64,13 +63,14 @@ class ProfileGuard(
      * stay usable. The watchdog would otherwise just swallow-and-log the throw, leaving it usable.
      */
     fun check(): Boolean {
-        val count = try {
-            profileCount()
-        } catch (e: Exception) {
-            Log.e(TAG, "profile count read failed — cannot prove baseline, containing: ${e.message}")
-            contain()
-            return true
-        }
+        val count =
+            try {
+                profileCount()
+            } catch (e: Exception) {
+                Log.e(TAG, "profile count read failed — cannot prove baseline, containing: ${e.message}")
+                contain()
+                return true
+            }
         if (count <= baseline) return false
         onExtraProfile(count)
         contain()

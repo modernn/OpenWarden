@@ -12,7 +12,6 @@ import java.util.Base64
  * binding logic is proven against synthetic keys via [FakeChildKeyStore], the repo idiom.
  */
 class ChildKeyBindingTest {
-
     private val nonce = ByteArray(32) { (it + 7).toByte() }
 
     private fun provisionedStore() = FakeChildKeyStore().also { it.provision(nonce) }
@@ -138,7 +137,10 @@ class ChildKeyBindingTest {
     }
 
     /** Re-sign a (possibly malformed) binding body with the store's K_bind so its sig is genuinely valid. */
-    private fun reSigned(b: ChildKeyBinding, store: FakeChildKeyStore): ChildKeyBinding {
+    private fun reSigned(
+        b: ChildKeyBinding,
+        store: FakeChildKeyStore,
+    ): ChildKeyBinding {
         val sig = store.signBinding(ChildKeyBindingVerifier.canonicalBody(b))!!
         return b.copy(sig = sig.joinToString("") { "%02x".format(it) })
     }

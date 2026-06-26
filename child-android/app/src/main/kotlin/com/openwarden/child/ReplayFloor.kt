@@ -91,7 +91,9 @@ object ReplayFloor {
          * (ADR-017 commit ordering: floor advances LAST, never before durable
          * commit). [newFloor] always equals the admitted `incomingPolicySeq`.
          */
-        data class Accept(val newFloor: Long) : Decision
+        data class Accept(
+            val newFloor: Long,
+        ) : Decision
 
         /**
          * The bundle is rejected. The caller MUST fail closed and apply the
@@ -99,7 +101,9 @@ object ReplayFloor {
          * "keep current policy and alert later" outcome. [reason] is a stable
          * diagnostic label, not a control-flow signal.
          */
-        data class RejectStrict(val reason: String) : Decision
+        data class RejectStrict(
+            val reason: String,
+        ) : Decision
     }
 
     /**

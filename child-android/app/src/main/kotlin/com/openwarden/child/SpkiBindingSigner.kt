@@ -10,12 +10,14 @@ package com.openwarden.child
  * landing #22 needs no change here.
  */
 object SpkiBindingSigner {
-
     /**
      * @return a verifiable [SpkiAssertion] over `base64url(SHA-256([spkiDer]))`, or `null` if [provider]
      *   has no identity key yet (pre-pairing) or signing fails.
      */
-    fun assertFor(spkiDer: ByteArray, provider: IdentityKeyProvider): SpkiAssertion? {
+    fun assertFor(
+        spkiDer: ByteArray,
+        provider: IdentityKeyProvider,
+    ): SpkiAssertion? {
         provider.identityPublicKey() ?: return null
         val unsigned = SpkiAssertion(v = 1, spki_sha256 = SpkiBinding.spkiSha256(spkiDer))
         val sigBytes = provider.sign(SpkiBinding.canonicalBody(unsigned)) ?: return null

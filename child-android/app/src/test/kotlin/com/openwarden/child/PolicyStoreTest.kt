@@ -13,7 +13,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PolicyStoreTest {
-
     private fun makeBundle(
         issuedAt: Long = 1_704_067_200_000L, // 2024-01-01T00:00:00Z in ms (PROTOCOL.md §2 integer)
         allowlist: List<String> = listOf("com.example.app"),
@@ -53,10 +52,12 @@ class PolicyStoreTest {
     fun `missing file returns LoadResult-Missing and loadActive returns null`() {
         val context = RuntimeEnvironment.getApplication()
         // Use a sub-dir that has never had a bundle written to it
-        val freshContext = object : android.content.ContextWrapper(context) {
-            private val tmpDir = File(context.filesDir, "missing_test_${System.nanoTime()}")
-            override fun getFilesDir(): File = tmpDir
-        }
+        val freshContext =
+            object : android.content.ContextWrapper(context) {
+                private val tmpDir = File(context.filesDir, "missing_test_${System.nanoTime()}")
+
+                override fun getFilesDir(): File = tmpDir
+            }
         val store = PolicyStore(freshContext)
 
         assertTrue(store.load() is PolicyStore.LoadResult.Missing, "load() must be Missing")
@@ -70,9 +71,10 @@ class PolicyStoreTest {
         policyDir.mkdirs()
         File(policyDir, "active.json").writeText("{ not json")
 
-        val corruptContext = object : android.content.ContextWrapper(context) {
-            override fun getFilesDir(): File = policyDir.parentFile!!
-        }
+        val corruptContext =
+            object : android.content.ContextWrapper(context) {
+                override fun getFilesDir(): File = policyDir.parentFile!!
+            }
         val store = PolicyStore(corruptContext)
 
         assertTrue(store.load() is PolicyStore.LoadResult.Corrupt, "load() must be Corrupt")

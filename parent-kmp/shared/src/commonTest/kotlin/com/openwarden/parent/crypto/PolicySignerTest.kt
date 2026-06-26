@@ -14,15 +14,16 @@ import kotlin.test.assertTrue
  * run on-device / CI where the libsodium native lib is present.
  */
 class PolicySignerTest {
-    private fun bundle(seq: Long = 5) = PolicyBundle(
-        policySeq = seq,
-        childDeviceId = "dev-1",
-        issuedAt = 1,
-        notBefore = 1,
-        notAfter = 2,
-        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
-        policy = Policy(allowlist = listOf("b.app", "a.app")),
-    )
+    private fun bundle(seq: Long = 5) =
+        PolicyBundle(
+            policySeq = seq,
+            childDeviceId = "dev-1",
+            issuedAt = 1,
+            notBefore = 1,
+            notAfter = 2,
+            nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+            policy = Policy(allowlist = listOf("b.app", "a.app")),
+        )
 
     @Test
     fun signingBytesExcludesSigAndIsDeterministic() {

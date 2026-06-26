@@ -38,7 +38,6 @@ import kotlinx.serialization.json.intOrNull
  * and MUST drop to / remain on the strict baseline.
  */
 object PolicyAdmission {
-
     /** Max canonical bundle size (PROTOCOL.md §2.1 step 2 / ADR-017 verify step 2). */
     const val MAX_CANONICAL_SIZE = 65536
 
@@ -48,11 +47,12 @@ object PolicyAdmission {
      * model is dropped from the typed view (it still counted in the verified signing bytes); the
      * other flags mirror [BundleVerifier] so the typed view round-trips the same fields.
      */
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /** Pure decision result. */
     sealed interface Outcome {
@@ -65,16 +65,24 @@ object PolicyAdmission {
          * single source of truth the caller applies (ADR-040: parsed from the same bytes
          * whose signature was verified, so there is no doc/model mismatch to exploit).
          */
-        data class Accept(val policySeq: Long, val genesis: Boolean, val bundle: SignedBundle) : Outcome
+        data class Accept(
+            val policySeq: Long,
+            val genesis: Boolean,
+            val bundle: SignedBundle,
+        ) : Outcome
 
         /** Structurally invalid (JC1, audience, version, size, jump). Reject; no apply. */
-        data class RejectMalformed(val reason: String) : Outcome
+        data class RejectMalformed(
+            val reason: String,
+        ) : Outcome
 
         /**
          * Signature failure or replay/rollback/anomaly. Fail closed to the strict
          * baseline (ADR-017 part 3). Never "keep current permissive policy".
          */
-        data class RejectStrict(val reason: String) : Outcome
+        data class RejectStrict(
+            val reason: String,
+        ) : Outcome
 
         /**
          * Freshness step 9 (PROTOCOL §2.1 / §5, ADR-041): the bundle's window has not opened yet
@@ -82,7 +90,9 @@ object PolicyAdmission {
          * currently in force — keep it and retry on the next contact. Distinct from a rejection: a
          * not-yet-valid bundle is a deferral, not an anomaly.
          */
-        data class Defer(val reason: String) : Outcome
+        data class Defer(
+            val reason: String,
+        ) : Outcome
 
         /**
          * Freshness step 10 (PROTOCOL §2.1 / §5, ADR-041): the bundle's window has closed
@@ -90,7 +100,9 @@ object PolicyAdmission {
          * stale baseline (the watchdog enforces it via the active-bundle freshness tier), never
          * "unrestricted".
          */
-        data class RejectExpired(val reason: String) : Outcome
+        data class RejectExpired(
+            val reason: String,
+        ) : Outcome
     }
 
     /**
@@ -136,12 +148,13 @@ object PolicyAdmission {
         // Steps 2-3: canonical size + JC1 integer bound, over the RECEIVED document (ADR-040),
         // BEFORE signature (ADR-017 verify steps 2-3). signingBytes() asserts every integer in the
         // whole tree is JCS-safe (ADR-019 D4) and throws on a float/overflow — fail-closed MALFORMED.
-        val body: ByteArray = try {
-            BundleVerifier.signingBytes(receivedDoc)
-        } catch (e: Exception) {
-            // JC1 overflow / non-integer number / canonicalization failure — malformed, fail-closed.
-            return Outcome.RejectMalformed("JC1/canonicalization failed: ${e.message}")
-        }
+        val body: ByteArray =
+            try {
+                BundleVerifier.signingBytes(receivedDoc)
+            } catch (e: Exception) {
+                // JC1 overflow / non-integer number / canonicalization failure — malformed, fail-closed.
+                return Outcome.RejectMalformed("JC1/canonicalization failed: ${e.message}")
+            }
         if (body.size > MAX_CANONICAL_SIZE) {
             return Outcome.RejectMalformed("canonical size ${body.size} > $MAX_CANONICAL_SIZE")
         }
@@ -190,11 +203,12 @@ object PolicyAdmission {
         // verified document. A verified-but-unparseable body is rejected, never applied. (Genesis is
         // sig-deferred above; admit() re-verifies over this document before any pin/stage/apply, so
         // nothing is applied before verification on either path.)
-        val bundle: SignedBundle = try {
-            json.decodeFromJsonElement(SignedBundle.serializer(), receivedDoc)
-        } catch (e: Exception) {
-            return Outcome.RejectMalformed("verified-but-unparseable policy bundle: ${e.message}")
-        }
+        val bundle: SignedBundle =
+            try {
+                json.decodeFromJsonElement(SignedBundle.serializer(), receivedDoc)
+            } catch (e: Exception) {
+                return Outcome.RejectMalformed("verified-but-unparseable policy bundle: ${e.message}")
+            }
 
         // Local floor anomaly (ADR-017 part 1/3): at-rest read below the chain witness.
         // Inert today (chainFloor() == null), wired for the chain-mirror follow-up.
@@ -227,8 +241,10 @@ object PolicyAdmission {
         // Monotonic + jump (replay floor), via the ported pure ReplayFloor decision.
         return when (val d = ReplayFloor.admit(effectiveFloor, bundle.policy_seq)) {
             // Replay floor passed -> apply the freshness window (PROTOCOL §2.1 steps 9-11, ADR-041).
-            is ReplayFloor.Decision.Accept ->
+            is ReplayFloor.Decision.Accept -> {
                 freshnessGate(bundle, freshnessNow) ?: Outcome.Accept(d.newFloor, genesis = false, bundle = bundle)
+            }
+
             is ReplayFloor.Decision.RejectStrict -> {
                 // ReplayFloor folds JC1/jump (structural) and rollback (strict) into one
                 // RejectStrict; classify by reason so the wire surfaces MALFORMED for the
@@ -254,7 +270,10 @@ object PolicyAdmission {
      * gap (same as the floor chain mirror); the monotonic-on-write anchor + reboot detection are the
      * local defenses.
      */
-    private fun freshnessGate(bundle: SignedBundle, now: FreshnessClock.Now): Outcome? {
+    private fun freshnessGate(
+        bundle: SignedBundle,
+        now: FreshnessClock.Now,
+    ): Outcome? {
         val monotonicNow = (now as? FreshnessClock.Now.Usable)?.monotonicNowMs ?: return null
         // Step 9: window not open yet -> defer (keep current policy, retry on next contact).
         if (monotonicNow < bundle.not_before) {
@@ -290,21 +309,32 @@ object PolicyAdmission {
 
     /** Final wire/control result of [admit]. */
     sealed interface Result {
-        data class Applied(val policySeq: Long, val genesis: Boolean) : Result
-        data class Rejected(val malformed: Boolean, val reason: String) : Result
+        data class Applied(
+            val policySeq: Long,
+            val genesis: Boolean,
+        ) : Result
+
+        data class Rejected(
+            val malformed: Boolean,
+            val reason: String,
+        ) : Result
 
         /**
          * Freshness CLOCK_SKEW (PROTOCOL §2.1 step 9 / ADR-041): the bundle is not yet valid. NOT
          * applied; the policy currently in force is kept (not torn down) and the parent should retry.
          */
-        data class Deferred(val reason: String) : Result
+        data class Deferred(
+            val reason: String,
+        ) : Result
 
         /**
          * Freshness EXPIRED (PROTOCOL §2.1 step 10 / ADR-041): the bundle's window has closed. NOT
          * applied; the watchdog holds the device in the stale baseline via the active-bundle freshness
          * tier (never "unrestricted").
          */
-        data class Expired(val reason: String) : Result
+        data class Expired(
+            val reason: String,
+        ) : Result
     }
 
     /**
@@ -315,11 +345,17 @@ object PolicyAdmission {
      */
     interface FloorState {
         fun childDeviceId(): String
+
         fun isProvisioned(): Boolean
+
         fun markProvisioned()
+
         fun atRestFloor(): Long?
+
         fun chainFloor(): Long?
+
         fun effectiveFloor(): Long?
+
         fun advanceFloor(policySeq: Long)
 
         /**
@@ -333,6 +369,7 @@ object PolicyAdmission {
          * (ADR-017 part 2), not locally. Defaulted so non-witness fakes need not implement it.
          */
         fun appliedHighWater(): Long? = null
+
         fun noteApplied(policySeq: Long) {}
 
         // ---- ADR-041 §5.1 freshness anchor (defaulted so non-freshness fakes need not implement) ----
@@ -353,7 +390,11 @@ object PolicyAdmission {
          * parent time and the watermark never decrease. Best-effort — a failed write only ever leaves
          * the estimate STALER (more restriction), never looser. Defaulted to a no-op for fakes.
          */
-        fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {}
+        fun advanceFreshnessAnchor(
+            parentIssuedAtMs: Long,
+            nowElapsedMs: Long,
+            notAfterMs: Long?,
+        ) {}
     }
 
     /**
@@ -390,100 +431,120 @@ object PolicyAdmission {
         pinnedParentPubkey: ByteArray?,
         genesisPubkey: ByteArray? = null,
         nowElapsedMs: Long = 0L,
-    ): Result = synchronized(ADMIT_LOCK) {
-        // R5: the floor read below and the advanceFloor in the commit must be one critical section,
-        // or two concurrent admits both read the same floor and apply out of order. Inside the lock,
-        // the second admit re-reads the advanced floor and decide() rejects the stale (older) bundle.
-        val myId = store.childDeviceId()
-        val provisioned = store.isProvisioned()
-        // R7/R8: fold the in-memory applied high-water into the floor, so a partial transaction
-        // (applied but un-floored, after an advanceFloor failure) cannot be rolled back by a lower
-        // valid bundle in the same process. It guards anything STRICTLY BELOW the applied seq (the
-        // rollback, R7) — but NOT the *equal* seq, because a retry of the just-applied bundle must
-        // be allowed back in to re-advance a durable floor a transient write failure left stale
-        // (R8). So fold (highWater − 1): `seq > floor` then means `seq > durableFloor && seq >=
-        // highWater`. Normally this equals the at-rest floor; it only bites after a failed write.
-        val highWaterGuard = store.appliedHighWater()?.minus(1)
-        val floor = listOfNotNull(store.effectiveFloor(), highWaterGuard).maxOrNull()
-        val anomaly = store.atRestFloor()?.let { atRest ->
-            store.chainFloor()?.let { chain -> atRest < chain }
-        } ?: false
+    ): Result =
+        synchronized(ADMIT_LOCK) {
+            // R5: the floor read below and the advanceFloor in the commit must be one critical section,
+            // or two concurrent admits both read the same floor and apply out of order. Inside the lock,
+            // the second admit re-reads the advanced floor and decide() rejects the stale (older) bundle.
+            val myId = store.childDeviceId()
+            val provisioned = store.isProvisioned()
+            // R7/R8: fold the in-memory applied high-water into the floor, so a partial transaction
+            // (applied but un-floored, after an advanceFloor failure) cannot be rolled back by a lower
+            // valid bundle in the same process. It guards anything STRICTLY BELOW the applied seq (the
+            // rollback, R7) — but NOT the *equal* seq, because a retry of the just-applied bundle must
+            // be allowed back in to re-advance a durable floor a transient write failure left stale
+            // (R8). So fold (highWater − 1): `seq > floor` then means `seq > durableFloor && seq >=
+            // highWater`. Normally this equals the at-rest floor; it only bites after a failed write.
+            val highWaterGuard = store.appliedHighWater()?.minus(1)
+            val floor = listOfNotNull(store.effectiveFloor(), highWaterGuard).maxOrNull()
+            val anomaly =
+                store.atRestFloor()?.let { atRest ->
+                    store.chainFloor()?.let { chain -> atRest < chain }
+                } ?: false
 
-        // ADR-041 §5.1: estimate the parent's monotonic "now" from the stored anchor + the kernel
-        // clock. Unusable (no anchor / reboot) skips the window check in decide() and re-anchors on
-        // apply below; the watchdog holds the stale baseline while the anchor is Unusable.
-        val anchor = FreshnessClock.Anchor(
-            parentAnchorMs = store.freshnessAnchorParentMs(),
-            elapsedAtAnchorMs = store.freshnessAnchorElapsedMs(),
-            notAfterWatermarkMs = store.notAfterWatermarkMs(),
-        )
-        val freshnessNow = FreshnessClock.estimate(anchor, nowElapsedMs)
+            // ADR-041 §5.1: estimate the parent's monotonic "now" from the stored anchor + the kernel
+            // clock. Unusable (no anchor / reboot) skips the window check in decide() and re-anchors on
+            // apply below; the watchdog holds the stale baseline while the anchor is Unusable.
+            val anchor =
+                FreshnessClock.Anchor(
+                    parentAnchorMs = store.freshnessAnchorParentMs(),
+                    elapsedAtAnchorMs = store.freshnessAnchorElapsedMs(),
+                    notAfterWatermarkMs = store.notAfterWatermarkMs(),
+                )
+            val freshnessNow = FreshnessClock.estimate(anchor, nowElapsedMs)
 
-        val outcome = decide(
-            receivedDoc = receivedDoc,
-            myChildDeviceId = myId,
-            pinnedParentPubkey = pinnedParentPubkey,
-            provisioned = provisioned,
-            effectiveFloor = floor,
-            floorAnomaly = anomaly,
-            freshnessNow = freshnessNow,
-            notAfterWatermarkMs = anchor.notAfterWatermarkMs,
-        )
+            val outcome =
+                decide(
+                    receivedDoc = receivedDoc,
+                    myChildDeviceId = myId,
+                    pinnedParentPubkey = pinnedParentPubkey,
+                    provisioned = provisioned,
+                    effectiveFloor = floor,
+                    floorAnomaly = anomaly,
+                    freshnessNow = freshnessNow,
+                    notAfterWatermarkMs = anchor.notAfterWatermarkMs,
+                )
 
-        when (outcome) {
-            is Outcome.RejectMalformed -> Result.Rejected(malformed = true, reason = outcome.reason)
-            is Outcome.RejectStrict -> Result.Rejected(malformed = false, reason = outcome.reason)
-            is Outcome.Defer -> Result.Deferred(outcome.reason)
-            is Outcome.RejectExpired -> Result.Expired(outcome.reason)
-            is Outcome.Accept -> {
-                // Apply EXACTLY the verified document: the typed bundle decode()d from the bytes whose
-                // signature was checked (ADR-040 — no doc/model mismatch to exploit).
-                val bundle = outcome.bundle
-                try {
-                    // Two-phase commit. Order is load-bearing (ADR-017 commit ordering).
-                    // Genesis (TOFU): the pure decide() could not verify the signature (no key
-                    // material), so we MUST verify the RECEIVED document here against the key we are
-                    // about to pin, BEFORE pinning. A genesis accept with no pubkey, or a sig that does
-                    // not verify against it, is fail-closed — never pin an unverified key.
-                    val genesisPub: ByteArray? = if (outcome.genesis) {
-                        genesisPubkey
-                            ?.takeIf { BundleVerifier.verifyDocument(receivedDoc, it) }
-                            ?: return@synchronized Result.Rejected(false, "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)")
-                    } else {
-                        null
+            when (outcome) {
+                is Outcome.RejectMalformed -> {
+                    Result.Rejected(malformed = true, reason = outcome.reason)
+                }
+
+                is Outcome.RejectStrict -> {
+                    Result.Rejected(malformed = false, reason = outcome.reason)
+                }
+
+                is Outcome.Defer -> {
+                    Result.Deferred(outcome.reason)
+                }
+
+                is Outcome.RejectExpired -> {
+                    Result.Expired(outcome.reason)
+                }
+
+                is Outcome.Accept -> {
+                    // Apply EXACTLY the verified document: the typed bundle decode()d from the bytes whose
+                    // signature was checked (ADR-040 — no doc/model mismatch to exploit).
+                    val bundle = outcome.bundle
+                    try {
+                        // Two-phase commit. Order is load-bearing (ADR-017 commit ordering).
+                        // Genesis (TOFU): the pure decide() could not verify the signature (no key
+                        // material), so we MUST verify the RECEIVED document here against the key we are
+                        // about to pin, BEFORE pinning. A genesis accept with no pubkey, or a sig that does
+                        // not verify against it, is fail-closed — never pin an unverified key.
+                        val genesisPub: ByteArray? =
+                            if (outcome.genesis) {
+                                genesisPubkey
+                                    ?.takeIf { BundleVerifier.verifyDocument(receivedDoc, it) }
+                                    ?: return@synchronized Result.Rejected(
+                                        false,
+                                        "genesis bundle signature does not verify against its pinned key (SIG_FAIL, fail-closed)",
+                                    )
+                            } else {
+                                null
+                            }
+                        // R9/R11/R12: record the DURABLE rollback witness FIRST — before ANY durable
+                        // provisioning (pin/mark) or active-bundle state (stage). stage() makes the
+                        // candidate active and applyAndFsync() can mutate live/durable state before
+                        // throwing, so the witness must already be durable or a staged-but-failed apply
+                        // could be rolled back (even across a restart). It is fail-closed: if it can't
+                        // persist it throws here, leaving a CLEAN state — nothing pinned/marked/staged —
+                        // so the same signed bundle repairs idempotently on retry (R12: a genesis whose
+                        // witness failed must not strand the device pinned-but-floorless).
+                        store.noteApplied(outcome.policySeq)
+                        if (genesisPub != null) {
+                            pinParentKey(genesisPub) // 11c. pin the verified parent key
+                            store.markProvisioned() //      + mark provisioned, before seeding floor
+                        }
+                        applier.stage(bundle) // 12. stage — the candidate is now the persisted active bundle
+                        applier.applyAndFsync(bundle) // 13. apply + fsync (durable; may throw)
+                        store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
+                        applier.ack(outcome.policySeq) // 15. ack (chain witness)
+                        // ADR-041 D4: re-anchor the freshness clock from this applied bundle's signed
+                        // issued_at, AFTER durable apply, monotonic-on-write. Best-effort: the apply +
+                        // floor are already durable, and a failed anchor write only makes the next
+                        // freshness estimate STALER (more restriction), never looser — so it must not undo
+                        // the (successful) apply. The watchdog re-asserts regardless.
+                        runCatching {
+                            store.advanceFreshnessAnchor(bundle.issued_at, nowElapsedMs, bundle.not_after)
+                        }
+                        Result.Applied(outcome.policySeq, outcome.genesis)
+                    } catch (e: Exception) {
+                        // Apply/stage failure => fail-closed, floor NOT advanced => same bundle
+                        // re-applies cleanly on retry (idempotent). Never a permanent REGRESSION.
+                        Result.Rejected(malformed = false, reason = "durable apply failed (fail-closed): ${e.message}")
                     }
-                    // R9/R11/R12: record the DURABLE rollback witness FIRST — before ANY durable
-                    // provisioning (pin/mark) or active-bundle state (stage). stage() makes the
-                    // candidate active and applyAndFsync() can mutate live/durable state before
-                    // throwing, so the witness must already be durable or a staged-but-failed apply
-                    // could be rolled back (even across a restart). It is fail-closed: if it can't
-                    // persist it throws here, leaving a CLEAN state — nothing pinned/marked/staged —
-                    // so the same signed bundle repairs idempotently on retry (R12: a genesis whose
-                    // witness failed must not strand the device pinned-but-floorless).
-                    store.noteApplied(outcome.policySeq)
-                    if (genesisPub != null) {
-                        pinParentKey(genesisPub)      // 11c. pin the verified parent key
-                        store.markProvisioned()       //      + mark provisioned, before seeding floor
-                    }
-                    applier.stage(bundle)             // 12. stage — the candidate is now the persisted active bundle
-                    applier.applyAndFsync(bundle)     // 13. apply + fsync (durable; may throw)
-                    store.advanceFloor(outcome.policySeq) // 14. advance floor LAST
-                    applier.ack(outcome.policySeq)    // 15. ack (chain witness)
-                    // ADR-041 D4: re-anchor the freshness clock from this applied bundle's signed
-                    // issued_at, AFTER durable apply, monotonic-on-write. Best-effort: the apply +
-                    // floor are already durable, and a failed anchor write only makes the next
-                    // freshness estimate STALER (more restriction), never looser — so it must not undo
-                    // the (successful) apply. The watchdog re-asserts regardless.
-                    runCatching {
-                        store.advanceFreshnessAnchor(bundle.issued_at, nowElapsedMs, bundle.not_after)
-                    }
-                    Result.Applied(outcome.policySeq, outcome.genesis)
-                } catch (e: Exception) {
-                    // Apply/stage failure => fail-closed, floor NOT advanced => same bundle
-                    // re-applies cleanly on retry (idempotent). Never a permanent REGRESSION.
-                    Result.Rejected(malformed = false, reason = "durable apply failed (fail-closed): ${e.message}")
                 }
             }
         }
-    }
 }

@@ -26,32 +26,45 @@ import java.io.Closeable
  */
 class KtorPolicyTransport(
     private val baseUrl: String = DEMO_CHILD_BASE_URL,
-) : PolicyTransport, Closeable {
-
-    private val parser = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
+) : PolicyTransport,
+    Closeable {
+    private val parser =
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
     private val http = HttpClient(OkHttp)
 
-    override suspend fun postPolicy(bundleJson: String): PolicyPostResult = runCatching {
-        val response = http.post("$baseUrl/policy") {
-            contentType(ContentType.Application.Json)
-            setBody(bundleJson)
-        }
-        val text = response.bodyAsText()
-        if (response.status.isSuccess()) {
-            val seq = field(text, "policy_seq")?.toLongOrNull() ?: -1L
-            PolicyPostResult.Applied(seq)
-        } else {
-            val reason = field(text, "reason") ?: field(text, "error")
-                ?: "child rejected (${response.status.value})"
-            PolicyPostResult.Rejected(reason)
-        }
-    }.getOrElse { PolicyPostResult.TransportError(it.message ?: "transport error") }
+    override suspend fun postPolicy(bundleJson: String): PolicyPostResult =
+        runCatching {
+            val response =
+                http.post("$baseUrl/policy") {
+                    contentType(ContentType.Application.Json)
+                    setBody(bundleJson)
+                }
+            val text = response.bodyAsText()
+            if (response.status.isSuccess()) {
+                val seq = field(text, "policy_seq")?.toLongOrNull() ?: -1L
+                PolicyPostResult.Applied(seq)
+            } else {
+                val reason =
+                    field(text, "reason") ?: field(text, "error")
+                        ?: "child rejected (${response.status.value})"
+                PolicyPostResult.Rejected(reason)
+            }
+        }.getOrElse { PolicyPostResult.TransportError(it.message ?: "transport error") }
 
-    private fun field(json: String, key: String): String? =
-        runCatching { parser.parseToJsonElement(json).jsonObject[key]?.jsonPrimitive?.content }.getOrNull()
+    private fun field(
+        json: String,
+        key: String,
+    ): String? =
+        runCatching {
+            parser
+                .parseToJsonElement(json)
+                .jsonObject[key]
+                ?.jsonPrimitive
+                ?.content
+        }.getOrNull()
 
     override fun close() = http.close()
 }

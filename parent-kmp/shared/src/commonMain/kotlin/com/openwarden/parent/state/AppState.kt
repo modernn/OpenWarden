@@ -21,11 +21,16 @@ class AppState {
     private val _lockState = MutableStateFlow(LockState.UNKNOWN)
     val lockState: StateFlow<LockState> = _lockState.asStateFlow()
 
-    fun setPaired() { _pairing.value = PairingStatus.PAIRED }
+    fun setPaired() {
+        _pairing.value = PairingStatus.PAIRED
+    }
+
     fun reset() {
         _pairing.value = PairingStatus.UNPAIRED
         _lockState.value = LockState.UNKNOWN
     }
 
-    fun setLockState(state: LockState) { _lockState.value = state }
+    fun setLockState(state: LockState) {
+        _lockState.value = state
+    }
 }

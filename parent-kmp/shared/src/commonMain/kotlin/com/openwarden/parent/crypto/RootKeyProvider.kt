@@ -19,6 +19,8 @@ interface RootKeyProvider {
 /** Fail-closed default until the recovery phrase is generated + confirmed (ADR-033 D6/D7). */
 object NotProvisionedRootKeyProvider : RootKeyProvider {
     override fun rootPublicKey(): ByteArray? = null
+
     override fun encryptionPublicKey(): ByteArray? = null
+
     override fun sign(message: ByteArray): ByteArray? = null
 }

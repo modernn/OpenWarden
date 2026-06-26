@@ -1,0 +1,20 @@
+root = true
+
+# ktlint configuration (ADR-044). Pinned explicitly so local and CI verdicts match and the few
+# rules relaxed below are a recorded decision, not an ambient default. Everything else is the
+# standard ktlint_official ruleset.
+[*.{kt,kts}]
+ktlint_code_style = ktlint_official
+# Jetpack Compose @Composable functions are PascalCase by framework convention — ktlint's
+# function-naming rule would otherwise flag every screen/component. Ignore those, keep the rule
+# for everything else.
+ktlint_function_naming_ignore_when_annotated_with = Composable
+# Ktor's server DSL (routing/response/request builders) is conventionally wildcard-imported; the
+# only wildcard imports in the tree are Ktor's in the child ApiServer. Keep explicit imports the
+# norm elsewhere by not expanding those (editing enforcement code for imports is not worth it).
+ktlint_standard_no-wildcard-imports = disabled
+
+# Descriptive, underscore-separated test method names are an intentional convention across the
+# suites (e.g. exitCriterion1_deviceOwnerProvisioned). Keep function-naming everywhere else.
+[**/{test,androidTest,commonTest,jvmTest,androidUnitTest,androidInstrumentedTest}/**.kt]
+ktlint_standard_function-naming = disabled

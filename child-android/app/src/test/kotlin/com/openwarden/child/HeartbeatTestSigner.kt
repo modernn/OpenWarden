@@ -13,10 +13,12 @@ import java.security.SecureRandom
  * accepts, mirroring the bundle signer in PolicyAdmissionTest. Test-source only.
  */
 object HeartbeatTestSigner {
-
     private val curve = EdDSANamedCurveTable.getByName("Ed25519")
 
-    class Keypair(val priv: EdDSAPrivateKey, val pubRaw: ByteArray)
+    class Keypair(
+        val priv: EdDSAPrivateKey,
+        val pubRaw: ByteArray,
+    )
 
     fun newKeypair(): Keypair {
         val seed = ByteArray(32).also { SecureRandom().nextBytes(it) }
@@ -25,7 +27,10 @@ object HeartbeatTestSigner {
     }
 
     /** Sign the JCS canonical heartbeat body (minus sig) and return it with a real hex sig. */
-    fun sign(hb: SignedHeartbeat, kp: Keypair): SignedHeartbeat {
+    fun sign(
+        hb: SignedHeartbeat,
+        kp: Keypair,
+    ): SignedHeartbeat {
         val body = HeartbeatVerifier.canonicalBody(hb.copy(sig = ""))
         val engine = EdDSAEngine(MessageDigest.getInstance("SHA-512"))
         engine.initSign(kp.priv)

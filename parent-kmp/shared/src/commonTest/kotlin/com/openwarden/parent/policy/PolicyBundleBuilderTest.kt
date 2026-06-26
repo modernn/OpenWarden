@@ -7,18 +7,18 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class PolicyBundleBuilderTest {
-
     @Test
     fun buildsAllFieldsPerProtocol() {
         val policy = Policy(allowlist = listOf("a.app", "b.app"))
-        val bundle = PolicyBundleBuilder.build(
-            policy = policy,
-            childDeviceId = "child-1",
-            policySeq = 7,
-            nowMs = 1_000L,
-            freshnessWindowMs = 5_000L,
-            nonceHex = "0".repeat(32),
-        )
+        val bundle =
+            PolicyBundleBuilder.build(
+                policy = policy,
+                childDeviceId = "child-1",
+                policySeq = 7,
+                nowMs = 1_000L,
+                freshnessWindowMs = 5_000L,
+                nonceHex = "0".repeat(32),
+            )
         assertEquals(1, bundle.v)
         assertEquals(7, bundle.policySeq)
         assertEquals("child-1", bundle.childDeviceId)
@@ -52,6 +52,5 @@ class PolicyBundleBuilderTest {
         }
     }
 
-    private fun build(nonce: String) =
-        PolicyBundleBuilder.build(Policy(), "c", 1, 100L, 5_000L, nonce)
+    private fun build(nonce: String) = PolicyBundleBuilder.build(Policy(), "c", 1, 100L, 5_000L, nonce)
 }

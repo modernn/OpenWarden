@@ -7,13 +7,18 @@ import android.content.Intent
 import android.util.Log
 
 class AdminReceiver : DeviceAdminReceiver() {
-
-    override fun onEnabled(context: Context, intent: Intent) {
+    override fun onEnabled(
+        context: Context,
+        intent: Intent,
+    ) {
         Log.i(TAG, "DeviceAdmin enabled")
         PolicyService.start(context)
     }
 
-    override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
+    override fun onProfileProvisioningComplete(
+        context: Context,
+        intent: Intent,
+    ) {
         Log.i(TAG, "Provisioning complete — Device Owner role active")
         // First-boot policy: lock down the obvious stuff before anything else can happen.
         // applyDayOneRestrictions() is fail-closed: on a verify gap it attempts lockNow()
@@ -29,12 +34,16 @@ class AdminReceiver : DeviceAdminReceiver() {
         }
     }
 
-    override fun onDisabled(context: Context, intent: Intent) {
+    override fun onDisabled(
+        context: Context,
+        intent: Intent,
+    ) {
         Log.w(TAG, "DeviceAdmin disabled — DO should never reach here without a decommission flow")
     }
 
     companion object {
         const val TAG = "OpenWardenAdmin"
+
         fun componentName(context: Context) = ComponentName(context, AdminReceiver::class.java)
     }
 }

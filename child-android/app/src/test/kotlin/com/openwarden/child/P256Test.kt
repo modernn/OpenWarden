@@ -10,7 +10,6 @@ import org.junit.Test
  * malformed SPKI). The signer is [P256TestSigner] (SunEC), matching the `K_bind` signing path.
  */
 class P256Test {
-
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
 
     @Test

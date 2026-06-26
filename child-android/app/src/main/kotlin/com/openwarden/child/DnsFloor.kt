@@ -33,7 +33,6 @@ class DnsFloor(
     private val readHost: () -> String? = defaultHostReader(context),
     private val readPrivateDnsLocked: () -> Boolean = defaultLockReader(context),
 ) {
-
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val admin = AdminReceiver.componentName(context)
 
@@ -108,10 +107,11 @@ class DnsFloor(
          * parent self-hosted resolvers (which cannot be statically validated as adult-filtering)
          * and a parent-visible "your resolver was overridden" signal are a tracked follow-up.
          */
-        val FILTERING_RESOLVERS: Set<String> = setOf(
-            DEFAULT_FILTERING_HOST,                  // Cloudflare for Families — malware + adult
-            "family-filter-dns.cleanbrowsing.org",   // CleanBrowsing Family — malware + adult
-        )
+        val FILTERING_RESOLVERS: Set<String> =
+            setOf(
+                DEFAULT_FILTERING_HOST, // Cloudflare for Families — malware + adult
+                "family-filter-dns.cleanbrowsing.org", // CleanBrowsing Family — malware + adult
+            )
 
         /**
          * **Fail-closed host selection.** Returns [requested] only if it is a known public
@@ -152,6 +152,6 @@ class DnsFloorException(
     val expectedHost: String,
     val locked: Boolean = true,
 ) : IllegalStateException(
-    "Fail-closed: DNS floor not verifiably pinned " +
-        "(mode=$mode host=$actualHost expected=$expectedHost locked=$locked)",
-)
+        "Fail-closed: DNS floor not verifiably pinned " +
+            "(mode=$mode host=$actualHost expected=$expectedHost locked=$locked)",
+    )

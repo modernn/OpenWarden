@@ -6,7 +6,9 @@ package com.openwarden.parent.sync
  */
 interface SyncScheduler {
     fun schedulePeriodicSync(intervalMinutes: Int)
+
     fun cancelPeriodicSync()
+
     suspend fun runSyncNow(): SyncResult
 }
 

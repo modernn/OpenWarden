@@ -9,20 +9,23 @@ import kotlin.test.assertNotEquals
 
 class SigningInputTest {
     private fun bundleBytes(b: PolicyBundle) = SigningInput.forBundle(b).decodeToString()
+
     private fun entryBytes(e: EventEntry) = SigningInput.forEntry(e).decodeToString()
+
     private fun obj(json: String) = Json.parseToJsonElement(json) as JsonObject
 
-    private val goldenBundle = PolicyBundle(
-        v = 1,
-        policySeq = 5,
-        childDeviceId = "dev-1",
-        issuedAt = 50,
-        notBefore = 100,
-        notAfter = 200,
-        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
-        policy = Policy(allowlist = listOf("com.a")),
-        sig = null,
-    )
+    private val goldenBundle =
+        PolicyBundle(
+            v = 1,
+            policySeq = 5,
+            childDeviceId = "dev-1",
+            issuedAt = 50,
+            notBefore = 100,
+            notAfter = 200,
+            nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+            policy = Policy(allowlist = listOf("com.a")),
+            sig = null,
+        )
 
     // ----- ADR-015: one signing rule, full-object canonical form (PROTOCOL.md §2 wire names) -----
 
@@ -54,12 +57,13 @@ class SigningInputTest {
         // Verifier canonicalizes the RECEIVED document (different key order, whitespace, sig present)
         // and must arrive at exactly the signer's bytes — otherwise parent/child disagree (SIG_FAIL).
         // Wire keys are PROTOCOL.md §2 snake_case; integer timestamps in ms.
-        val wire = obj(
-            """{ "sig":"ZZ", "v":1, "policy_seq":5, "child_device_id":"dev-1",
+        val wire =
+            obj(
+                """{ "sig":"ZZ", "v":1, "policy_seq":5, "child_device_id":"dev-1",
                  "issued_at":50, "not_after":200, "not_before":100,
                  "nonce":"9f1b3c4d5e6f70819a2b3c4d5e6f7081",
                  "policy":{"windows":[],"restrictions":[],"blocklist":[],"allowlist":["com.a"]} }""",
-        )
+            )
         assertEquals(bundleBytes(goldenBundle), SigningInput.forDocument(wire).decodeToString())
     }
 
@@ -70,11 +74,12 @@ class SigningInputTest {
         // canonicalizes to DIFFERENT bytes — which is precisely why the signer must transmit its
         // canonical form verbatim, not let the verifier re-derive it from a typed model. This guards
         // the forBundle-vs-forDocument divergence (PR #47 review finding).
-        val wireMissingDefaults = obj(
-            """{"v":1,"policy_seq":5,"child_device_id":"dev-1","issued_at":50,
+        val wireMissingDefaults =
+            obj(
+                """{"v":1,"policy_seq":5,"child_device_id":"dev-1","issued_at":50,
                  "not_after":200,"not_before":100,"nonce":"9f1b3c4d5e6f70819a2b3c4d5e6f7081",
                  "policy":{"allowlist":["com.a"]}}""",
-        )
+            )
         assertNotEquals(
             bundleBytes(goldenBundle),
             SigningInput.forDocument(wireMissingDefaults).decodeToString(),
@@ -85,9 +90,16 @@ class SigningInputTest {
 
     @Test
     fun everyEventEntryFieldChangesTheSignature() {
-        val base = EventEntry(
-            v = 1, seq = 3, prevHash = "ab", issuedAt = 50, payloadType = "block", payload = "xx", sig = null,
-        )
+        val base =
+            EventEntry(
+                v = 1,
+                seq = 3,
+                prevHash = "ab",
+                issuedAt = 50,
+                payloadType = "block",
+                payload = "xx",
+                sig = null,
+            )
         val baseline = entryBytes(base)
         // The three fields SG1 left unsigned in the old scheme — now each must move the bytes.
         assertNotEquals(baseline, entryBytes(base.copy(v = 2)), "v must be signed (SG1)")

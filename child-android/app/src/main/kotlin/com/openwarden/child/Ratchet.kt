@@ -9,7 +9,6 @@ package com.openwarden.child
  * never delay it.
  */
 object Ratchet {
-
     /** Silence ≥ this ⇒ STALE (deny-all launch; bundle still trusted for its DNS resolver). 24h. */
     const val RATCHET_STALE_MS = 24L * 60 * 60 * 1000
 
@@ -22,11 +21,12 @@ object Ratchet {
     enum class Tier { FRESH, STALE, STRICT }
 
     /** Map a measured silence duration (ms) to a ratchet tier. */
-    fun tierFor(silenceMs: Long): Tier = when {
-        silenceMs >= RATCHET_STRICT_MS -> Tier.STRICT
-        silenceMs >= RATCHET_STALE_MS -> Tier.STALE
-        else -> Tier.FRESH
-    }
+    fun tierFor(silenceMs: Long): Tier =
+        when {
+            silenceMs >= RATCHET_STRICT_MS -> Tier.STRICT
+            silenceMs >= RATCHET_STALE_MS -> Tier.STALE
+            else -> Tier.FRESH
+        }
 
     /** Persisted contact markers needed to compute silence; null = "never recorded". */
     data class Markers(

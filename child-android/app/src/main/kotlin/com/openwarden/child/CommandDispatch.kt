@@ -7,9 +7,11 @@ package com.openwarden.child
  * standing up the embedded server or the encrypted store.
  */
 object CommandDispatch {
-
     /** An HTTP status code + JSON body, independent of the server engine. */
-    data class Response(val status: Int, val body: Map<String, Any>)
+    data class Response(
+        val status: Int,
+        val body: Map<String, Any>,
+    )
 
     /**
      * Map a parsed-or-null [SignedCommand] through [admit] to a [Response] (fail-closed):
@@ -29,15 +31,19 @@ object CommandDispatch {
         admit: (SignedCommand, String, ByteArray?) -> CommandAdmission.Outcome,
     ): Response {
         if (cmd == null) return Response(400, mapOf("error" to "MALFORMED"))
-        val outcome = runCatching { admit(cmd, expectedType, pinnedParentPubkey) }
-            .getOrElse {
-                return Response(400, mapOf("error" to "REJECTED", "reason" to "command not durably admitted"))
-            }
+        val outcome =
+            runCatching { admit(cmd, expectedType, pinnedParentPubkey) }
+                .getOrElse {
+                    return Response(400, mapOf("error" to "REJECTED", "reason" to "command not durably admitted"))
+                }
         return when (outcome) {
-            is CommandAdmission.Outcome.Accept ->
+            is CommandAdmission.Outcome.Accept -> {
                 Response(200, mapOf("status" to if (outcome.type == SignedCommand.TYPE_LOCK) "locked" else "unlocked"))
-            is CommandAdmission.Outcome.Reject ->
+            }
+
+            is CommandAdmission.Outcome.Reject -> {
                 Response(400, mapOf("error" to "REJECTED", "reason" to outcome.reason))
+            }
         }
     }
 

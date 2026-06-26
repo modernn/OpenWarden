@@ -9,8 +9,9 @@ import org.bouncycastle.crypto.signers.Ed25519Signer
  * Castle Ed25519 over the stored seed — RFC 8032, so the signature verifies under the child's
  * libsodium verifier, and the same stored seed feeds libsodium bundle signing in #27.
  */
-class StoredRootKeyProvider(private val storage: SecureKeyStorage) : RootKeyProvider {
-
+class StoredRootKeyProvider(
+    private val storage: SecureKeyStorage,
+) : RootKeyProvider {
     private fun load(): RootKeys? = storage.read()?.let { RootKeys.deserialize(it) }
 
     override fun rootPublicKey(): ByteArray? = load()?.ed25519Public
@@ -33,7 +34,10 @@ class StoredRootKeyProvider(private val storage: SecureKeyStorage) : RootKeyProv
          * Persist [keys] AFTER the confirm-back gate reaches Confirmed (ADR-033 D7). The caller MUST
          * NOT invoke this until [ConfirmGate.State.Confirmed].
          */
-        fun provision(storage: SecureKeyStorage, keys: RootKeys) {
+        fun provision(
+            storage: SecureKeyStorage,
+            keys: RootKeys,
+        ) {
             storage.write(keys.serialize())
         }
     }

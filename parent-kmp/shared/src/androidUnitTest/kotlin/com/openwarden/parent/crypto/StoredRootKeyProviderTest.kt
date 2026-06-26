@@ -12,7 +12,6 @@ import kotlin.test.assertTrue
 
 /** Fail-closed provider semantics over an in-memory storage double (ADR-033 D4/D6/D8). */
 class StoredRootKeyProviderTest {
-
     private fun keys() = RootKeyDerivation.deriveRootKeys(Bip39.encode(ByteArray(32)))
 
     @Test
@@ -45,10 +44,11 @@ class StoredRootKeyProviderTest {
 
         val msg = "policy-bundle".encodeToByteArray()
         val sig = assertNotNull(provider.sign(msg))
-        val verifier = Ed25519Signer().apply {
-            init(false, Ed25519PublicKeyParameters(k.ed25519Public, 0))
-            update(msg, 0, msg.size)
-        }
+        val verifier =
+            Ed25519Signer().apply {
+                init(false, Ed25519PublicKeyParameters(k.ed25519Public, 0))
+                update(msg, 0, msg.size)
+            }
         assertTrue(verifier.verifySignature(sig))
     }
 

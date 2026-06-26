@@ -30,10 +30,11 @@ object PolicySigner {
     // signing input; `sig` is then stripped by Canonical.canonicalizeWithout.
     // explicitNulls=false so optional fields left null (private_dns, frp_account_email)
     // are OMITTED, not serialized as `null` — PROTOCOL.md §3.1 rule 6 forbids `null`.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /** The canonical signing input bytes for [bundle] (pure; no libsodium). */
     fun signingBytes(bundle: PolicyBundle): ByteArray {
@@ -46,11 +47,17 @@ object PolicySigner {
     }
 
     /** Detached Ed25519 signature over [signingBytes] (libsodium). */
-    fun sign(secretKey: UByteArray, bundle: PolicyBundle): UByteArray =
-        Signature.detached(signingBytes(bundle).toUByteArray(), secretKey)
+    fun sign(
+        secretKey: UByteArray,
+        bundle: PolicyBundle,
+    ): UByteArray = Signature.detached(signingBytes(bundle).toUByteArray(), secretKey)
 
     /** True iff [signature] verifies for [bundle] under [publicKey] (fail-closed on any error). */
-    fun verify(publicKey: UByteArray, signature: UByteArray, bundle: PolicyBundle): Boolean =
+    fun verify(
+        publicKey: UByteArray,
+        signature: UByteArray,
+        bundle: PolicyBundle,
+    ): Boolean =
         runCatching {
             Signature.verifyDetached(signature, signingBytes(bundle).toUByteArray(), publicKey)
             true

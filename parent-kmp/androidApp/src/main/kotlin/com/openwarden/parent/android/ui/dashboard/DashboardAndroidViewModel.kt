@@ -16,11 +16,11 @@ import com.openwarden.parent.dashboard.DashboardViewModel
 class DashboardAndroidViewModel(
     repository: ChildStateRepository,
 ) : ViewModel() {
-
-    private val delegate = DashboardViewModel(
-        repository = repository,
-        scope = viewModelScope,
-    )
+    private val delegate =
+        DashboardViewModel(
+            repository = repository,
+            scope = viewModelScope,
+        )
 
     val uiState = delegate.uiState
 
@@ -30,7 +30,6 @@ class DashboardAndroidViewModel(
         private val repository: ChildStateRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DashboardAndroidViewModel(repository) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = DashboardAndroidViewModel(repository) as T
     }
 }

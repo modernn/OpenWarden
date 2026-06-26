@@ -11,8 +11,10 @@ import java.security.spec.ECGenParameterSpec
  * Test-source only.
  */
 object P256TestSigner {
-
-    class Keypair(val priv: PrivateKey, val spkiDer: ByteArray)
+    class Keypair(
+        val priv: PrivateKey,
+        val spkiDer: ByteArray,
+    )
 
     fun newKeypair(): Keypair {
         val kpg = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }
@@ -21,7 +23,10 @@ object P256TestSigner {
     }
 
     /** DER-encoded ECDSA signature over [message] — what [ChildKeyStore.signBinding] returns. */
-    fun signDer(message: ByteArray, kp: Keypair): ByteArray =
+    fun signDer(
+        message: ByteArray,
+        kp: Keypair,
+    ): ByteArray =
         Signature.getInstance("SHA256withECDSA").run {
             initSign(kp.priv)
             update(message)

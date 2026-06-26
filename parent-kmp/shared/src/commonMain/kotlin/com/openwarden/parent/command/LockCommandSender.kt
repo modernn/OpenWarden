@@ -26,5 +26,8 @@ interface LockCommandSender {
 
 sealed class LockCommandResult {
     data object Success : LockCommandResult()
-    data class Failure(val message: String) : LockCommandResult()
+
+    data class Failure(
+        val message: String,
+    ) : LockCommandResult()
 }

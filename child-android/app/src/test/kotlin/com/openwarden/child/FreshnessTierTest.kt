@@ -8,20 +8,21 @@ import kotlin.test.assertEquals
  * Pure — the [PolicyWatchdog] companion helpers are device-free.
  */
 class FreshnessTierTest {
-
-    private fun bundle(notAfter: Long) = SignedBundle(
-        v = 1,
-        child_device_id = "child-aaaa",
-        policy_seq = 5L,
-        issued_at = 1_000L,
-        not_before = 1_000L,
-        not_after = notAfter,
-        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
-        policy = PolicyDoc(allowlist = listOf("com.example.app")),
-        sig = "",
-    )
+    private fun bundle(notAfter: Long) =
+        SignedBundle(
+            v = 1,
+            child_device_id = "child-aaaa",
+            policy_seq = 5L,
+            issued_at = 1_000L,
+            not_before = 1_000L,
+            not_after = notAfter,
+            nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+            policy = PolicyDoc(allowlist = listOf("com.example.app")),
+            sig = "",
+        )
 
     private fun loaded(notAfter: Long) = PolicyStore.LoadResult.Loaded(bundle(notAfter))
+
     private fun usable(now: Long) = FreshnessClock.Now.Usable(now)
 
     @Test

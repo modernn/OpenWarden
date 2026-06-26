@@ -43,15 +43,17 @@ object RootKeyDerivation {
         val salt = openwardenSha256(ARGON2_SALT_SOURCE).copyOf(SALT_BYTES)
         // NFKD == identity on the all-ASCII BIP-39 English wordlist (ADR-033 D1 note).
         val password = mnemonic.joinToString(" ").encodeToByteArray()
-        val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
-            // Version 0x13 (v19) is LOAD-BEARING and must stay explicit: it matches libsodium's
-            // only argon2 version; v0x10 would silently produce different keys (breaks recoverability).
-            .withVersion(Argon2Parameters.ARGON2_VERSION_13)
-            .withMemoryAsKB(ARGON2_MEMORY_KB)
-            .withIterations(ARGON2_ITERATIONS)
-            .withParallelism(ARGON2_PARALLELISM)
-            .withSalt(salt)
-            .build()
+        val params =
+            Argon2Parameters
+                .Builder(Argon2Parameters.ARGON2_id)
+                // Version 0x13 (v19) is LOAD-BEARING and must stay explicit: it matches libsodium's
+                // only argon2 version; v0x10 would silently produce different keys (breaks recoverability).
+                .withVersion(Argon2Parameters.ARGON2_VERSION_13)
+                .withMemoryAsKB(ARGON2_MEMORY_KB)
+                .withIterations(ARGON2_ITERATIONS)
+                .withParallelism(ARGON2_PARALLELISM)
+                .withSalt(salt)
+                .build()
         val generator = Argon2BytesGenerator().apply { init(params) }
         val seed = ByteArray(SEED_BYTES)
         generator.generateBytes(password, seed)
@@ -85,7 +87,11 @@ object RootKeyDerivation {
      * pass. Called once per info label; each call re-derives the SAME PRK from the same (ikm, salt),
      * so the two keys share the single PRK that CRYPTO.md §2 publishes (no correctness difference).
      */
-    private fun hkdfExpand(ikm: ByteArray, info: ByteArray, length: Int): ByteArray {
+    private fun hkdfExpand(
+        ikm: ByteArray,
+        info: ByteArray,
+        length: Int,
+    ): ByteArray {
         val generator = HKDFBytesGenerator(SHA256Digest())
         generator.init(HKDFParameters(ikm, HKDF_EXTRACT_SALT, info))
         val out = ByteArray(length)

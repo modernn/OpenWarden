@@ -16,9 +16,7 @@ import kotlin.test.assertTrue
  * libsodium-verify cross-check is a tracked follow-up for #27 integration.)
  */
 class BcRfcInteropTest {
-
-    private fun hex(s: String) =
-        ByteArray(s.length / 2) { ((s[it * 2].digitToInt(16) shl 4) or s[it * 2 + 1].digitToInt(16)).toByte() }
+    private fun hex(s: String) = ByteArray(s.length / 2) { ((s[it * 2].digitToInt(16) shl 4) or s[it * 2 + 1].digitToInt(16)).toByte() }
 
     @Test
     fun ed25519MatchesRfc8032Test1() {

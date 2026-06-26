@@ -7,6 +7,8 @@ package com.openwarden.parent.crypto
  */
 interface SecureKeyStorage {
     fun write(blob: ByteArray)
+
     fun read(): ByteArray?
+
     fun clear()
 }

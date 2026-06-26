@@ -18,7 +18,6 @@ package com.openwarden.child
  * keys, signatures, and the attestation chain are exposed.
  */
 interface ChildKeyStore {
-
     /** True once [provision] has generated the keys (survives process restart for the real store). */
     fun isProvisioned(): Boolean
 

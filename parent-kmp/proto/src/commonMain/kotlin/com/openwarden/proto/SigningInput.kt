@@ -40,18 +40,17 @@ object SigningInput {
     // encodeDefaults=true so defaulted fields (e.g. `v`, empty blocklist/windows/restrictions)
     // are part of the signed bytes; explicitNulls=false so optional fields left null
     // (private_dns, frp_account_email) are OMITTED — PROTOCOL.md §3.1 rule 6 forbids `null`.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /** Signer side: canonical signing bytes for a [PolicyBundle] (ADR-015). */
-    fun forBundle(bundle: PolicyBundle): ByteArray =
-        canonicalSigningBytes(json.encodeToJsonElement(PolicyBundle.serializer(), bundle))
+    fun forBundle(bundle: PolicyBundle): ByteArray = canonicalSigningBytes(json.encodeToJsonElement(PolicyBundle.serializer(), bundle))
 
     /** Signer side: canonical signing bytes for an [EventEntry] (ADR-015). */
-    fun forEntry(entry: EventEntry): ByteArray =
-        canonicalSigningBytes(json.encodeToJsonElement(EventEntry.serializer(), entry))
+    fun forEntry(entry: EventEntry): ByteArray = canonicalSigningBytes(json.encodeToJsonElement(EventEntry.serializer(), entry))
 
     /**
      * Verifier side: canonical signing bytes for an already-parsed wire document.
@@ -63,8 +62,9 @@ object SigningInput {
     fun forDocument(obj: JsonObject): ByteArray = canonicalSigningBytes(obj)
 
     private fun canonicalSigningBytes(element: JsonElement): ByteArray {
-        val obj = element as? JsonObject
-            ?: throw IllegalArgumentException("signing input must be a JSON object, was ${element::class.simpleName}")
+        val obj =
+            element as? JsonObject
+                ?: throw IllegalArgumentException("signing input must be a JSON object, was ${element::class.simpleName}")
         requireAllIntegersJcsSafe(obj)
         return Canonical.canonicalizeWithout(obj, SIG_FIELD).encodeToByteArray()
     }
@@ -77,10 +77,20 @@ object SigningInput {
      */
     fun requireAllIntegersJcsSafe(element: JsonElement) {
         when (element) {
-            is JsonObject -> element.values.forEach { requireAllIntegersJcsSafe(it) }
-            is JsonArray -> element.forEach { requireAllIntegersJcsSafe(it) }
-            JsonNull -> Unit // null carries no integer; null-policy handled on the verifier path
-            is JsonPrimitive ->
+            is JsonObject -> {
+                element.values.forEach { requireAllIntegersJcsSafe(it) }
+            }
+
+            is JsonArray -> {
+                element.forEach { requireAllIntegersJcsSafe(it) }
+            }
+
+            JsonNull -> {
+                Unit
+            }
+
+            // null carries no integer; null-policy handled on the verifier path
+            is JsonPrimitive -> {
                 if (!element.isString) {
                     val c = element.content
                     if (c != "true" && c != "false") {
@@ -88,13 +98,15 @@ object SigningInput {
                         // toLongOrNull() == null means a float/exponent or a value beyond Long's
                         // range — reject HERE, fail-closed, rather than letting it slip through to
                         // canonicalization with a misleading "non-integer" error (review finding).
-                        val l = c.toLongOrNull()
-                            ?: throw IllegalArgumentException(
-                                "JSON number '$c' is not a JCS-safe integer (must be an integer in 0..2^53-1)",
-                            )
+                        val l =
+                            c.toLongOrNull()
+                                ?: throw IllegalArgumentException(
+                                    "JSON number '$c' is not a JCS-safe integer (must be an integer in 0..2^53-1)",
+                                )
                         Canonical.requireJcsSafe(l)
                     }
                 }
+            }
         }
     }
 }
