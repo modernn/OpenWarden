@@ -56,10 +56,18 @@ class AttestationPolicy(
     private val allowedSecurityLevels: Set<AttestationSecurityLevel>,
 ) {
     // Defensive copies so a caller cannot mutate the pinned anchors after construction.
-    private val allowedRoots: List<ByteArray> = allowedRootSpkiDer.map { it.copyOf() }
+    // **Zero-length entries are dropped (ADR-037 D7, issue #120):** an empty byte array is the
+    // "no root pinned" sentinel, never a wildcard. Keeping one would let it `contentEquals` an
+    // empty parsed `rootSpkiDer` and silently flip a *disabled* gate to accept — so a pin list of
+    // only empty entries collapses to "no root pinned ⇒ refuse every chain" (fail-closed).
+    private val allowedRoots: List<ByteArray> = allowedRootSpkiDer.filter { it.isNotEmpty() }.map { it.copyOf() }
 
-    /** Check 1: the chain's top SPKI is byte-identical to a pinned root anchor. */
-    fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = allowedRoots.any { it.contentEquals(rootSpkiDer) }
+    /**
+     * Check 1: the chain's top SPKI is byte-identical to a pinned root anchor. An empty
+     * `rootSpkiDer` never matches — there are no empty pins to match it (above), and an empty
+     * argument is rejected outright (ADR-037 D7) so no future caller can resurrect the coincidence.
+     */
+    fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = rootSpkiDer.isNotEmpty() && allowedRoots.any { it.contentEquals(rootSpkiDer) }
 
     /** Check 3: the attested device model is allow-listed. */
     fun isAllowedModel(model: String): Boolean = model in allowedModels
@@ -74,8 +82,9 @@ class AttestationPolicy(
         /**
          * Tier-1 (v0.x Pixel-class): the caller-supplied **pinned Google Hardware Attestation
          * root** SPKI, `STRONGBOX` only, Pixel-7 models (ADR-037 D3). The real Google root SPKI
-         * is supplied at the wiring site and rides the ADR-032 bench-confirm capture; an empty
-         * root list fails closed (no allow-listed root ⇒ every chain refused).
+         * is supplied at the wiring site and rides the ADR-032 bench-confirm capture; a missing
+         * pin fails closed — both an empty root list **and** a zero-length `googleRootSpkiDer`
+         * collapse to "no allow-listed root ⇒ every chain refused" (ADR-037 D7, issue #120).
          */
         fun tier1(googleRootSpkiDer: ByteArray): AttestationPolicy =
             AttestationPolicy(
