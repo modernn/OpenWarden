@@ -16,7 +16,10 @@ import com.ionspin.kotlin.crypto.box.Box
  * no sender private key in the event path, no double-ratchet (all struck by ADR-015).
  *
  * Requires [bootstrapCrypto] to have completed. The seal/open round-trip is verified
- * on-device (`androidInstrumentedTest`) — the desktop JVM ships no libsodium.
+ * host-side on the Kotlin `jvm()` target (`:shared:jvmTest`, `SealedBoxTest`) — ion-spin
+ * bundles a desktop native libsodium there. The Android host unit-test target and iOS
+ * (without a simulator) do NOT load the native lib, so those round-trips, if ever needed,
+ * are on-device (`androidInstrumentedTest`); see ADR-044 D2.
  */
 object SealedBox {
     /** `crypto_box_SEALBYTES`: 32-byte ephemeral X25519 pub ‖ 16-byte Poly1305 tag. */

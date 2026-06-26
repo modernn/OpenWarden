@@ -1,7 +1,7 @@
 package com.openwarden.parent.crypto
 
 import com.ionspin.kotlin.crypto.box.Box
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,9 +22,13 @@ import kotlin.test.assertTrue
  *     [SealedBox.OpenResult.Failure] — never a thrown exception, never a silent
  *     success (no fail-open monitoring gap).
  *
- * These run host-side on every libsodium-bearing target (jvm + android host unit
- * test; iOS on a macOS CI host). The desktop JVM DOES ship native libsodium via the
- * ion-spin bindings — empirically confirmed — so no device is required.
+ * **Why `jvmTest`, not `commonTest` (ADR-044 D2).** Native libsodium loads only on
+ * the Kotlin **`jvm()`** target — ion-spin bundles a desktop native there. It is
+ * NOT present on the Android host unit-test target (`testDebugUnitTest` fails in the
+ * native resource loader) or the iOS target without a simulator, so a `commonTest`
+ * here would break `./gradlew check`. The `jvm()` round-trip is itself a complete
+ * byte-for-byte interop proof; Android round-trips, if ever needed, are on-device
+ * (`androidInstrumentedTest`). No device required for this suite.
  */
 @OptIn(ExperimentalUnsignedTypes::class)
 class SealedBoxTest {
@@ -46,8 +50,8 @@ class SealedBoxTest {
     }
 
     @Test
-    fun interopOpensLibsodiumReferenceVector() =
-        runTest {
+    fun interopOpensLibsodiumReferenceVector() {
+        runBlocking {
             bootstrapCrypto()
             val result = SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), hex(sealedHex))
             assertTrue(result is SealedBox.OpenResult.Success, "ion-spin must open a real libsodium sealed box")
@@ -57,17 +61,16 @@ class SealedBoxTest {
                 "byte-for-byte interop: recovered plaintext must equal the pinned PyNaCl input",
             )
         }
+    }
 
     @Test
-    fun sealedLengthIsPlaintextPlusOverhead() =
-        runTest {
-            bootstrapCrypto()
-            assertEquals(plaintextUtf8.encodeToByteArray().size + SealedBox.SEAL_OVERHEAD_BYTES, hex(sealedHex).size)
-        }
+    fun sealedLengthIsPlaintextPlusOverhead() {
+        assertEquals(plaintextUtf8.encodeToByteArray().size + SealedBox.SEAL_OVERHEAD_BYTES, hex(sealedHex).size)
+    }
 
     @Test
-    fun childKeypairCannotDecryptParentSealedBox() =
-        runTest {
+    fun childKeypairCannotDecryptParentSealedBox() {
+        runBlocking {
             bootstrapCrypto()
             // The box is sealed to the parent (recipient) pubkey. A child holding only its
             // OWN keypair derives a different shared secret -> Poly1305 fails. This models
@@ -75,10 +78,11 @@ class SealedBoxTest {
             val result = SealedBox.open(hex(childPubHex), hex(childPrivHex), hex(sealedHex))
             assertEquals(SealedBox.OpenResult.Failure, result, "child key must NOT decrypt the parent-sealed box")
         }
+    }
 
     @Test
-    fun randomRoundTripRecoversPlaintext() =
-        runTest {
+    fun randomRoundTripRecoversPlaintext() {
+        runBlocking {
             bootstrapCrypto()
             val kp = Box.keypair()
             val msg = "metadata-only event, no content".encodeToByteArray()
@@ -88,29 +92,44 @@ class SealedBoxTest {
             assertTrue(opened is SealedBox.OpenResult.Success)
             assertTrue(msg.contentEquals((opened as SealedBox.OpenResult.Success).plaintext))
         }
+    }
 
     @Test
-    fun tamperedCiphertextFailsClosed() =
-        runTest {
+    fun tamperedCiphertextFailsClosed() {
+        runBlocking {
             bootstrapCrypto()
             val sealed = hex(sealedHex)
-            // flip one bit in the ciphertext body (past the 32-byte ephemeral pub prefix)
+            // flip one bit in the ciphertext body (past the 32-byte ephemeral pub prefix) -> Poly1305 rejects
             val tampered = sealed.copyOf().also { it[40] = (it[40] xor 0x01u).toUByte() }
             assertEquals(SealedBox.OpenResult.Failure, SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), tampered))
         }
+    }
 
     @Test
-    fun truncatedSealedFailsClosed() =
-        runTest {
+    fun tamperedEphemeralPrefixFailsClosed() {
+        runBlocking {
+            bootstrapCrypto()
+            val sealed = hex(sealedHex)
+            // flip a byte INSIDE the 32-byte ephemeral pubkey prefix -> wrong derived nonce/shared secret
+            // (a different failure mechanism than the Poly1305-tag case above)
+            val tampered = sealed.copyOf().also { it[5] = (it[5] xor 0x01u).toUByte() }
+            assertEquals(SealedBox.OpenResult.Failure, SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), tampered))
+        }
+    }
+
+    @Test
+    fun truncatedSealedFailsClosed() {
+        runBlocking {
             bootstrapCrypto()
             val tooShort = hex(sealedHex).copyOf(20) // < 32-byte ephemeral pub, structurally impossible
             val result = SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), tooShort)
             assertEquals(SealedBox.OpenResult.Failure, result, "truncated input must fail closed, not throw")
         }
+    }
 
     @Test
-    fun wrongRecipientFailsClosed() =
-        runTest {
+    fun wrongRecipientFailsClosed() {
+        runBlocking {
             bootstrapCrypto()
             val kp = Box.keypair()
             val sealed = SealedBox.seal(kp.publicKey, "x".encodeToByteArray())
@@ -118,11 +137,11 @@ class SealedBoxTest {
             val other = Box.keypair()
             assertEquals(SealedBox.OpenResult.Failure, SealedBox.open(other.publicKey, other.secretKey, sealed))
         }
+    }
 
     @Test
-    fun failureIsNotSuccess() =
-        runTest {
-            // guards the sealed-class contract: Failure must never structurally equal a Success
-            assertFalse(SealedBox.OpenResult.Failure == SealedBox.OpenResult.Success(ByteArray(0)))
-        }
+    fun failureIsNotSuccess() {
+        // guards the sealed-class contract: Failure must never structurally equal a Success
+        assertFalse(SealedBox.OpenResult.Failure == SealedBox.OpenResult.Success(ByteArray(0)))
+    }
 }

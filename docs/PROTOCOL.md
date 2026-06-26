@@ -337,6 +337,10 @@ Canonicalized via §3 before sealing.
 
 ### 6.2 Sealing
 
+The steps below are **illustrative only** — they describe what libsodium does internally.
+Implementations MUST call `crypto_box_seal` (see the note after the block) and MUST NOT
+hand-roll the nonce or key:
+
 ```
 ephemeral_pub, ephemeral_priv := X25519.keypair()
 nonce  := BLAKE2b-192(ephemeral_pub || parent_x25519_pub)   // 24 bytes, no truncation — libsodium crypto_box_seal

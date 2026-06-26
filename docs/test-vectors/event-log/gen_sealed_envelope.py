@@ -30,7 +30,8 @@ byte-identical output. Do not change the seeds without regenerating + re-pinning
 """
 import json
 import nacl.bindings as b
-from nacl.public import PrivateKey, PublicKey, SealedBox
+import nacl.exceptions
+from nacl.public import PrivateKey, SealedBox
 from nacl.hash import blake2b
 from nacl.encoding import RawEncoder
 
@@ -71,8 +72,8 @@ def main() -> None:
     try:
         SealedBox(child).decrypt(sealed)
         raise SystemExit("FATAL: child key opened the box — vector is broken")
-    except Exception:
-        pass  # expected: CryptoError
+    except nacl.exceptions.CryptoError:
+        pass  # expected: the child cannot open a box sealed to the recipient
 
     # SEAL_OVERHEAD = 32 (ephemeral pub) + 16 (Poly1305 tag)
     assert len(sealed) == len(PLAINTEXT) + 48, "unexpected sealed length"
