@@ -49,17 +49,29 @@ class AttestationEvidence(
  * The §7.3 trust allow-lists, injected into [Section73AttestationVerifier] (ADR-037 D3). It is
  * **data, not code** so the Tier-2 widening (ADR-029) is a different policy value + root pins,
  * never a verifier rewrite. Anything not in an allow-set is refused (fail-closed by construction).
+ *
+ * `open` so a test can inject a permissive [isAllowedRoot] and prove the verifier's own empty-root
+ * refusal is load-bearing independently of this policy (the two guards are intentional belt-and-suspenders,
+ * ADR-037 D7). Production wiring always uses the concrete [tier1] value.
  */
-class AttestationPolicy(
+open class AttestationPolicy(
     allowedRootSpkiDer: List<ByteArray>,
     private val allowedModels: Set<String>,
     private val allowedSecurityLevels: Set<AttestationSecurityLevel>,
 ) {
     // Defensive copies so a caller cannot mutate the pinned anchors after construction.
-    private val allowedRoots: List<ByteArray> = allowedRootSpkiDer.map { it.copyOf() }
+    // **Zero-length entries are dropped (ADR-037 D7, issue #120):** an empty byte array is the
+    // "no root pinned" sentinel, never a wildcard. Keeping one would let it `contentEquals` an
+    // empty parsed `rootSpkiDer` and silently flip a *disabled* gate to accept — so a pin list of
+    // only empty entries collapses to "no root pinned ⇒ refuse every chain" (fail-closed).
+    private val allowedRoots: List<ByteArray> = allowedRootSpkiDer.filter { it.isNotEmpty() }.map { it.copyOf() }
 
-    /** Check 1: the chain's top SPKI is byte-identical to a pinned root anchor. */
-    fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = allowedRoots.any { it.contentEquals(rootSpkiDer) }
+    /**
+     * Check 1: the chain's top SPKI is byte-identical to a pinned root anchor. An empty
+     * `rootSpkiDer` never matches — there are no empty pins to match it (above), and an empty
+     * argument is rejected outright (ADR-037 D7) so no future caller can resurrect the coincidence.
+     */
+    open fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = rootSpkiDer.isNotEmpty() && allowedRoots.any { it.contentEquals(rootSpkiDer) }
 
     /** Check 3: the attested device model is allow-listed. */
     fun isAllowedModel(model: String): Boolean = model in allowedModels
@@ -74,8 +86,9 @@ class AttestationPolicy(
         /**
          * Tier-1 (v0.x Pixel-class): the caller-supplied **pinned Google Hardware Attestation
          * root** SPKI, `STRONGBOX` only, Pixel-7 models (ADR-037 D3). The real Google root SPKI
-         * is supplied at the wiring site and rides the ADR-032 bench-confirm capture; an empty
-         * root list fails closed (no allow-listed root ⇒ every chain refused).
+         * is supplied at the wiring site and rides the ADR-032 bench-confirm capture; a missing
+         * pin fails closed — both an empty root list **and** a zero-length `googleRootSpkiDer`
+         * collapse to "no allow-listed root ⇒ every chain refused" (ADR-037 D7, issue #120).
          */
         fun tier1(googleRootSpkiDer: ByteArray): AttestationPolicy =
             AttestationPolicy(

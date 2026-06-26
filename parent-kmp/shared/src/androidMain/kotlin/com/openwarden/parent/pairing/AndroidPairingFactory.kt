@@ -50,9 +50,11 @@ object AndroidPairingFactory {
         val burner = PairingNonceBurner { sessionManager.cancel() }
 
         // Disabled-gate hardening (crypto review MED-1): when no Tier-1 root is pinned yet, refuse EVERY
-        // attestation **explicitly** (with the same burn-on-refuse as the real verifier, ADR-037 D2) rather
-        // than relying on the empty-SPKI-vs-empty-pin coincidence inside AttestationPolicy. Fail-closed:
-        // nothing can pin until the real Google-root SPKI is committed (ADR-043 D6, ADR-037 D3).
+        // attestation **explicitly** (with the same burn-on-refuse as the real verifier, ADR-037 D2). Since
+        // #120 (ADR-037 D7) AttestationPolicy itself drops empty pins and tier1(empty) fails closed, so this
+        // branch is now belt-and-suspenders, NOT the sole guard — the policy layer is an independent
+        // backstop. Fail-closed: nothing can pin until the real Google-root SPKI is committed (ADR-043 D6,
+        // ADR-037 D3).
         val realVerifier =
             if (googleRootSpkiDer.isEmpty()) {
                 object : AttestationVerifier {

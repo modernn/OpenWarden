@@ -2,6 +2,7 @@ package com.openwarden.parent.pairing
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -168,6 +169,62 @@ class Section73AttestationVerifierTest {
     @Test fun bindingSigBadHexRefusesAndBurns() = assertRefusedAndBurned(bindingSig = "abc") // odd-length hex
 
     @Test fun bindingSigNonHexRefusesAndBurns() = assertRefusedAndBurned(bindingSig = "zz") // non-hex nibble
+
+    // ---- empty-SPKI sentinel hardening (ADR-037 D7, issue #120) ----------------------------------
+    // A zero-length pinned root must never act as a wildcard: an empty pin matches no chain, and an
+    // empty *parsed* root is refused even if the pin were empty (the contentEquals(empty,empty) trap).
+
+    private val emptyPinPolicy =
+        AttestationPolicy(
+            allowedRootSpkiDer = listOf(ByteArray(0)),
+            allowedModels = AttestationPolicy.PIXEL_7_MODELS,
+            allowedSecurityLevels = setOf(AttestationSecurityLevel.STRONGBOX),
+        )
+
+    @Test
+    fun emptyPinNeverMatchesARealChainRefusesAndBurns() =
+        // AC1: a zero-length pin accepts nothing — not even otherwise-valid evidence.
+        assertRefusedAndBurned(policy = emptyPinPolicy)
+
+    @Test
+    fun emptyParsedRootRefusesAndBurnsUnderTier1() =
+        // AC2: an empty parsed top-SPKI is refused outright against the normal pinned policy.
+        assertRefusedAndBurned(evidence = goodEvidence(rootSpkiDer = ByteArray(0)))
+
+    @Test
+    fun emptyParsedRootRefusesEvenAgainstEmptyPin() =
+        // AC2 (coincidence): empty parsed root + empty pin must still refuse, never accept.
+        assertRefusedAndBurned(evidence = goodEvidence(rootSpkiDer = ByteArray(0)), policy = emptyPinPolicy)
+
+    @Test
+    fun verifierRefusesEmptyParsedRootEvenIfPolicyWouldAccept() {
+        // Isolates the *verifier-layer* guard (Section73AttestationVerifier `root.isEmpty()`): inject a
+        // policy that accepts ANY root, so only the verifier's own empty-root refusal stands between an
+        // empty parsed root and Accept. Deleting that line would let this reach Accepted ⇒ test goes red.
+        // (The other empty-root tests are belt-and-suspenders: the policy layer also refuses, so they
+        // would stay green if only the verifier line were reverted — this one would not.)
+        val acceptAnyRoot =
+            object : AttestationPolicy(
+                allowedRootSpkiDer = listOf(goodRoot),
+                allowedModels = AttestationPolicy.PIXEL_7_MODELS,
+                allowedSecurityLevels = setOf(AttestationSecurityLevel.STRONGBOX),
+            ) {
+                override fun isAllowedRoot(rootSpkiDer: ByteArray): Boolean = true
+            }
+        assertRefusedAndBurned(evidence = goodEvidence(rootSpkiDer = ByteArray(0)), policy = acceptAnyRoot)
+    }
+
+    @Test
+    fun policyDropsEmptyPinEntriesFailClosed() {
+        // A pin list of only zero-length entries collapses to "no root pinned": nothing matches.
+        assertFalse(emptyPinPolicy.isAllowedRoot(ByteArray(0)), "empty arg never matches an empty pin")
+        assertFalse(emptyPinPolicy.isAllowedRoot(goodRoot), "a real root is not accepted by an empty pin")
+        // tier1(emptyBytes) is equally fail-closed (the production wiring's empty-root path).
+        assertFalse(AttestationPolicy.tier1(ByteArray(0)).isAllowedRoot(ByteArray(0)), "tier1 empty pin matches nothing")
+        // A genuine pin still accepts its own root and rejects an empty probe.
+        assertTrue(tier1Policy.isAllowedRoot(goodRoot), "real pin still matches its root")
+        assertFalse(tier1Policy.isAllowedRoot(ByteArray(0)), "empty arg rejected even with a real pin")
+    }
 
     // ---- first-failure ordering: a bad challenge short-circuits before check 4b -----------------
 
