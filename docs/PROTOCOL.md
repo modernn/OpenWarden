@@ -339,14 +339,14 @@ Canonicalized via §3 before sealing.
 
 ```
 ephemeral_pub, ephemeral_priv := X25519.keypair()
-nonce  := BLAKE3-256(ephemeral_pub || parent_x25519_pub)[0..24]
-key    := X25519(ephemeral_priv, parent_x25519_pub)
+nonce  := BLAKE2b-192(ephemeral_pub || parent_x25519_pub)   // 24 bytes, no truncation — libsodium crypto_box_seal
+key    := crypto_box_beforenm(ephemeral_priv, parent_x25519_pub)   // X25519 then HSalsa20 (libsodium box key)
 cipher := XSalsa20-Poly1305(key, nonce, canonical_plaintext)
 sealed := ephemeral_pub || cipher
 ephemeral_priv  := zeroized (libsodium handles)
 ```
 
-This is the libsodium sealed-box construction verbatim. The ephemeral sender key never persists.
+This is the libsodium sealed-box construction verbatim — **BLAKE2b**, not BLAKE3 (ADR-015 ruling 2; the earlier BLAKE3 nonce here was a fail-open bug — the parent's `crypto_box_seal_open` recomputes BLAKE2b, so a BLAKE3 nonce silently fails every decrypt). The BLAKE3-256 chain in §1.2 (`prev_hash`) is unrelated and unchanged. Implementations MUST call libsodium `crypto_box_seal` / `crypto_box_seal_open` (or a byte-for-byte equivalent) and MUST NOT hand-roll the nonce. Ratified + KAT-tested in ADR-044. The ephemeral sender key never persists.
 
 ### 6.3 Outer envelope (signed)
 
