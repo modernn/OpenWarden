@@ -39,7 +39,9 @@ sealed class DashboardUiState {
      * ALWAYS treated as offline/unknown — callers MUST NOT show last-known "online"
      * when in this state.
      */
-    data class Error(val message: String) : DashboardUiState()
+    data class Error(
+        val message: String,
+    ) : DashboardUiState()
 }
 
 /**
@@ -111,17 +113,19 @@ class DashboardViewModel(
     fun refresh() {
         fetchJob?.cancel()
         _uiState.value = DashboardUiState.Loading
-        fetchJob = scope.launch {
-            _uiState.value = try {
-                val snapshot = repository.fetchSnapshot()
-                mapSnapshot(snapshot)
-            } catch (e: Exception) {
-                // Defense-in-depth backstop: the repository contract says never throw,
-                // but if an implementation violates that contract we still fail closed.
-                // Never surface last-known-good as live.
-                DashboardUiState.Error(e.message ?: "Unknown error")
+        fetchJob =
+            scope.launch {
+                _uiState.value =
+                    try {
+                        val snapshot = repository.fetchSnapshot()
+                        mapSnapshot(snapshot)
+                    } catch (e: Exception) {
+                        // Defense-in-depth backstop: the repository contract says never throw,
+                        // but if an implementation violates that contract we still fail closed.
+                        // Never surface last-known-good as live.
+                        DashboardUiState.Error(e.message ?: "Unknown error")
+                    }
             }
-        }
     }
 
     /**
@@ -136,28 +140,34 @@ class DashboardViewModel(
         val now: Instant = clock.now()
         val reportedAt: Instant? = snapshot.reportedAt
 
-        val onlineStatus: ChildOnlineStatus = when {
-            reportedAt == null -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
-            // Fail-closed on BOTH sides. reportedAt is untrusted, network-sourced data (#20):
-            // too old → stale → offline; implausibly in the FUTURE (clock skew, or a spoofed/
-            // compromised child clock) is equally untrustworthy and must NOT read ONLINE. A
-            // one-sided check let a future timestamp pin ONLINE forever even after the child
-            // went dark. Online only inside [now - window, now + window].
-            (now - reportedAt) > freshnessWindow -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
-            (reportedAt - now) > freshnessWindow -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
-            else -> ChildOnlineStatus.ONLINE
-        }
+        val onlineStatus: ChildOnlineStatus =
+            when {
+                reportedAt == null -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
+
+                // Fail-closed on BOTH sides. reportedAt is untrusted, network-sourced data (#20):
+                // too old → stale → offline; implausibly in the FUTURE (clock skew, or a spoofed/
+                // compromised child clock) is equally untrustworthy and must NOT read ONLINE. A
+                // one-sided check let a future timestamp pin ONLINE forever even after the child
+                // went dark. Online only inside [now - window, now + window].
+                (now - reportedAt) > freshnessWindow -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
+
+                (reportedAt - now) > freshnessWindow -> ChildOnlineStatus.OFFLINE_OR_UNKNOWN
+
+                else -> ChildOnlineStatus.ONLINE
+            }
 
         // When offline, usage and blocks are unknown — even if the snapshot carried data,
         // stale data is not authoritative and must not be shown as current readings.
-        val todayUsage: TodayUsage = when (onlineStatus) {
-            ChildOnlineStatus.ONLINE -> snapshot.todayUsage
-            ChildOnlineStatus.OFFLINE_OR_UNKNOWN -> TodayUsage.Unknown
-        }
-        val blocksData: BlocksData = when (onlineStatus) {
-            ChildOnlineStatus.ONLINE -> snapshot.blocksData
-            ChildOnlineStatus.OFFLINE_OR_UNKNOWN -> BlocksData.Unknown
-        }
+        val todayUsage: TodayUsage =
+            when (onlineStatus) {
+                ChildOnlineStatus.ONLINE -> snapshot.todayUsage
+                ChildOnlineStatus.OFFLINE_OR_UNKNOWN -> TodayUsage.Unknown
+            }
+        val blocksData: BlocksData =
+            when (onlineStatus) {
+                ChildOnlineStatus.ONLINE -> snapshot.blocksData
+                ChildOnlineStatus.OFFLINE_OR_UNKNOWN -> BlocksData.Unknown
+            }
 
         return DashboardUiState.Success(
             onlineStatus = onlineStatus,

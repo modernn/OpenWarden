@@ -30,7 +30,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class LockScreenLockdownTest {
-
     private lateinit var context: Context
     private lateinit var dpm: DevicePolicyManager
     private lateinit var lockdown: LockScreenLockdown
@@ -64,7 +63,7 @@ class LockScreenLockdownTest {
     fun `disabledKeyguardFeatures includes KEYGUARD_DISABLE_SECURE_CAMERA`() {
         assertTrue(
             (lockdown.disabledKeyguardFeatures and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
-            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_SECURE_CAMERA (DEFENSE #21)"
+            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_SECURE_CAMERA (DEFENSE #21)",
         )
     }
 
@@ -72,7 +71,7 @@ class LockScreenLockdownTest {
     fun `disabledKeyguardFeatures includes KEYGUARD_DISABLE_WIDGETS_ALL`() {
         assertTrue(
             (lockdown.disabledKeyguardFeatures and DevicePolicyManager.KEYGUARD_DISABLE_WIDGETS_ALL) != 0,
-            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_WIDGETS_ALL (DEFENSE #22)"
+            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_WIDGETS_ALL (DEFENSE #22)",
         )
     }
 
@@ -80,7 +79,7 @@ class LockScreenLockdownTest {
     fun `disabledKeyguardFeatures includes KEYGUARD_DISABLE_TRUST_AGENTS`() {
         assertTrue(
             (lockdown.disabledKeyguardFeatures and DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS) != 0,
-            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_TRUST_AGENTS (DEFENSE #23)"
+            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_TRUST_AGENTS (DEFENSE #23)",
         )
     }
 
@@ -88,7 +87,7 @@ class LockScreenLockdownTest {
     fun `disabledKeyguardFeatures includes KEYGUARD_DISABLE_SECURE_NOTIFICATIONS`() {
         assertTrue(
             (lockdown.disabledKeyguardFeatures and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_NOTIFICATIONS) != 0,
-            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_SECURE_NOTIFICATIONS (DEFENSE #24)"
+            "disabledKeyguardFeatures must include KEYGUARD_DISABLE_SECURE_NOTIFICATIONS (DEFENSE #24)",
         )
     }
 
@@ -99,7 +98,7 @@ class LockScreenLockdownTest {
         assertNotEquals(
             DevicePolicyManager.KEYGUARD_DISABLE_FEATURES_ALL,
             lockdown.disabledKeyguardFeatures,
-            "Must NOT use KEYGUARD_DISABLE_FEATURES_ALL — choose explicit flags"
+            "Must NOT use KEYGUARD_DISABLE_FEATURES_ALL — choose explicit flags",
         )
     }
 
@@ -129,7 +128,7 @@ class LockScreenLockdownTest {
         assertEquals(
             lockdown.disabledKeyguardFeatures,
             reported,
-            "getKeyguardDisabledFeatures() must return the exact mask passed to setKeyguardDisabledFeatures()"
+            "getKeyguardDisabledFeatures() must return the exact mask passed to setKeyguardDisabledFeatures()",
         )
     }
 
@@ -144,7 +143,7 @@ class LockScreenLockdownTest {
         // Prove our own precondition: the shadow must reflect NOT-DO before we test the throw.
         assertTrue(
             !dpm.isDeviceOwnerApp(context.packageName),
-            "Precondition failed: expected isDeviceOwnerApp() to be false after clearing DO"
+            "Precondition failed: expected isDeviceOwnerApp() to be false after clearing DO",
         )
 
         val notDoLockdown = LockScreenLockdown(context)
@@ -175,7 +174,7 @@ class LockScreenLockdownTest {
 
         assertTrue(
             (reported and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
-            "After disableCameraOnKeyguardOnly(), KEYGUARD_DISABLE_SECURE_CAMERA must be set"
+            "After disableCameraOnKeyguardOnly(), KEYGUARD_DISABLE_SECURE_CAMERA must be set",
         )
     }
 
@@ -195,11 +194,11 @@ class LockScreenLockdownTest {
 
         assertTrue(
             (reported and DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS) != 0,
-            "Pre-existing KEYGUARD_DISABLE_TRUST_AGENTS must survive disableCameraOnKeyguardOnly()"
+            "Pre-existing KEYGUARD_DISABLE_TRUST_AGENTS must survive disableCameraOnKeyguardOnly()",
         )
         assertTrue(
             (reported and DevicePolicyManager.KEYGUARD_DISABLE_SECURE_CAMERA) != 0,
-            "KEYGUARD_DISABLE_SECURE_CAMERA must be added by disableCameraOnKeyguardOnly()"
+            "KEYGUARD_DISABLE_SECURE_CAMERA must be added by disableCameraOnKeyguardOnly()",
         )
     }
 }

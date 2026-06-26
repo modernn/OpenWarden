@@ -10,7 +10,6 @@ import kotlin.test.assertTrue
  * and an injected [ContactClock.Clock] — the issue's clock-driven + sync-resume-reset tests.
  */
 class ContactClockTest {
-
     private class FakeStore(
         var provisioned: Boolean = true,
         var childId: String = "child-abcd",
@@ -21,25 +20,49 @@ class ContactClockTest {
         var failHighWater: Boolean = false,
     ) : ContactStore {
         override fun childDeviceId() = childId
+
         override fun isProvisioned() = provisioned
+
         override fun lastContactWallMs() = contactWall
+
         override fun lastContactElapsedMs() = contactElapsed
+
         override fun wallHighWaterMs() = wallHw
-        override fun recordContact(wallMs: Long, elapsedMs: Long) {
-            contactWall = wallMs; contactElapsed = elapsedMs; wallHw = maxOf(wallHw ?: wallMs, wallMs)
+
+        override fun recordContact(
+            wallMs: Long,
+            elapsedMs: Long,
+        ) {
+            contactWall = wallMs
+            contactElapsed = elapsedMs
+            wallHw = maxOf(wallHw ?: wallMs, wallMs)
         }
+
         override fun advanceWallHighWater(wallMs: Long) {
             if (failHighWater) error("simulated durable high-water write failure")
             if (wallHw == null || wallMs > wallHw!!) wallHw = wallMs
         }
+
         override fun heartbeatFloor() = hbFloor
-        override fun admitHeartbeatContact(issuedAt: Long, wallMs: Long, elapsedMs: Long) {
-            hbFloor = issuedAt; contactWall = wallMs; contactElapsed = elapsedMs; wallHw = maxOf(wallHw ?: wallMs, wallMs)
+
+        override fun admitHeartbeatContact(
+            issuedAt: Long,
+            wallMs: Long,
+            elapsedMs: Long,
+        ) {
+            hbFloor = issuedAt
+            contactWall = wallMs
+            contactElapsed = elapsedMs
+            wallHw = maxOf(wallHw ?: wallMs, wallMs)
         }
     }
 
-    private class FakeClock(var wall: Long, var elapsed: Long) : ContactClock.Clock {
+    private class FakeClock(
+        var wall: Long,
+        var elapsed: Long,
+    ) : ContactClock.Clock {
         override fun wallMs() = wall
+
         override fun elapsedMs() = elapsed
     }
 
@@ -90,7 +113,7 @@ class ContactClockTest {
         val cc = ContactClock(store, clock)
         cc.recordContact() // records wall=10M, high-water=10M
         clock.wall = 9_000_000L // rolled back below the high-water
-        clock.elapsed = 2_000L  // still same session
+        clock.elapsed = 2_000L // still same session
         assertEquals(Ratchet.Tier.STRICT, cc.currentTier())
     }
 

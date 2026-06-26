@@ -13,7 +13,6 @@ import kotlin.test.assertTrue
  * rejection leaves all state untouched (fail-closed). Mirrors the heartbeat admit-contact contract.
  */
 class CommandGateTest {
-
     private val myId = "child-abcd"
     private val now = 10_000_000L
 
@@ -26,9 +25,15 @@ class CommandGateTest {
         val failAdmit: Boolean = false,
     ) : CommandStore {
         override fun childDeviceId() = id
+
         override fun commandFloor() = floor
+
         override fun isLocked() = locked
-        override fun admitCommand(issuedAt: Long, locked: Boolean) {
+
+        override fun admitCommand(
+            issuedAt: Long,
+            locked: Boolean,
+        ) {
             if (failAdmit) throw IllegalStateException("command admit commit() failed (fail-closed)")
             // Atomic in the real store; here the fake sets both together.
             this.floor = issuedAt

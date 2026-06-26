@@ -16,8 +16,9 @@ import android.util.Log
  * swallowed. Advertising is orthogonal to policy enforcement, so a discovery hiccup must never crash
  * the server nor weaken enforcement; the worst case is the parent enters the IP by hand.
  */
-class MdnsAdvertiser(private val context: Context) {
-
+class MdnsAdvertiser(
+    private val context: Context,
+) {
     private val nsd: NsdManager?
         get() = context.getSystemService(Context.NSD_SERVICE) as? NsdManager
 
@@ -31,31 +32,40 @@ class MdnsAdvertiser(private val context: Context) {
     @Synchronized
     fun start(spec: MdnsServiceSpec) {
         stop()
-        val manager = nsd ?: run {
-            Log.w(TAG, "NSD service unavailable; skipping mDNS advertise")
-            return
-        }
-        val info = NsdServiceInfo().apply {
-            serviceName = spec.serviceName
-            serviceType = spec.serviceType
-            port = spec.port
-            spec.txtRecords.forEach { (k, v) -> setAttribute(k, v) }
-        }
-        val l = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(info: NsdServiceInfo) {
-                Log.i(TAG, "mDNS advertised: ${info.serviceName} ${info.serviceType}")
+        val manager =
+            nsd ?: run {
+                Log.w(TAG, "NSD service unavailable; skipping mDNS advertise")
+                return
             }
-
-            override fun onRegistrationFailed(info: NsdServiceInfo, errorCode: Int) {
-                Log.w(TAG, "mDNS registration failed (error $errorCode); discovery unavailable")
+        val info =
+            NsdServiceInfo().apply {
+                serviceName = spec.serviceName
+                serviceType = spec.serviceType
+                port = spec.port
+                spec.txtRecords.forEach { (k, v) -> setAttribute(k, v) }
             }
+        val l =
+            object : NsdManager.RegistrationListener {
+                override fun onServiceRegistered(info: NsdServiceInfo) {
+                    Log.i(TAG, "mDNS advertised: ${info.serviceName} ${info.serviceType}")
+                }
 
-            override fun onServiceUnregistered(info: NsdServiceInfo) {}
+                override fun onRegistrationFailed(
+                    info: NsdServiceInfo,
+                    errorCode: Int,
+                ) {
+                    Log.w(TAG, "mDNS registration failed (error $errorCode); discovery unavailable")
+                }
 
-            override fun onUnregistrationFailed(info: NsdServiceInfo, errorCode: Int) {
-                Log.w(TAG, "mDNS unregistration failed (error $errorCode)")
+                override fun onServiceUnregistered(info: NsdServiceInfo) {}
+
+                override fun onUnregistrationFailed(
+                    info: NsdServiceInfo,
+                    errorCode: Int,
+                ) {
+                    Log.w(TAG, "mDNS unregistration failed (error $errorCode)")
+                }
             }
-        }
         runCatching { manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, l) }
             .onSuccess { listener = l }
             .onFailure { Log.w(TAG, "mDNS registerService threw; discovery unavailable", it) }

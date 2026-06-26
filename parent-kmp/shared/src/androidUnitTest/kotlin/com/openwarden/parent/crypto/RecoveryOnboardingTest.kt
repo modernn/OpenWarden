@@ -16,14 +16,13 @@ import kotlin.test.assertTrue
  * the parent re-types the challenged words; nothing is persisted until then (fail-closed).
  */
 class RecoveryOnboardingTest {
-
     /** Deterministic entropy for a reproducible all-zeros mnemonic. */
-    private fun zeroEntropyRandom() = object : SecureRandom() {
-        override fun nextBytes(bytes: ByteArray) = bytes.fill(0)
-    }
+    private fun zeroEntropyRandom() =
+        object : SecureRandom() {
+            override fun nextBytes(bytes: ByteArray) = bytes.fill(0)
+        }
 
-    private fun onboarding(storage: SecureKeyStorage) =
-        RecoveryOnboarding(storage, zeroEntropyRandom(), Random(42))
+    private fun onboarding(storage: SecureKeyStorage) = RecoveryOnboarding(storage, zeroEntropyRandom(), Random(42))
 
     @Test
     fun wrongAnswersPersistNothing() {
@@ -64,10 +63,11 @@ class RecoveryOnboardingTest {
         // The persisted key can sign and the signature verifies under the derived public key.
         val msg = "m".encodeToByteArray()
         val sig = provider.sign(msg)!!
-        val verifier = Ed25519Signer().apply {
-            init(false, Ed25519PublicKeyParameters(expected.ed25519Public, 0))
-            update(msg, 0, msg.size)
-        }
+        val verifier =
+            Ed25519Signer().apply {
+                init(false, Ed25519PublicKeyParameters(expected.ed25519Public, 0))
+                update(msg, 0, msg.size)
+            }
         assertTrue(verifier.verifySignature(sig))
     }
 

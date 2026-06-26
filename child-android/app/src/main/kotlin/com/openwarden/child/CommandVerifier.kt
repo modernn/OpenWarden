@@ -12,20 +12,24 @@ import kotlinx.serialization.json.JsonObject
  * Fail-closed: any exception (bad hex, malformed key, canonicalization failure) returns `false`.
  */
 object CommandVerifier {
-
     // encodeDefaults=true so defaulted fields are signed; explicitNulls=false to match the bundle
     // signer's omit-null rule (PROTOCOL.md §3.1 rule 6). Kept identical to BundleVerifier /
     // HeartbeatVerifier so the canonical rules never diverge across the three signed wire types.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
-    fun verify(cmd: SignedCommand, pubkey: ByteArray): Boolean = try {
-        Ed25519.verify(canonicalBody(cmd), cmd.sig, pubkey)
-    } catch (e: Exception) {
-        false
-    }
+    fun verify(
+        cmd: SignedCommand,
+        pubkey: ByteArray,
+    ): Boolean =
+        try {
+            Ed25519.verify(canonicalBody(cmd), cmd.sig, pubkey)
+        } catch (e: Exception) {
+            false
+        }
 
     /** The exact bytes the parent signs / child verifies: JCS-canonical command without `sig`. */
     fun canonicalBody(cmd: SignedCommand): ByteArray {

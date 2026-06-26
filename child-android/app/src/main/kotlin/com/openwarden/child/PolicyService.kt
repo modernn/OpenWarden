@@ -35,32 +35,33 @@ import androidx.core.app.NotificationCompat
  * re-asserts on the next `onStartCommand`.
  */
 class PolicyService : Service() {
-
     private var apiServer: ApiServer? = null
     private lateinit var watchdog: PolicyWatchdog
 
     private val watchdogHandler = Handler(Looper.getMainLooper())
-    private val watchdogTick = object : Runnable {
-        override fun run() {
-            watchdog.reassert()
-            watchdogHandler.postDelayed(this, PolicyWatchdog.INTERVAL_MS)
+    private val watchdogTick =
+        object : Runnable {
+            override fun run() {
+                watchdog.reassert()
+                watchdogHandler.postDelayed(this, PolicyWatchdog.INTERVAL_MS)
+            }
         }
-    }
 
     // Network callbacks fire on a ConnectivityManager thread, not the main looper. Post the
     // re-assert onto the same Handler the timer uses so all reassert() invocations serialize on
     // one thread — no concurrent re-assert against the shared enforcer/store.
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            Log.i(TAG, "connectivity available — re-asserting policy")
-            watchdogHandler.post { watchdog.reassert() }
-        }
+    private val networkCallback =
+        object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.i(TAG, "connectivity available — re-asserting policy")
+                watchdogHandler.post { watchdog.reassert() }
+            }
 
-        override fun onLost(network: Network) {
-            Log.i(TAG, "connectivity lost — re-asserting policy")
-            watchdogHandler.post { watchdog.reassert() }
+            override fun onLost(network: Network) {
+                Log.i(TAG, "connectivity lost — re-asserting policy")
+                watchdogHandler.post { watchdog.reassert() }
+            }
         }
-    }
 
     override fun onCreate() {
         super.onCreate()
@@ -77,7 +78,11 @@ class PolicyService : Service() {
         watchdogHandler.post(watchdogTick)
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         Log.i(TAG, "PolicyService start")
         if (apiServer == null) {
             apiServer = ApiServer(this).also { it.start() }
@@ -101,12 +106,16 @@ class PolicyService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun buildNotification(): Notification {
-        val ch = NotificationChannel(
-            CHAN, "OpenWarden", NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "OpenWarden is enforcing your parental controls." }
+        val ch =
+            NotificationChannel(
+                CHAN,
+                "OpenWarden",
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply { description = "OpenWarden is enforcing your parental controls." }
         getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
 
-        return NotificationCompat.Builder(this, CHAN)
+        return NotificationCompat
+            .Builder(this, CHAN)
             .setContentTitle("OpenWarden active")
             .setContentText("Parental controls are running.")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
@@ -121,8 +130,11 @@ class PolicyService : Service() {
 
         fun start(ctx: Context) {
             val i = Intent(ctx, PolicyService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i)
-            else ctx.startService(i)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(i)
+            } else {
+                ctx.startService(i)
+            }
         }
     }
 }

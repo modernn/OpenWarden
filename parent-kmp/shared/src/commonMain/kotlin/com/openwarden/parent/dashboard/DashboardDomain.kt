@@ -2,7 +2,7 @@ package com.openwarden.parent.dashboard
 
 import kotlinx.datetime.Instant
 
-/**
+/*
  * Domain model for the parent dashboard.
  *
  * All fields are metadata only — no message text, photo data, URL content, or
@@ -43,7 +43,9 @@ enum class ChildOnlineStatus {
  * as free-form strings, which would risk embedding content in a field labeled
  * "category".
  */
-enum class AppCategory(val displayName: String) {
+enum class AppCategory(
+    val displayName: String,
+) {
     SOCIAL("Social"),
     ENTERTAINMENT("Entertainment"),
     GAMING("Gaming"),
@@ -53,10 +55,13 @@ enum class AppCategory(val displayName: String) {
     SHOPPING("Shopping"),
     NEWS("News"),
     UTILITIES("Utilities"),
+
     /** Catch-all for any value not in the above list. */
     OTHER("Other"),
+
     /** Value was absent/null in the source data. */
-    UNKNOWN("Unknown");
+    UNKNOWN("Unknown"),
+    ;
 
     companion object {
         /**
@@ -157,7 +162,9 @@ data class BlockedAttempt(
  */
 sealed class BlocksData {
     /** Blocked-attempt data was retrieved; [attempts] may be an empty list. */
-    data class Known(val attempts: List<BlockedAttempt>) : BlocksData()
+    data class Known(
+        val attempts: List<BlockedAttempt>,
+    ) : BlocksData()
 
     /**
      * Blocked-attempt data cannot be determined (child offline, stale, or error).

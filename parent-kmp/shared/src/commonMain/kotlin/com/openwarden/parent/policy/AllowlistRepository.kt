@@ -7,13 +7,17 @@ package com.openwarden.parent.policy
  * warning and leaves the allowlist untouched (no silent pass-through).
  */
 sealed class FetchAppsResult {
-    data class Success(val apps: List<AppInfo>) : FetchAppsResult()
+    data class Success(
+        val apps: List<AppInfo>,
+    ) : FetchAppsResult()
 
     /**
      * Transport or parse error. The [message] is surfaced verbatim to the parent
      * (never to the child). The allowlist must NOT be changed on this path.
      */
-    data class Error(val message: String) : FetchAppsResult()
+    data class Error(
+        val message: String,
+    ) : FetchAppsResult()
 }
 
 /**

@@ -19,7 +19,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ProfileGuardTest {
-
     @Test
     fun `check is quiet at the baseline single profile and does not lock`() {
         var flagged: Int? = null
@@ -47,10 +46,11 @@ class ProfileGuardTest {
         // F2: a UserManager read failure must not be a silent skip — we can't prove the device is
         // at the single-user baseline, so fail closed and lock.
         var contained = 0
-        val guard = ProfileGuard(
-            profileCount = { throw RuntimeException("UserManager unavailable") },
-            contain = { contained++ },
-        )
+        val guard =
+            ProfileGuard(
+                profileCount = { throw RuntimeException("UserManager unavailable") },
+                contain = { contained++ },
+            )
 
         assertTrue(guard.check(), "a profile-count read failure must be treated as an anomaly (fail closed)")
         assertEquals(1, contained, "a read failure must lock the device, not silently skip containment")
@@ -61,11 +61,12 @@ class ProfileGuardTest {
         // The warning must be logged before the lock so the detection is recorded even if the
         // device locks (and a future event-log write happens) on the same tick.
         val order = mutableListOf<String>()
-        val guard = ProfileGuard(
-            profileCount = { 3 },
-            onExtraProfile = { order += "flag" },
-            contain = { order += "contain" },
-        )
+        val guard =
+            ProfileGuard(
+                profileCount = { 3 },
+                onExtraProfile = { order += "flag" },
+                contain = { order += "contain" },
+            )
 
         assertTrue(guard.check())
         assertEquals(listOf("flag", "contain"), order, "must record the detection, then contain")

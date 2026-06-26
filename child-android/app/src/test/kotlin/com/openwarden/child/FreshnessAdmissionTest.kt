@@ -17,10 +17,12 @@ import kotlin.test.assertTrue
  * CLOCK_SKEW / EXPIRED / within-window / re-anchor branches are deterministic without a device.
  */
 class FreshnessAdmissionTest {
-
     private val curve = EdDSANamedCurveTable.getByName("Ed25519")
 
-    private class Keypair(val privateKey: EdDSAPrivateKey, val publicKeyRaw: ByteArray)
+    private class Keypair(
+        val privateKey: EdDSAPrivateKey,
+        val publicKeyRaw: ByteArray,
+    )
 
     private fun newKeypair(): Keypair {
         val seed = ByteArray(32).also { SecureRandom().nextBytes(it) }
@@ -29,7 +31,10 @@ class FreshnessAdmissionTest {
         return Keypair(EdDSAPrivateKey(privSpec), pubSpec.a.toByteArray())
     }
 
-    private fun sign(bundle: SignedBundle, kp: Keypair): SignedBundle {
+    private fun sign(
+        bundle: SignedBundle,
+        kp: Keypair,
+    ): SignedBundle {
         val body = BundleVerifier.canonicalBody(bundle.copy(sig = ""))
         val engine = EdDSAEngine(MessageDigest.getInstance("SHA-512"))
         engine.initSign(kp.privateKey)
@@ -37,18 +42,23 @@ class FreshnessAdmissionTest {
         return bundle.copy(sig = engine.sign().joinToString("") { "%02x".format(it) })
     }
 
-    private fun bundle(seq: Long, issuedAt: Long, notBefore: Long, notAfter: Long, childId: String = "child-aaaa") =
-        SignedBundle(
-            v = 1,
-            child_device_id = childId,
-            policy_seq = seq,
-            issued_at = issuedAt,
-            not_before = notBefore,
-            not_after = notAfter,
-            nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
-            policy = PolicyDoc(allowlist = listOf("com.example.app")),
-            sig = "",
-        )
+    private fun bundle(
+        seq: Long,
+        issuedAt: Long,
+        notBefore: Long,
+        notAfter: Long,
+        childId: String = "child-aaaa",
+    ) = SignedBundle(
+        v = 1,
+        child_device_id = childId,
+        policy_seq = seq,
+        issued_at = issuedAt,
+        not_before = notBefore,
+        not_after = notAfter,
+        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+        policy = PolicyDoc(allowlist = listOf("com.example.app")),
+        sig = "",
+    )
 
     /** In-memory FloorState with a real §5.1 anchor (advance via the shared pure [FreshnessClock.nextAnchor]). */
     private class FakeFreshnessFloorState(
@@ -60,20 +70,39 @@ class FreshnessAdmissionTest {
         var watermark: Long? = null,
     ) : PolicyAdmission.FloorState {
         override fun childDeviceId() = myId
+
         override fun isProvisioned() = provisioned
+
         override fun markProvisioned() {}
+
         override fun atRestFloor() = atRest
+
         override fun chainFloor(): Long? = null
+
         override fun effectiveFloor() = atRest
-        override fun advanceFloor(policySeq: Long) { if (atRest == null || policySeq > atRest!!) atRest = policySeq }
+
+        override fun advanceFloor(policySeq: Long) {
+            if (atRest == null || policySeq > atRest!!) atRest = policySeq
+        }
+
         override fun freshnessAnchorParentMs() = anchorParent
+
         override fun freshnessAnchorElapsedMs() = anchorElapsed
+
         override fun notAfterWatermarkMs() = watermark
-        override fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {
-            val w = FreshnessClock.nextAnchor(
-                FreshnessClock.Anchor(anchorParent, anchorElapsed, watermark),
-                parentIssuedAtMs, nowElapsedMs, notAfterMs,
-            )
+
+        override fun advanceFreshnessAnchor(
+            parentIssuedAtMs: Long,
+            nowElapsedMs: Long,
+            notAfterMs: Long?,
+        ) {
+            val w =
+                FreshnessClock.nextAnchor(
+                    FreshnessClock.Anchor(anchorParent, anchorElapsed, watermark),
+                    parentIssuedAtMs,
+                    nowElapsedMs,
+                    notAfterMs,
+                )
             anchorParent = w.parentMs
             anchorElapsed = w.elapsedMs
             watermark = w.watermarkMs
@@ -82,16 +111,34 @@ class FreshnessAdmissionTest {
 
     private class RecordingApplier : PolicyAdmission.Applier {
         val calls = mutableListOf<String>()
-        override fun stage(bundle: SignedBundle) { calls += "stage:${bundle.policy_seq}" }
-        override fun applyAndFsync(bundle: SignedBundle) { calls += "apply:${bundle.policy_seq}" }
-        override fun ack(policySeq: Long) { calls += "ack:$policySeq" }
+
+        override fun stage(bundle: SignedBundle) {
+            calls += "stage:${bundle.policy_seq}"
+        }
+
+        override fun applyAndFsync(bundle: SignedBundle) {
+            calls += "apply:${bundle.policy_seq}"
+        }
+
+        override fun ack(policySeq: Long) {
+            calls += "ack:$policySeq"
+        }
     }
 
-    private fun admit(b: SignedBundle, state: FakeFreshnessFloorState, applier: RecordingApplier, kp: Keypair, nowElapsedMs: Long) =
-        PolicyAdmission.admit(
-            BundleVerifier.toWireDocument(sign(b, kp)),
-            state, applier, pinParentKey = {}, pinnedParentPubkey = kp.publicKeyRaw, nowElapsedMs = nowElapsedMs,
-        )
+    private fun admit(
+        b: SignedBundle,
+        state: FakeFreshnessFloorState,
+        applier: RecordingApplier,
+        kp: Keypair,
+        nowElapsedMs: Long,
+    ) = PolicyAdmission.admit(
+        BundleVerifier.toWireDocument(sign(b, kp)),
+        state,
+        applier,
+        pinParentKey = {},
+        pinnedParentPubkey = kp.publicKeyRaw,
+        nowElapsedMs = nowElapsedMs,
+    )
 
     @Test
     fun withinWindowAppliesAndReAnchors() {
@@ -179,19 +226,27 @@ class FreshnessAdmissionTest {
         // mark a non-genesis bundle EXPIRED. Genesis can only ever have an Unusable clock in practice;
         // this pins that genesis never gets rejected/deferred by freshness.
         val kp = newKeypair()
-        val state = FakeFreshnessFloorState(
-            atRest = null, provisioned = false, // never provisioned ⇒ genesis candidate
-            anchorParent = 1_000_000L, anchorElapsed = 0L, // would make a non-genesis bundle look expired
-        )
+        val state =
+            FakeFreshnessFloorState(
+                atRest = null,
+                provisioned = false, // never provisioned ⇒ genesis candidate
+                anchorParent = 1_000_000L,
+                anchorElapsed = 0L, // would make a non-genesis bundle look expired
+            )
         val applier = RecordingApplier()
         // not_after well before the injected monotonic_now (≈1_600_000) — would be EXPIRED if checked.
         val b = bundle(seq = 1L, issuedAt = 1_000L, notBefore = 0L, notAfter = 2_000L)
 
-        val r = PolicyAdmission.admit(
-            BundleVerifier.toWireDocument(sign(b, kp)),
-            state, applier, pinParentKey = {}, pinnedParentPubkey = null,
-            genesisPubkey = kp.publicKeyRaw, nowElapsedMs = 600_000L,
-        )
+        val r =
+            PolicyAdmission.admit(
+                BundleVerifier.toWireDocument(sign(b, kp)),
+                state,
+                applier,
+                pinParentKey = {},
+                pinnedParentPubkey = null,
+                genesisPubkey = kp.publicKeyRaw,
+                nowElapsedMs = 600_000L,
+            )
 
         assertTrue(r is PolicyAdmission.Result.Applied, "genesis TOFU must apply regardless of the freshness window")
         assertTrue((r as PolicyAdmission.Result.Applied).genesis)

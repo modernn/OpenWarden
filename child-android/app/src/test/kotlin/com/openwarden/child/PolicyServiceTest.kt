@@ -20,7 +20,6 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PolicyServiceTest {
-
     @Test
     fun `onCreate then onDestroy wires and tears down without throwing`() {
         val controller = Robolectric.buildService(PolicyService::class.java)

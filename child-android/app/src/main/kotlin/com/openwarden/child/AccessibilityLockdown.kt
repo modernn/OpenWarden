@@ -27,8 +27,9 @@ import android.util.Log
  *
  * // TODO(#8): call from PolicyEnforcer day-one sequence
  */
-class AccessibilityLockdown(private val context: Context) {
-
+class AccessibilityLockdown(
+    private val context: Context,
+) {
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val admin = AdminReceiver.componentName(context)
 

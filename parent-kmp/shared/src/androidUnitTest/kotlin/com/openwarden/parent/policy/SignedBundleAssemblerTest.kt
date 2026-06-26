@@ -21,23 +21,27 @@ import kotlin.test.assertTrue
  * Castle (the same RFC 8032 Ed25519 the child's libsodium verifier accepts — ADR-033 RFC KATs).
  */
 class SignedBundleAssemblerTest {
-
     private fun provisionedProvider(): StoredRootKeyProvider {
         val storage = FakeSecureKeyStorage()
         StoredRootKeyProvider.provision(storage, RootKeyDerivation.deriveRootKeys(Bip39.encode(ByteArray(32))))
         return StoredRootKeyProvider(storage)
     }
 
-    private fun unsigned() = PolicyBundleBuilder.build(
-        policy = Policy(allowlist = listOf("a.app")),
-        childDeviceId = "child-1",
-        policySeq = 1,
-        nowMs = 1_000L,
-        freshnessWindowMs = 86_400_000L,
-        nonceHex = "0".repeat(32),
-    )
+    private fun unsigned() =
+        PolicyBundleBuilder.build(
+            policy = Policy(allowlist = listOf("a.app")),
+            childDeviceId = "child-1",
+            policySeq = 1,
+            nowMs = 1_000L,
+            freshnessWindowMs = 86_400_000L,
+            nonceHex = "0".repeat(32),
+        )
 
-    private fun verifiesUnder(pub: ByteArray, sigHex: String, signedBytes: ByteArray): Boolean {
+    private fun verifiesUnder(
+        pub: ByteArray,
+        sigHex: String,
+        signedBytes: ByteArray,
+    ): Boolean {
         val verifier = Ed25519Signer().apply { init(false, Ed25519PublicKeyParameters(pub, 0)) }
         verifier.update(signedBytes, 0, signedBytes.size)
         return verifier.verifySignature(sigHex.hexToBytes())

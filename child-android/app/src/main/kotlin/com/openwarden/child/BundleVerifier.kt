@@ -26,15 +26,15 @@ import kotlinx.serialization.json.JsonPrimitive
  * identical rules (same port). **If you change one, change both.**
  */
 object BundleVerifier {
-
     // encodeDefaults=true so defaulted fields (empty blocklist/windows/restrictions) are part of the
     // signed body; explicitNulls=false so optional fields left null (private_dns, frp_account_email)
     // are OMITTED, not serialized as `null` — PROTOCOL.md §3.1 rule 6 forbids `null`. Used ONLY for
     // the signer-side test conveniences below; the live verifier path uses the received JsonObject.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /**
      * The exact signing bytes of a RECEIVED wire object (ADR-040 D1/D2): the JCS-canonical encoding
@@ -54,16 +54,21 @@ object BundleVerifier {
      * or non-string `sig`, a JC1 overflow, a canonicalization failure, or a bad signature returns
      * `false`.
      */
-    fun verifyDocument(receivedDoc: JsonObject, pubkey: ByteArray): Boolean = try {
-        val sigHex = (receivedDoc["sig"] as? JsonPrimitive)
-            ?.takeIf { it.isString }
-            ?.content
-            ?: return false // no signature on the wire — never admissible
-        Ed25519.verify(signingBytes(receivedDoc), sigHex, pubkey)
-    } catch (e: Exception) {
-        // JC1 / canonicalization failure — fail-closed.
-        false
-    }
+    fun verifyDocument(
+        receivedDoc: JsonObject,
+        pubkey: ByteArray,
+    ): Boolean =
+        try {
+            val sigHex =
+                (receivedDoc["sig"] as? JsonPrimitive)
+                    ?.takeIf { it.isString }
+                    ?.content
+                    ?: return false // no signature on the wire — never admissible
+            Ed25519.verify(signingBytes(receivedDoc), sigHex, pubkey)
+        } catch (e: Exception) {
+            // JC1 / canonicalization failure — fail-closed.
+            false
+        }
 
     /**
      * Signer-side test convenience ONLY (ADR-019 D3 / ADR-040): the wire JSON object a typed bundle
@@ -91,6 +96,8 @@ object BundleVerifier {
             "re-serialization is for tests/golden vectors only.",
         ReplaceWith("verifyDocument(toWireDocument(bundle), pubkey)"),
     )
-    internal fun verify(bundle: SignedBundle, pubkey: ByteArray): Boolean =
-        verifyDocument(toWireDocument(bundle), pubkey)
+    internal fun verify(
+        bundle: SignedBundle,
+        pubkey: ByteArray,
+    ): Boolean = verifyDocument(toWireDocument(bundle), pubkey)
 }

@@ -54,7 +54,7 @@ data class Policy(
 data class TimeWindow(
     val pkg: String,
     val allow: String, // "HH:MM-HH:MM" local window
-    val days: String,  // comma-separated day names, e.g. "Mon,Tue,Wed,Thu,Fri"
+    val days: String, // comma-separated day names, e.g. "Mon,Tue,Wed,Thu,Fri"
     val tz: String,
 )
 
@@ -62,15 +62,15 @@ data class TimeWindow(
 data class EventEntry(
     val v: Int = POLICY_BUNDLE_FORMAT_VERSION,
     val seq: Long,
-    val prevHash: String,       // BLAKE3 log chain (ADR-015 leaves the chain on BLAKE3)
+    val prevHash: String, // BLAKE3 log chain (ADR-015 leaves the chain on BLAKE3)
     val issuedAt: Long,
     val payloadType: String,
-    val payload: String,        // SealedEvent: base64 crypto_box_seal ciphertext (ADR-015)
-    val sig: String? = null,    // Ed25519 over JCS(entry without "sig") (ADR-015)
+    val payload: String, // SealedEvent: base64 crypto_box_seal ciphertext (ADR-015)
+    val sig: String? = null, // Ed25519 over JCS(entry without "sig") (ADR-015)
 )
 
 @Serializable
 data class AckEntry(
     val policySeq: Long,
-    val status: String,         // "applied" | "rejected:<reason>"
+    val status: String, // "applied" | "rejected:<reason>"
 )

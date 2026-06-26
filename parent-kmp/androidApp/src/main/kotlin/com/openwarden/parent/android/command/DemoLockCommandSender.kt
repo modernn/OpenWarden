@@ -30,27 +30,31 @@ import java.util.concurrent.TimeUnit
  */
 internal const val DEMO_CHILD_BASE_URL = "http://10.0.2.2:7180"
 
-internal class DemoLockCommandSender : LockCommandSender, java.io.Closeable {
-
-    private val http = HttpClient(OkHttp) {
-        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-        engine {
-            config {
-                connectTimeout(5, TimeUnit.SECONDS)
-                readTimeout(5, TimeUnit.SECONDS)
+internal class DemoLockCommandSender :
+    LockCommandSender,
+    java.io.Closeable {
+    private val http =
+        HttpClient(OkHttp) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            engine {
+                config {
+                    connectTimeout(5, TimeUnit.SECONDS)
+                    readTimeout(5, TimeUnit.SECONDS)
+                }
             }
         }
-    }
 
-    override suspend fun sendLock(): LockCommandResult = runCatching {
-        http.post("$DEMO_CHILD_BASE_URL/lock")
-        LockCommandResult.Success
-    }.getOrElse { LockCommandResult.Failure(it.message ?: "lock failed") }
+    override suspend fun sendLock(): LockCommandResult =
+        runCatching {
+            http.post("$DEMO_CHILD_BASE_URL/lock")
+            LockCommandResult.Success
+        }.getOrElse { LockCommandResult.Failure(it.message ?: "lock failed") }
 
-    override suspend fun sendUnlock(): LockCommandResult = runCatching {
-        http.post("$DEMO_CHILD_BASE_URL/unlock")
-        LockCommandResult.Success
-    }.getOrElse { LockCommandResult.Failure(it.message ?: "unlock failed") }
+    override suspend fun sendUnlock(): LockCommandResult =
+        runCatching {
+            http.post("$DEMO_CHILD_BASE_URL/unlock")
+            LockCommandResult.Success
+        }.getOrElse { LockCommandResult.Failure(it.message ?: "unlock failed") }
 
     /** Releases the underlying OkHttp connection pool and Ktor engine. */
     override fun close() {

@@ -27,8 +27,10 @@ object SealedBox {
      * (CRYPTO.md §4: `sealed_box = ephemeral_x25519_pub || ciphertext_with_tag`).
      * The sender is anonymous; libsodium discards the ephemeral private key.
      */
-    fun seal(recipientX25519Pub: UByteArray, plaintext: ByteArray): UByteArray =
-        Box.seal(plaintext.toUByteArray(), recipientX25519Pub)
+    fun seal(
+        recipientX25519Pub: UByteArray,
+        plaintext: ByteArray,
+    ): UByteArray = Box.seal(plaintext.toUByteArray(), recipientX25519Pub)
 
     /**
      * Open a sealed box with the recipient's X25519 keypair.
@@ -51,9 +53,10 @@ object SealedBox {
 
     /** Sealed result type — forces callers to handle decrypt failure (fail-closed). */
     sealed class OpenResult {
-        data class Success(val plaintext: ByteArray) : OpenResult() {
-            override fun equals(other: Any?): Boolean =
-                this === other || (other is Success && plaintext.contentEquals(other.plaintext))
+        data class Success(
+            val plaintext: ByteArray,
+        ) : OpenResult() {
+            override fun equals(other: Any?): Boolean = this === other || (other is Success && plaintext.contentEquals(other.plaintext))
 
             override fun hashCode(): Int = plaintext.contentHashCode()
         }

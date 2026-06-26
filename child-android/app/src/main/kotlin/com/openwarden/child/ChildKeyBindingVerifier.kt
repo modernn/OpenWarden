@@ -21,13 +21,13 @@ import java.util.Base64
  * Fail-closed throughout: any missing, mismatched, or malformed input returns `false`.
  */
 object ChildKeyBindingVerifier {
-
     // Identical canonical-JSON rules as SpkiBinding/CommandVerifier/BundleVerifier so the one signing
     // rule never diverges: encodeDefaults so defaulted fields are signed; omit nulls.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /** The exact bytes `K_bind` signs / the parent verifies: JCS-canonical binding minus `sig`. */
     fun canonicalBody(binding: ChildKeyBinding): ByteArray {
@@ -58,7 +58,11 @@ object ChildKeyBindingVerifier {
      *   it is genuine/STRONGBOX via the cert chain — PROTOCOL §7.3 checks 1-4, parent-side, deferred).
      * @param expectedNonce the raw 32-byte `provisioning_nonce` the parent issued this attempt (§7.1).
      */
-    fun verify(binding: ChildKeyBinding, bindingKeySpkiDer: ByteArray?, expectedNonce: ByteArray): Boolean {
+    fun verify(
+        binding: ChildKeyBinding,
+        bindingKeySpkiDer: ByteArray?,
+        expectedNonce: ByteArray,
+    ): Boolean {
         if (bindingKeySpkiDer == null) return false
         if (expectedNonce.size != 32) return false // defense-in-depth: a real single-use nonce is 32 bytes
         if (binding.v != 1) return false
@@ -75,9 +79,10 @@ object ChildKeyBindingVerifier {
     /** True iff [b64url] decodes (valid alphabet) to exactly 32 bytes (ADR-025 D6 length + alphabet). */
     private fun is32Bytes(b64url: String): Boolean = decode(b64url)?.size == 32
 
-    private fun decode(b64url: String): ByteArray? = try {
-        if (b64url.isEmpty()) null else Base64.getUrlDecoder().decode(b64url)
-    } catch (e: Exception) {
-        null
-    }
+    private fun decode(b64url: String): ByteArray? =
+        try {
+            if (b64url.isEmpty()) null else Base64.getUrlDecoder().decode(b64url)
+        } catch (e: Exception) {
+            null
+        }
 }

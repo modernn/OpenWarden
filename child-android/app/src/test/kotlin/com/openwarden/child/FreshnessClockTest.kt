@@ -10,9 +10,11 @@ import kotlin.test.assertTrue
  * anchor or an elapsed regression (reboot).
  */
 class FreshnessClockTest {
-
-    private fun anchor(parent: Long?, elapsed: Long?, watermark: Long? = null) =
-        FreshnessClock.Anchor(parent, elapsed, watermark)
+    private fun anchor(
+        parent: Long?,
+        elapsed: Long?,
+        watermark: Long? = null,
+    ) = FreshnessClock.Anchor(parent, elapsed, watermark)
 
     @Test
     fun usableEstimateAddsTheElapsedDeltaToTheParentAnchor() {
@@ -63,20 +65,38 @@ class FreshnessClockTest {
 
     @Test
     fun firstAnchorSeedsBothPairAndWatermark() {
-        val w = FreshnessClock.nextAnchor(anchor(null, null, null), candidateParentMs = 1000L, candidateElapsedMs = 50L, candidateNotAfterMs = 2000L)
+        val w =
+            FreshnessClock.nextAnchor(
+                anchor(null, null, null),
+                candidateParentMs = 1000L,
+                candidateElapsedMs = 50L,
+                candidateNotAfterMs = 2000L,
+            )
         assertEquals(FreshnessClock.AnchorWrite(1000L, 50L, 2000L), w)
     }
 
     @Test
     fun newerParentTimeAdvancesThePair() {
-        val w = FreshnessClock.nextAnchor(anchor(1000L, 50L, 2000L), candidateParentMs = 1500L, candidateElapsedMs = 80L, candidateNotAfterMs = 2500L)
+        val w =
+            FreshnessClock.nextAnchor(
+                anchor(1000L, 50L, 2000L),
+                candidateParentMs = 1500L,
+                candidateElapsedMs = 80L,
+                candidateNotAfterMs = 2500L,
+            )
         assertEquals(FreshnessClock.AnchorWrite(1500L, 80L, 2500L), w)
     }
 
     @Test
     fun olderParentTimeNeverWindsTheAnchorBack() {
         // A candidate older than the stored anchor must NOT lower the §5.1 clock (anti-rollback).
-        val w = FreshnessClock.nextAnchor(anchor(1000L, 50L, 2000L), candidateParentMs = 900L, candidateElapsedMs = 80L, candidateNotAfterMs = 1800L)
+        val w =
+            FreshnessClock.nextAnchor(
+                anchor(1000L, 50L, 2000L),
+                candidateParentMs = 900L,
+                candidateElapsedMs = 80L,
+                candidateNotAfterMs = 1800L,
+            )
         assertEquals(1000L, w.parentMs, "parent time must not decrease")
         assertEquals(50L, w.elapsedMs, "the paired elapsed must not change when the anchor is kept")
         assertEquals(2000L, w.watermarkMs, "watermark only rises (1800 < 2000 ignored)")

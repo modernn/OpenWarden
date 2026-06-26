@@ -26,7 +26,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class DnsFloorTest {
-
     private lateinit var context: Context
     private lateinit var dpm: DevicePolicyManager
 
@@ -118,34 +117,37 @@ class DnsFloorTest {
 
     @Test
     fun `verifyOrThrow passes when mode is PROVIDER_HOSTNAME host matches and toggle is locked`() {
-        val floor = DnsFloor(
-            context,
-            readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
-            readHost = { DnsFloor.DEFAULT_FILTERING_HOST },
-            readPrivateDnsLocked = { true },
-        )
+        val floor =
+            DnsFloor(
+                context,
+                readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
+                readHost = { DnsFloor.DEFAULT_FILTERING_HOST },
+                readPrivateDnsLocked = { true },
+            )
         floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST)
     }
 
     @Test
     fun `verifyOrThrow throws when mode is OFF`() {
-        val floor = DnsFloor(
-            context,
-            readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_OFF },
-            readHost = { null },
-            readPrivateDnsLocked = { true },
-        )
+        val floor =
+            DnsFloor(
+                context,
+                readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_OFF },
+                readHost = { null },
+                readPrivateDnsLocked = { true },
+            )
         assertFailsWith<DnsFloorException> { floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST) }
     }
 
     @Test
     fun `verifyOrThrow throws when host does not match`() {
-        val floor = DnsFloor(
-            context,
-            readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
-            readHost = { "family-filter-dns.cleanbrowsing.org" },
-            readPrivateDnsLocked = { true },
-        )
+        val floor =
+            DnsFloor(
+                context,
+                readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
+                readHost = { "family-filter-dns.cleanbrowsing.org" },
+                readPrivateDnsLocked = { true },
+            )
         assertFailsWith<DnsFloorException> { floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST) }
     }
 
@@ -153,12 +155,13 @@ class DnsFloorTest {
     fun `verifyOrThrow throws when the private-DNS toggle is not locked`() {
         // A pinned-but-unlocked floor lets the child change DNS in Settings — fail-closed must
         // treat the missing DISALLOW_CONFIG_PRIVATE_DNS lock as a verify failure.
-        val floor = DnsFloor(
-            context,
-            readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
-            readHost = { DnsFloor.DEFAULT_FILTERING_HOST },
-            readPrivateDnsLocked = { false },
-        )
+        val floor =
+            DnsFloor(
+                context,
+                readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME },
+                readHost = { DnsFloor.DEFAULT_FILTERING_HOST },
+                readPrivateDnsLocked = { false },
+            )
         assertFailsWith<DnsFloorException> { floor.verifyOrThrow(DnsFloor.DEFAULT_FILTERING_HOST) }
     }
 
@@ -178,12 +181,13 @@ class DnsFloorTest {
     fun `applyFloor fails closed when readback does not confirm the floor`() {
         // Even as Device Owner, if the platform did not actually pin the floor, applyFloor must
         // throw rather than return having (silently) left DNS unfiltered.
-        val floor = DnsFloor(
-            context,
-            readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_OFF },
-            readHost = { null },
-            readPrivateDnsLocked = { true },
-        )
+        val floor =
+            DnsFloor(
+                context,
+                readMode = { DevicePolicyManager.PRIVATE_DNS_MODE_OFF },
+                readHost = { null },
+                readPrivateDnsLocked = { true },
+            )
         try {
             floor.applyFloor(DnsFloor.DEFAULT_FILTERING_HOST)
             throw AssertionError("expected DnsFloorException — applyFloor must fail closed")

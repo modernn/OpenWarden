@@ -15,10 +15,10 @@ class ContactClock(
     private val store: ContactStore,
     private val clock: Clock = SystemClockSource,
 ) {
-
     /** Real-clock seam. [wallMs] = wall-clock (user-settable); [elapsedMs] = kernel-monotonic. */
     interface Clock {
         fun wallMs(): Long
+
         fun elapsedMs(): Long
     }
 
@@ -33,19 +33,21 @@ class ContactClock(
      * looser) tier's enforcement would stay live until a later tick — exactly the fail-OPEN window
      * D5 forbids. Returning STRICT makes the seam apply the hard floor (deny-all + default DNS) now.
      */
-    fun currentTier(): Ratchet.Tier = try {
-        val nowWall = clock.wallMs()
-        val nowElapsed = clock.elapsedMs()
-        store.advanceWallHighWater(nowWall)
-        val markers = Ratchet.Markers(
-            lastContactWallMs = store.lastContactWallMs(),
-            lastContactElapsedMs = store.lastContactElapsedMs(),
-            wallHighWaterMs = store.wallHighWaterMs(),
-        )
-        Ratchet.tierFor(Ratchet.silenceMs(markers, store.isProvisioned(), nowWall, nowElapsed))
-    } catch (e: Exception) {
-        Ratchet.Tier.STRICT
-    }
+    fun currentTier(): Ratchet.Tier =
+        try {
+            val nowWall = clock.wallMs()
+            val nowElapsed = clock.elapsedMs()
+            store.advanceWallHighWater(nowWall)
+            val markers =
+                Ratchet.Markers(
+                    lastContactWallMs = store.lastContactWallMs(),
+                    lastContactElapsedMs = store.lastContactElapsedMs(),
+                    wallHighWaterMs = store.wallHighWaterMs(),
+                )
+            Ratchet.tierFor(Ratchet.silenceMs(markers, store.isProvisioned(), nowWall, nowElapsed))
+        } catch (e: Exception) {
+            Ratchet.Tier.STRICT
+        }
 
     /** Record an authenticated parent contact NOW — resets the silence timer (ADR-024 D3). */
     fun recordContact() {
@@ -57,7 +59,10 @@ class ContactClock(
      * heartbeat: advance the replay floor FIRST (so a replay can never slip in), then record
      * contact. Returns true iff admitted. Fail-closed: any rejection leaves all state untouched.
      */
-    fun admitHeartbeat(hb: SignedHeartbeat, pinnedParentPubkey: ByteArray?): Boolean =
+    fun admitHeartbeat(
+        hb: SignedHeartbeat,
+        pinnedParentPubkey: ByteArray?,
+    ): Boolean =
         when (HeartbeatAdmission.decide(hb, store.childDeviceId(), pinnedParentPubkey, store.heartbeatFloor())) {
             is HeartbeatAdmission.Outcome.Accept -> {
                 // Capture the clock pair ONCE so the contact marker and the freshness anchor agree.
@@ -74,11 +79,15 @@ class ContactClock(
                 runCatching { store.advanceFreshnessAnchor(hb.issued_at, nowElapsed, null) }
                 true
             }
-            is HeartbeatAdmission.Outcome.Reject -> false
+
+            is HeartbeatAdmission.Outcome.Reject -> {
+                false
+            }
         }
 
     object SystemClockSource : Clock {
         override fun wallMs(): Long = System.currentTimeMillis()
+
         override fun elapsedMs(): Long = SystemClock.elapsedRealtime()
     }
 
@@ -95,12 +104,22 @@ class ContactClock(
  */
 interface ContactStore {
     fun childDeviceId(): String
+
     fun isProvisioned(): Boolean
+
     fun lastContactWallMs(): Long?
+
     fun lastContactElapsedMs(): Long?
+
     fun wallHighWaterMs(): Long?
-    fun recordContact(wallMs: Long, elapsedMs: Long)
+
+    fun recordContact(
+        wallMs: Long,
+        elapsedMs: Long,
+    )
+
     fun advanceWallHighWater(wallMs: Long)
+
     fun heartbeatFloor(): Long?
 
     /**
@@ -108,7 +127,11 @@ interface ContactStore {
      * an authenticated contact at ([wallMs], [elapsedMs]). Fail-closed: throws on a failed/divergent
      * write, leaving prior state intact (the heartbeat is then treated as not-admitted).
      */
-    fun admitHeartbeatContact(issuedAt: Long, wallMs: Long, elapsedMs: Long)
+    fun admitHeartbeatContact(
+        issuedAt: Long,
+        wallMs: Long,
+        elapsedMs: Long,
+    )
 
     /**
      * Re-establish the ADR-041 §5.1 freshness anchor from a signed parent time (heartbeat
@@ -116,5 +139,9 @@ interface ContactStore {
      * Monotonic-on-write. Defaulted to a no-op so non-freshness fakes need not implement it;
      * [ReplayFloorStore] satisfies it via its [PolicyAdmission.FloorState] implementation.
      */
-    fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {}
+    fun advanceFreshnessAnchor(
+        parentIssuedAtMs: Long,
+        nowElapsedMs: Long,
+        notAfterMs: Long?,
+    ) {}
 }

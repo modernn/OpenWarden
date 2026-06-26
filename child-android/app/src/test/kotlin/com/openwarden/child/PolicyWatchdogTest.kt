@@ -20,16 +20,16 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PolicyWatchdogTest {
-
     @Test
     fun `reassert invokes every surface in fail-closed order`() {
         val calls = mutableListOf<String>()
-        val wd = PolicyWatchdog(
-            reassertRestrictions = { calls += "restrictions" },
-            reassertAllowlist = { calls += "allowlist" },
-            reassertDnsFloor = { calls += "dns" },
-            checkProfiles = { calls += "profiles" },
-        )
+        val wd =
+            PolicyWatchdog(
+                reassertRestrictions = { calls += "restrictions" },
+                reassertAllowlist = { calls += "allowlist" },
+                reassertDnsFloor = { calls += "dns" },
+                checkProfiles = { calls += "profiles" },
+            )
 
         wd.reassert()
 
@@ -42,11 +42,12 @@ class PolicyWatchdogTest {
     fun `reassert does not skip later surfaces when restrictions throws`() {
         var allowlistRan = false
         var dnsRan = false
-        val wd = PolicyWatchdog(
-            reassertRestrictions = { throw IllegalStateException("restriction re-assert blew up") },
-            reassertAllowlist = { allowlistRan = true },
-            reassertDnsFloor = { dnsRan = true },
-        )
+        val wd =
+            PolicyWatchdog(
+                reassertRestrictions = { throw IllegalStateException("restriction re-assert blew up") },
+                reassertAllowlist = { allowlistRan = true },
+                reassertDnsFloor = { dnsRan = true },
+            )
 
         wd.reassert() // must not throw
 
@@ -58,12 +59,25 @@ class PolicyWatchdogTest {
     @Test
     fun `reassert attempts every surface and never propagates even when all throw`() {
         var attempts = 0
-        val wd = PolicyWatchdog(
-            reassertRestrictions = { attempts++; throw RuntimeException("a") },
-            reassertAllowlist = { attempts++; throw RuntimeException("b") },
-            reassertDnsFloor = { attempts++; throw RuntimeException("c") },
-            checkProfiles = { attempts++; throw RuntimeException("d") },
-        )
+        val wd =
+            PolicyWatchdog(
+                reassertRestrictions = {
+                    attempts++
+                    throw RuntimeException("a")
+                },
+                reassertAllowlist = {
+                    attempts++
+                    throw RuntimeException("b")
+                },
+                reassertDnsFloor = {
+                    attempts++
+                    throw RuntimeException("c")
+                },
+                checkProfiles = {
+                    attempts++
+                    throw RuntimeException("d")
+                },
+            )
 
         wd.reassert() // must not propagate
 
@@ -82,10 +96,15 @@ class PolicyWatchdogTest {
 
     @Test
     fun `allowlistFor returns the bundle allowlist when loaded`() {
-        val bundle = SignedBundle(
-            v = 1, issued_at = 1L, not_before = 1L, not_after = 2L, nonce = "00",
-            policy = PolicyDoc(allowlist = listOf("com.foo", "com.bar")),
-        )
+        val bundle =
+            SignedBundle(
+                v = 1,
+                issued_at = 1L,
+                not_before = 1L,
+                not_after = 2L,
+                nonce = "00",
+                policy = PolicyDoc(allowlist = listOf("com.foo", "com.bar")),
+            )
         assertEquals(
             setOf("com.foo", "com.bar"),
             PolicyWatchdog.allowlistFor(PolicyStore.LoadResult.Loaded(bundle)),
@@ -106,10 +125,11 @@ class PolicyWatchdogTest {
     @Test
     fun `repeated reassert re-invokes restrictions each tick - drift revert`() {
         var count = 0
-        val wd = PolicyWatchdog(
-            reassertRestrictions = { count++ },
-            reassertAllowlist = {},
-        )
+        val wd =
+            PolicyWatchdog(
+                reassertRestrictions = { count++ },
+                reassertAllowlist = {},
+            )
 
         wd.reassert()
         wd.reassert()

@@ -23,7 +23,6 @@ package com.openwarden.child
  * [ContactClock.Clock.elapsedMs].
  */
 object FreshnessClock {
-
     /**
      * The persisted freshness anchor: a signed parent time paired with the kernel-monotonic
      * `elapsedRealtime()` captured at the same instant, plus the highest `not_after` ever applied
@@ -38,7 +37,9 @@ object FreshnessClock {
     /** The estimate of the parent's current time, or [Unusable] when it cannot be trusted. */
     sealed interface Now {
         /** A trustworthy monotonic estimate of the parent's current time, in ms. */
-        data class Usable(val monotonicNowMs: Long) : Now
+        data class Usable(
+            val monotonicNowMs: Long,
+        ) : Now
 
         /**
          * No anchor seeded yet, or `elapsedRealtime` regressed below the anchor (a reboot, or elapsed
@@ -53,7 +54,10 @@ object FreshnessClock {
      * [nowElapsedMs] (`SystemClock.elapsedRealtime()`). [Now.Unusable] when there is no anchor or
      * [nowElapsedMs] is below the stored elapsed (reboot / regression) — never extrapolate then.
      */
-    fun estimate(anchor: Anchor, nowElapsedMs: Long): Now {
+    fun estimate(
+        anchor: Anchor,
+        nowElapsedMs: Long,
+    ): Now {
         val parentAnchor = anchor.parentAnchorMs ?: return Now.Unusable
         val elapsedAtAnchor = anchor.elapsedAtAnchorMs ?: return Now.Unusable
         if (nowElapsedMs < elapsedAtAnchor) return Now.Unusable // elapsed regressed ⇒ reboot ⇒ unusable
@@ -67,7 +71,11 @@ object FreshnessClock {
     }
 
     /** The anchor values to persist for a new signed parent time (ADR-041 D4). */
-    data class AnchorWrite(val parentMs: Long, val elapsedMs: Long, val watermarkMs: Long?)
+    data class AnchorWrite(
+        val parentMs: Long,
+        val elapsedMs: Long,
+        val watermarkMs: Long?,
+    )
 
     /**
      * Pure ADR-041 D4 **monotonic-on-write** decision: given the [current] stored anchor and a new
@@ -90,11 +98,12 @@ object FreshnessClock {
         val keepCurrent = curParent != null && curElapsed != null && candidateParentMs < curParent
         val parent = if (keepCurrent) curParent!! else candidateParentMs
         val elapsed = if (keepCurrent) curElapsed!! else candidateElapsedMs
-        val watermark = when {
-            candidateNotAfterMs == null -> current.notAfterWatermarkMs
-            current.notAfterWatermarkMs == null -> candidateNotAfterMs
-            else -> maxOf(current.notAfterWatermarkMs, candidateNotAfterMs)
-        }
+        val watermark =
+            when {
+                candidateNotAfterMs == null -> current.notAfterWatermarkMs
+                current.notAfterWatermarkMs == null -> candidateNotAfterMs
+                else -> maxOf(current.notAfterWatermarkMs, candidateNotAfterMs)
+            }
         return AnchorWrite(parent, elapsed, watermark)
     }
 }

@@ -27,9 +27,10 @@ class ConfirmGate(
      * [State.Unconfirmed]. Fail-closed: a missing or wrong answer stays unconfirmed.
      */
     fun check(answers: Map<Int, String>): State {
-        val allMatch = challengePositions.all { pos ->
-            answers[pos]?.trim()?.lowercase() == mnemonic[pos - 1]
-        }
+        val allMatch =
+            challengePositions.all { pos ->
+                answers[pos]?.trim()?.lowercase() == mnemonic[pos - 1]
+            }
         return if (allMatch) State.Confirmed else State.Unconfirmed
     }
 

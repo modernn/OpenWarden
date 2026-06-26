@@ -10,14 +10,17 @@ import androidx.security.crypto.MasterKey
  * fail-closed. [reserveNext] persists the new (strictly greater) seq BEFORE returning it, so the
  * parent never issues a seq it didn't durably record. `@Synchronized` for concurrent pushes.
  */
-class AndroidPolicySeqStore(context: Context) : PolicySeqStore {
-
+class AndroidPolicySeqStore(
+    context: Context,
+) : PolicySeqStore {
     private val prefs by lazy {
-        val masterKey = MasterKey.Builder(context, MASTER_KEY_ALIAS)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            // Best-effort hardware binding; falls back to TEE where StrongBox is absent.
-            .setRequestStrongBoxBacked(true)
-            .build()
+        val masterKey =
+            MasterKey
+                .Builder(context, MASTER_KEY_ALIAS)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                // Best-effort hardware binding; falls back to TEE where StrongBox is absent.
+                .setRequestStrongBoxBacked(true)
+                .build()
         EncryptedSharedPreferences.create(
             context,
             PREFS_FILE,

@@ -27,7 +27,6 @@ import kotlinx.serialization.Serializable
  * has something to render before the grant is set.
  */
 object UsageStatsHelper {
-
     private const val TAG = "UsageStatsHelper"
     private const val WINDOW_MS = 24L * 60 * 60 * 1000 // 24 h
     private const val TOP_N = 15
@@ -41,17 +40,23 @@ object UsageStatsHelper {
 
     sealed class UsageResult {
         /** Real metadata from UsageStatsManager. */
-        data class OnDevice(val entries: List<AppUsageEntry>) : UsageResult()
+        data class OnDevice(
+            val entries: List<AppUsageEntry>,
+        ) : UsageResult()
 
         /** Debug-only, clearly `[DEMO]`-labelled illustrative data, returned when the
          *  PACKAGE_USAGE_STATS appops grant is missing on a debuggable build. */
-        data class DemoFallback(val entries: List<AppUsageEntry>) : UsageResult()
+        data class DemoFallback(
+            val entries: List<AppUsageEntry>,
+        ) : UsageResult()
 
         /** Release no-grant: honest empty. Never fabricates numbers (ADR-042 D2). */
         object Unavailable : UsageResult()
 
         /** Unexpected error — caller serves an empty list, never demo data (ADR-042 D4). */
-        data class Error(val message: String) : UsageResult()
+        data class Error(
+            val message: String,
+        ) : UsageResult()
     }
 
     /**
@@ -99,25 +104,27 @@ object UsageStatsHelper {
             }
 
             val pm = context.packageManager
-            val entries = aggregated.entries
-                .filter { it.value > 0 }
-                .map { (pkg, totalMs) ->
-                    val label = try {
-                        pm.getApplicationLabel(
-                            pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA),
-                        ).toString()
-                    } catch (_: PackageManager.NameNotFoundException) {
-                        null
-                    }
-                    AppUsageEntry(
-                        packageName = pkg,
-                        label = label,
-                        foregroundMinutes = totalMs / 60_000,
-                    )
-                }
-                .filter { it.foregroundMinutes > 0 }
-                .sortedByDescending { it.foregroundMinutes }
-                .take(TOP_N)
+            val entries =
+                aggregated.entries
+                    .filter { it.value > 0 }
+                    .map { (pkg, totalMs) ->
+                        val label =
+                            try {
+                                pm
+                                    .getApplicationLabel(
+                                        pm.getApplicationInfo(pkg, PackageManager.GET_META_DATA),
+                                    ).toString()
+                            } catch (_: PackageManager.NameNotFoundException) {
+                                null
+                            }
+                        AppUsageEntry(
+                            packageName = pkg,
+                            label = label,
+                            foregroundMinutes = totalMs / 60_000,
+                        )
+                    }.filter { it.foregroundMinutes > 0 }
+                    .sortedByDescending { it.foregroundMinutes }
+                    .take(TOP_N)
 
             if (entries.isEmpty()) {
                 Log.w(TAG, "All usage entries had 0 foreground minutes — appops grant likely missing")
@@ -138,24 +145,24 @@ object UsageStatsHelper {
     private fun noGrant(debuggable: Boolean): UsageResult =
         if (debuggable) UsageResult.DemoFallback(demoFallback()) else UsageResult.Unavailable
 
-    private fun isDebuggable(context: Context): Boolean =
-        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    private fun isDebuggable(context: Context): Boolean = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
     /**
      * Illustrative, `[DEMO]`-labelled data for debug builds only (ADR-042 D2). Values are
      * not real; packages are well-known apps so the parent dashboard renders meaningfully.
      * The `[DEMO]` label prefix is asserted by test so it can never read as real data.
      */
-    private fun demoFallback(): List<AppUsageEntry> = listOf(
-        AppUsageEntry("com.android.chrome", "[DEMO] Chrome", 82),
-        AppUsageEntry("com.google.android.youtube", "[DEMO] YouTube", 47),
-        AppUsageEntry("com.roblox.client", "[DEMO] Roblox", 35),
-        AppUsageEntry("com.instagram.android", "[DEMO] Instagram", 28),
-        AppUsageEntry("com.discord", "[DEMO] Discord", 21),
-        AppUsageEntry("com.google.android.apps.maps", "[DEMO] Maps", 14),
-        AppUsageEntry("com.android.settings", "[DEMO] Settings", 9),
-        AppUsageEntry("com.snapchat.android", "[DEMO] Snapchat", 7),
-        AppUsageEntry("com.tiktok.android", "[DEMO] TikTok", 5),
-        AppUsageEntry("com.netflix.mediaclient", "[DEMO] Netflix", 3),
-    )
+    private fun demoFallback(): List<AppUsageEntry> =
+        listOf(
+            AppUsageEntry("com.android.chrome", "[DEMO] Chrome", 82),
+            AppUsageEntry("com.google.android.youtube", "[DEMO] YouTube", 47),
+            AppUsageEntry("com.roblox.client", "[DEMO] Roblox", 35),
+            AppUsageEntry("com.instagram.android", "[DEMO] Instagram", 28),
+            AppUsageEntry("com.discord", "[DEMO] Discord", 21),
+            AppUsageEntry("com.google.android.apps.maps", "[DEMO] Maps", 14),
+            AppUsageEntry("com.android.settings", "[DEMO] Settings", 9),
+            AppUsageEntry("com.snapchat.android", "[DEMO] Snapchat", 7),
+            AppUsageEntry("com.tiktok.android", "[DEMO] TikTok", 5),
+            AppUsageEntry("com.netflix.mediaclient", "[DEMO] Netflix", 3),
+        )
 }

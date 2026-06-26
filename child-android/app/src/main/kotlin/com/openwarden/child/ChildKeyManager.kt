@@ -13,8 +13,9 @@ package com.openwarden.child
  * [identityProvider] is the deferred ADR-031 D5 sibling. This lands the material + the binding so those
  * siblings can wire it without re-touching the keystore.
  */
-class ChildKeyManager(private val store: ChildKeyStore) {
-
+class ChildKeyManager(
+    private val store: ChildKeyStore,
+) {
     /**
      * Generate a fresh child key set (deletes any prior set — re-pair regenerates) and return the
      * signed [ChildKeyBinding] to POST, with the
@@ -39,5 +40,8 @@ class ChildKeyManager(private val store: ChildKeyStore) {
         if (store.isProvisioned()) KeystoreIdentityKeyProvider(store) else NotProvisionedIdentityKeyProvider
 
     /** The child's §7.2 response material: the signed binding + `K_bind`'s attestation cert chain (DER). */
-    data class ProvisionResult(val binding: ChildKeyBinding, val attestationChain: List<ByteArray>)
+    data class ProvisionResult(
+        val binding: ChildKeyBinding,
+        val attestationChain: List<ByteArray>,
+    )
 }

@@ -8,10 +8,12 @@ package com.openwarden.child
  * contact clock or mutate any state on a [Outcome.Reject].
  */
 object HeartbeatAdmission {
-
     sealed interface Outcome {
         object Accept : Outcome
-        data class Reject(val reason: String) : Outcome
+
+        data class Reject(
+            val reason: String,
+        ) : Outcome
     }
 
     fun decide(

@@ -20,15 +20,15 @@ import androidx.activity.ComponentActivity
  *  - Matter-of-fact tone. Not punitive, not marketing.
  */
 class TransparencyActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val root = ScrollView(this)
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 72, 48, 72)
-        }
+        val column =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(48, 72, 48, 72)
+            }
 
         // ── Header ─────────────────────────────────────────────────────────────
         column.addView(
@@ -65,25 +65,28 @@ class TransparencyActivity : ComponentActivity() {
      * TalkBack reads them correctly (accessibility requirement from §11).
      */
     private fun buildCategoryRow(category: MonitoredCategory): LinearLayout {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, 32)
-        }
+        val row =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 0, 0, 32)
+            }
 
-        val titleView = TextView(this).apply {
-            text = category.title
-            textSize = 17f
-            contentDescription = category.title
-            // Minimum tap target ≥ 48dp per §11.
-            minHeight = (48 * resources.displayMetrics.density).toInt()
-        }
+        val titleView =
+            TextView(this).apply {
+                text = category.title
+                textSize = 17f
+                contentDescription = category.title
+                // Minimum tap target ≥ 48dp per §11.
+                minHeight = (48 * resources.displayMetrics.density).toInt()
+            }
 
-        val bodyView = TextView(this).apply {
-            text = category.plainLanguage
-            textSize = 14f
-            contentDescription = category.plainLanguage
-            setPadding(0, 4, 0, 0)
-        }
+        val bodyView =
+            TextView(this).apply {
+                text = category.plainLanguage
+                textSize = 14f
+                contentDescription = category.plainLanguage
+                setPadding(0, 4, 0, 0)
+            }
 
         row.addView(titleView)
         row.addView(bodyView)

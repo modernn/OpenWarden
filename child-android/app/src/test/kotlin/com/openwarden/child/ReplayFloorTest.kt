@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
  * no Robolectric, no libsodium. Each test maps to an ADR-017 clause.
  */
 class ReplayFloorTest {
-
     // ---- accept path (monotonic advance) ------------------------------------
 
     @Test

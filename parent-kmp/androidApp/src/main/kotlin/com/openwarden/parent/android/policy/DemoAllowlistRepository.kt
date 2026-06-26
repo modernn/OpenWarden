@@ -25,8 +25,8 @@ import com.openwarden.parent.policy.FetchAppsResult
 class DemoAllowlistRepository private constructor(
     private val client: ChildApiClient?,
     private val fetchOverride: (suspend () -> FetchAppsResult)?,
-) : AllowlistRepository, java.io.Closeable {
-
+) : AllowlistRepository,
+    java.io.Closeable {
     /** Production constructor — uses the real [ChildApiClient]. */
     constructor() : this(client = ChildApiClient(), fetchOverride = null)
 
@@ -43,10 +43,15 @@ class DemoAllowlistRepository private constructor(
     override suspend fun fetchInstalledApps(): FetchAppsResult {
         if (fetchOverride != null) return fetchOverride.invoke()
         return when (val result = checkNotNull(client).getApps()) {
-            is ApiResult.Success -> FetchAppsResult.Success(
-                result.data.map { AppInfo(packageName = it.packageName, label = it.label) },
-            )
-            is ApiResult.Failure -> FetchAppsResult.Error(result.message)
+            is ApiResult.Success -> {
+                FetchAppsResult.Success(
+                    result.data.map { AppInfo(packageName = it.packageName, label = it.label) },
+                )
+            }
+
+            is ApiResult.Failure -> {
+                FetchAppsResult.Error(result.message)
+            }
         }
     }
 

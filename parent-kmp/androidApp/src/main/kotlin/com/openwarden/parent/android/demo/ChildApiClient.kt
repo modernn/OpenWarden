@@ -75,8 +75,13 @@ data class InstalledAppsResponse(
 )
 
 sealed class ApiResult<out T> {
-    data class Success<T>(val data: T) : ApiResult<T>()
-    data class Failure(val message: String) : ApiResult<Nothing>()
+    data class Success<T>(
+        val data: T,
+    ) : ApiResult<T>()
+
+    data class Failure(
+        val message: String,
+    ) : ApiResult<Nothing>()
 }
 
 /**
@@ -87,50 +92,56 @@ sealed class ApiResult<out T> {
  * and connection pool. [DemoAllowlistRepository] closes this client in its own [close].
  */
 internal class ChildApiClient : java.io.Closeable {
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
-    private val http = HttpClient(OkHttp) {
-        install(ContentNegotiation) { json(json) }
-        // Short timeouts so the UI fails fast and visibly rather than hanging.
-        engine {
-            config {
-                connectTimeout(
-                    java.util.concurrent.TimeUnit.SECONDS.toMillis(5),
-                    java.util.concurrent.TimeUnit.MILLISECONDS,
-                )
-                readTimeout(
-                    java.util.concurrent.TimeUnit.SECONDS.toMillis(5),
-                    java.util.concurrent.TimeUnit.MILLISECONDS,
-                )
+    private val http =
+        HttpClient(OkHttp) {
+            install(ContentNegotiation) { json(json) }
+            // Short timeouts so the UI fails fast and visibly rather than hanging.
+            engine {
+                config {
+                    connectTimeout(
+                        java.util.concurrent.TimeUnit.SECONDS
+                            .toMillis(5),
+                        java.util.concurrent.TimeUnit.MILLISECONDS,
+                    )
+                    readTimeout(
+                        java.util.concurrent.TimeUnit.SECONDS
+                            .toMillis(5),
+                        java.util.concurrent.TimeUnit.MILLISECONDS,
+                    )
+                }
             }
         }
-    }
 
-    suspend fun getState(): ApiResult<ChildStateResponse> = runCatching {
-        http.get("$DEMO_CHILD_BASE_URL/state").body<ChildStateResponse>()
-    }.fold(
-        onSuccess = { ApiResult.Success(it) },
-        onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
-    )
+    suspend fun getState(): ApiResult<ChildStateResponse> =
+        runCatching {
+            http.get("$DEMO_CHILD_BASE_URL/state").body<ChildStateResponse>()
+        }.fold(
+            onSuccess = { ApiResult.Success(it) },
+            onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
+        )
 
-    suspend fun postLock(): ApiResult<Unit> = runCatching {
-        http.post("$DEMO_CHILD_BASE_URL/lock")
-    }.fold(
-        onSuccess = { ApiResult.Success(Unit) },
-        onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
-    )
+    suspend fun postLock(): ApiResult<Unit> =
+        runCatching {
+            http.post("$DEMO_CHILD_BASE_URL/lock")
+        }.fold(
+            onSuccess = { ApiResult.Success(Unit) },
+            onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
+        )
 
-    suspend fun getUsage(): ApiResult<List<AppUsageEntry>> = runCatching {
-        // Child returns an object envelope, not a bare array — unwrap per_app.
-        http.get("$DEMO_CHILD_BASE_URL/usage").body<UsageResponse>().perApp
-    }.fold(
-        onSuccess = { ApiResult.Success(it) },
-        onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
-    )
+    suspend fun getUsage(): ApiResult<List<AppUsageEntry>> =
+        runCatching {
+            // Child returns an object envelope, not a bare array — unwrap per_app.
+            http.get("$DEMO_CHILD_BASE_URL/usage").body<UsageResponse>().perApp
+        }.fold(
+            onSuccess = { ApiResult.Success(it) },
+            onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
+        )
 
     /**
      * Fetch the installed-app list from the child's /apps endpoint.
@@ -143,12 +154,13 @@ internal class ChildApiClient : java.io.Closeable {
      * Until it ships, this will return a Failure, which the UI surfaces as an explicit
      * error (not a silent empty list). See child-android issue #30.
      */
-    suspend fun getApps(): ApiResult<List<InstalledAppEntry>> = runCatching {
-        http.get("$DEMO_CHILD_BASE_URL/apps").body<InstalledAppsResponse>().apps
-    }.fold(
-        onSuccess = { ApiResult.Success(it) },
-        onFailure = { ApiResult.Failure(it.message ?: "Unknown error fetching /apps") },
-    )
+    suspend fun getApps(): ApiResult<List<InstalledAppEntry>> =
+        runCatching {
+            http.get("$DEMO_CHILD_BASE_URL/apps").body<InstalledAppsResponse>().apps
+        }.fold(
+            onSuccess = { ApiResult.Success(it) },
+            onFailure = { ApiResult.Failure(it.message ?: "Unknown error fetching /apps") },
+        )
 
     /** Release the underlying OkHttp thread pool and connection pool. */
     override fun close() {

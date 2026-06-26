@@ -13,7 +13,6 @@ import kotlin.test.assertTrue
  * 256-bit vector is the canonical `abandon …(×23) art`.
  */
 class Bip39Test {
-
     @Test
     fun allZeroEntropyVector() {
         val mnemonic = Bip39.encode(ByteArray(32))
@@ -71,8 +70,9 @@ class Bip39Test {
         // A single transposed/typo'd word anywhere would silently corrupt every derived key; this
         // catches it (each word followed by '\n', matching upstream `english.txt`).
         val reconstructed = BIP39_ENGLISH_WORDLIST.joinToString("") { it + "\n" }
-        val hash = openwardenSha256(reconstructed.encodeToByteArray())
-            .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        val hash =
+            openwardenSha256(reconstructed.encodeToByteArray())
+                .joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
         assertEquals("2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda", hash)
     }
 }

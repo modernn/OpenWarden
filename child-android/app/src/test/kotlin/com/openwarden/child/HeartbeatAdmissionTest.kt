@@ -9,11 +9,13 @@ import kotlin.test.assertTrue
  * (version → JC1 → audience → signature → monotonic replay floor) with real Ed25519 sigs.
  */
 class HeartbeatAdmissionTest {
-
     private val myId = "child-abcd"
 
-    private fun hb(issuedAt: Long = 1_000L, childId: String = myId, v: Int = 1) =
-        SignedHeartbeat(v = v, child_device_id = childId, issued_at = issuedAt, sig = "")
+    private fun hb(
+        issuedAt: Long = 1_000L,
+        childId: String = myId,
+        v: Int = 1,
+    ) = SignedHeartbeat(v = v, child_device_id = childId, issued_at = issuedAt, sig = "")
 
     private fun accepts(o: HeartbeatAdmission.Outcome) = o is HeartbeatAdmission.Outcome.Accept
 
@@ -84,7 +86,13 @@ class HeartbeatAdmissionTest {
     @Test
     fun `a fully-default heartbeat is rejected (fail-closed defaults)`() {
         // Empty audience id + empty sig + issued_at 0 — the all-defaults object must never admit.
-        val outcome = HeartbeatAdmission.decide(SignedHeartbeat(v = 1), myId, HeartbeatTestSigner.newKeypair().pubRaw, heartbeatFloor = null)
+        val outcome =
+            HeartbeatAdmission.decide(
+                SignedHeartbeat(v = 1),
+                myId,
+                HeartbeatTestSigner.newKeypair().pubRaw,
+                heartbeatFloor = null,
+            )
         assertFalse(accepts(outcome))
     }
 

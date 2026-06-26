@@ -11,20 +11,24 @@ import kotlinx.serialization.json.JsonObject
  * Fail-closed: any exception (bad hex, malformed key, canonicalization failure) returns `false`.
  */
 object HeartbeatVerifier {
-
     // encodeDefaults=true so defaulted fields are signed; explicitNulls=false to match the bundle
     // signer's omit-null rule (PROTOCOL.md §3.1 rule 6). Heartbeat has no nullable fields today,
     // but the config is kept identical to BundleVerifier so the canonical rules never diverge.
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
-    fun verify(hb: SignedHeartbeat, pubkey: ByteArray): Boolean = try {
-        Ed25519.verify(canonicalBody(hb), hb.sig, pubkey)
-    } catch (e: Exception) {
-        false
-    }
+    fun verify(
+        hb: SignedHeartbeat,
+        pubkey: ByteArray,
+    ): Boolean =
+        try {
+            Ed25519.verify(canonicalBody(hb), hb.sig, pubkey)
+        } catch (e: Exception) {
+            false
+        }
 
     /** The exact bytes the parent signs / child verifies: JCS-canonical heartbeat without `sig`. */
     fun canonicalBody(hb: SignedHeartbeat): ByteArray {

@@ -14,7 +14,10 @@ import com.openwarden.proto.PolicyBundle
  * signature). The caller MUST NOT transmit an unsigned bundle.
  */
 object SignedBundleAssembler {
-    fun assemble(unsigned: PolicyBundle, provider: RootKeyProvider): PolicyBundle? {
+    fun assemble(
+        unsigned: PolicyBundle,
+        provider: RootKeyProvider,
+    ): PolicyBundle? {
         require(unsigned.sig == null) { "bundle already signed" }
         val signature = provider.sign(PolicySigner.signingBytes(unsigned)) ?: return null
         return unsigned.copy(sig = signature.toHexLower())

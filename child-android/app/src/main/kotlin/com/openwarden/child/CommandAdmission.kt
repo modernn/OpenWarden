@@ -15,13 +15,17 @@ package com.openwarden.child
  * `unlock` would stay replayable until some later command happened to advance the floor past it.
  */
 object CommandAdmission {
-
     /** A captured command is admissible only within this wall-clock window of the child (ADR-030 D4). */
     const val FRESHNESS_MS: Long = 5 * 60 * 1000L // 5 minutes
 
     sealed interface Outcome {
-        data class Accept(val type: String) : Outcome
-        data class Reject(val reason: String) : Outcome
+        data class Accept(
+            val type: String,
+        ) : Outcome
+
+        data class Reject(
+            val reason: String,
+        ) : Outcome
     }
 
     /**

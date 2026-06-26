@@ -82,9 +82,10 @@ fun AllowlistEditorScreen(
         },
     ) { innerPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
         ) {
             AllowlistEditorContent(
                 state = state,
@@ -119,11 +120,15 @@ private fun LoadingIndicator() {
 }
 
 @Composable
-private fun ErrorWithRetry(message: String, onRetry: () -> Unit) {
+private fun ErrorWithRetry(
+    message: String,
+    onRetry: () -> Unit,
+) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -156,9 +161,10 @@ private fun ErrorWithRetry(message: String, onRetry: () -> Unit) {
 @Composable
 private fun EmptyApps(onRetry: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -213,9 +219,10 @@ private fun AppRow(
     onToggle: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -233,10 +240,11 @@ private fun AppRow(
         Switch(
             checked = allowed,
             onCheckedChange = { onToggle() },
-            modifier = Modifier.semantics {
-                contentDescription =
-                    "${app.label.ifBlank { app.packageName }}: ${if (allowed) "allowed" else "blocked"}"
-            },
+            modifier =
+                Modifier.semantics {
+                    contentDescription =
+                        "${app.label.ifBlank { app.packageName }}: ${if (allowed) "allowed" else "blocked"}"
+                },
         )
     }
 }

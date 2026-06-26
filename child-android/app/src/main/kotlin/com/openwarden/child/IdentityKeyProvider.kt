@@ -31,5 +31,6 @@ interface IdentityKeyProvider {
  */
 object NotProvisionedIdentityKeyProvider : IdentityKeyProvider {
     override fun identityPublicKey(): ByteArray? = null
+
     override fun sign(message: ByteArray): ByteArray? = null
 }

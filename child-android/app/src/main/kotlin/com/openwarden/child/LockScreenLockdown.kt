@@ -26,8 +26,9 @@ import android.util.Log
  * - Quick Tap (Pixel back-tap gesture): no DPM API; mitigated by disabling in
  *   Settings → System → Gestures → Quick Tap.
  */
-class LockScreenLockdown(private val context: Context) {
-
+class LockScreenLockdown(
+    private val context: Context,
+) {
     private val dpm =
         context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val admin = AdminReceiver.componentName(context)

@@ -32,16 +32,21 @@ import androidx.security.crypto.MasterKey
  * The floor is **device-global** and NOT keyed by parent pubkey: a `RotateKey`
  * carries it forward and never lowers it (ADR-017 K2 / §Carried-forward).
  */
-class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactStore, CommandStore {
-
+class ReplayFloorStore(
+    context: Context,
+) : PolicyAdmission.FloorState,
+    ContactStore,
+    CommandStore {
     private val prefs: SharedPreferences by lazy { open(context) }
 
     private fun open(context: Context): SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            // Best-effort hardware binding; falls back to TEE where StrongBox is absent.
-            .setRequestStrongBoxBacked(true)
-            .build()
+        val masterKey =
+            MasterKey
+                .Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                // Best-effort hardware binding; falls back to TEE where StrongBox is absent.
+                .setRequestStrongBoxBacked(true)
+                .build()
         return EncryptedSharedPreferences.create(
             context,
             PREFS_NAME,
@@ -57,8 +62,7 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
      * `0` ([ReplayFloor.GENESIS_FLOOR]) would be a seeded-but-reserved value
      * (never produced by [advanceFloor], which only stores admitted seqs ≥ 1).
      */
-    override fun atRestFloor(): Long? =
-        if (prefs.contains(KEY_FLOOR)) prefs.getLong(KEY_FLOOR, ReplayFloor.GENESIS_FLOOR) else null
+    override fun atRestFloor(): Long? = if (prefs.contains(KEY_FLOOR)) prefs.getLong(KEY_FLOOR, ReplayFloor.GENESIS_FLOOR) else null
 
     /**
      * Highest `policy_seq` witnessed in the append-only hash-chained event log.
@@ -125,8 +129,7 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
      * writes it before the bundle is made active, with the same commit+readback fail-closed
      * contract as [advanceFloor].)
      */
-    override fun appliedHighWater(): Long? =
-        if (prefs.contains(KEY_STAGED)) prefs.getLong(KEY_STAGED, ReplayFloor.GENESIS_FLOOR) else null
+    override fun appliedHighWater(): Long? = if (prefs.contains(KEY_STAGED)) prefs.getLong(KEY_STAGED, ReplayFloor.GENESIS_FLOOR) else null
 
     override fun noteApplied(policySeq: Long) {
         val cur = appliedHighWater()
@@ -185,26 +188,27 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
     // ---- ContactStore (ADR-024): no-contact ratchet markers + heartbeat replay floor ----
 
     /** Last authenticated-contact wall-clock ms, or null if never contacted. */
-    override fun lastContactWallMs(): Long? =
-        if (prefs.contains(KEY_CONTACT_WALL)) prefs.getLong(KEY_CONTACT_WALL, 0L) else null
+    override fun lastContactWallMs(): Long? = if (prefs.contains(KEY_CONTACT_WALL)) prefs.getLong(KEY_CONTACT_WALL, 0L) else null
 
     /** Last authenticated-contact `elapsedRealtime()` ms (same boot session only), or null. */
-    override fun lastContactElapsedMs(): Long? =
-        if (prefs.contains(KEY_CONTACT_ELAPSED)) prefs.getLong(KEY_CONTACT_ELAPSED, 0L) else null
+    override fun lastContactElapsedMs(): Long? = if (prefs.contains(KEY_CONTACT_ELAPSED)) prefs.getLong(KEY_CONTACT_ELAPSED, 0L) else null
 
     /** Highest wall-clock ms ever observed — a later reading below it is a backward roll (ADR-024 D2). */
-    override fun wallHighWaterMs(): Long? =
-        if (prefs.contains(KEY_WALL_HW)) prefs.getLong(KEY_WALL_HW, 0L) else null
+    override fun wallHighWaterMs(): Long? = if (prefs.contains(KEY_WALL_HW)) prefs.getLong(KEY_WALL_HW, 0L) else null
 
     /**
      * Record an authenticated contact at ([wallMs], [elapsedMs]) and advance the wall high-water to
      * at least [wallMs], in one durable commit. Fail-closed (commit()-checked + readback): if it
      * can't persist it throws, so a missed reset only ever leaves the ratchet *tighter*, never looser.
      */
-    override fun recordContact(wallMs: Long, elapsedMs: Long) {
+    override fun recordContact(
+        wallMs: Long,
+        elapsedMs: Long,
+    ) {
         val hw = maxOf(wallHighWaterMs() ?: wallMs, wallMs)
         check(
-            prefs.edit()
+            prefs
+                .edit()
                 .putLong(KEY_CONTACT_WALL, wallMs)
                 .putLong(KEY_CONTACT_ELAPSED, elapsedMs)
                 .putLong(KEY_WALL_HW, hw)
@@ -235,13 +239,17 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
     }
 
     /** Highest heartbeat `issued_at` admitted, or null if none — the replay floor (ADR-024 D4.5). */
-    override fun heartbeatFloor(): Long? =
-        if (prefs.contains(KEY_HB_FLOOR)) prefs.getLong(KEY_HB_FLOOR, 0L) else null
+    override fun heartbeatFloor(): Long? = if (prefs.contains(KEY_HB_FLOOR)) prefs.getLong(KEY_HB_FLOOR, 0L) else null
 
-    override fun admitHeartbeatContact(issuedAt: Long, wallMs: Long, elapsedMs: Long) {
+    override fun admitHeartbeatContact(
+        issuedAt: Long,
+        wallMs: Long,
+        elapsedMs: Long,
+    ) {
         val hw = maxOf(wallHighWaterMs() ?: wallMs, wallMs)
         check(
-            prefs.edit()
+            prefs
+                .edit()
                 .putLong(KEY_HB_FLOOR, issuedAt)
                 .putLong(KEY_CONTACT_WALL, wallMs)
                 .putLong(KEY_CONTACT_ELAPSED, elapsedMs)
@@ -258,14 +266,11 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
 
     // ---- ADR-041 §5.1 freshness anchor: signed-parent time + elapsed pair + not_after watermark ----
 
-    override fun freshnessAnchorParentMs(): Long? =
-        if (prefs.contains(KEY_ANCHOR_PARENT)) prefs.getLong(KEY_ANCHOR_PARENT, 0L) else null
+    override fun freshnessAnchorParentMs(): Long? = if (prefs.contains(KEY_ANCHOR_PARENT)) prefs.getLong(KEY_ANCHOR_PARENT, 0L) else null
 
-    override fun freshnessAnchorElapsedMs(): Long? =
-        if (prefs.contains(KEY_ANCHOR_ELAPSED)) prefs.getLong(KEY_ANCHOR_ELAPSED, 0L) else null
+    override fun freshnessAnchorElapsedMs(): Long? = if (prefs.contains(KEY_ANCHOR_ELAPSED)) prefs.getLong(KEY_ANCHOR_ELAPSED, 0L) else null
 
-    override fun notAfterWatermarkMs(): Long? =
-        if (prefs.contains(KEY_NOT_AFTER_HW)) prefs.getLong(KEY_NOT_AFTER_HW, 0L) else null
+    override fun notAfterWatermarkMs(): Long? = if (prefs.contains(KEY_NOT_AFTER_HW)) prefs.getLong(KEY_NOT_AFTER_HW, 0L) else null
 
     /**
      * Advance the freshness anchor (ADR-041 D4), monotonic-on-write: the anchor's signed-parent time
@@ -278,12 +283,17 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
      * still moved forward). Fail-closed (commit()+readback) — the caller invokes this best-effort,
      * so a throw only leaves the estimate STALER (more restriction), never looser.
      */
-    override fun advanceFreshnessAnchor(parentIssuedAtMs: Long, nowElapsedMs: Long, notAfterMs: Long?) {
-        val current = FreshnessClock.Anchor(
-            parentAnchorMs = freshnessAnchorParentMs(),
-            elapsedAtAnchorMs = freshnessAnchorElapsedMs(),
-            notAfterWatermarkMs = notAfterWatermarkMs(),
-        )
+    override fun advanceFreshnessAnchor(
+        parentIssuedAtMs: Long,
+        nowElapsedMs: Long,
+        notAfterMs: Long?,
+    ) {
+        val current =
+            FreshnessClock.Anchor(
+                parentAnchorMs = freshnessAnchorParentMs(),
+                elapsedAtAnchorMs = freshnessAnchorElapsedMs(),
+                notAfterWatermarkMs = notAfterWatermarkMs(),
+            )
         // Pure ADR-041 D4 monotonic-on-write decision (host-tested in FreshnessClockTest).
         val next = FreshnessClock.nextAnchor(current, parentIssuedAtMs, nowElapsedMs, notAfterMs)
         val anchorChanged = next.parentMs != current.parentAnchorMs || next.elapsedMs != current.elapsedAtAnchorMs
@@ -313,8 +323,7 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
     // ---- CommandStore (ADR-030): lock/unlock signed-command replay floor + durable lock state ----
 
     /** Highest command `issued_at` admitted, or null if none — the shared lock/unlock replay floor. */
-    override fun commandFloor(): Long? =
-        if (prefs.contains(KEY_CMD_FLOOR)) prefs.getLong(KEY_CMD_FLOOR, 0L) else null
+    override fun commandFloor(): Long? = if (prefs.contains(KEY_CMD_FLOOR)) prefs.getLong(KEY_CMD_FLOOR, 0L) else null
 
     /** The durable lock state surfaced by `GET /state.is_locked`. Default false (never-locked). */
     override fun isLocked(): Boolean = prefs.getBoolean(KEY_LOCKED, false)
@@ -325,9 +334,13 @@ class ReplayFloorStore(context: Context) : PolicyAdmission.FloorState, ContactSt
      * readback, throws on any divergence so a crash can never leave the floor advanced (command
      * consumed) but the lock flag stale, nor the flag flipped without consuming the floor.
      */
-    override fun admitCommand(issuedAt: Long, locked: Boolean) {
+    override fun admitCommand(
+        issuedAt: Long,
+        locked: Boolean,
+    ) {
         check(
-            prefs.edit()
+            prefs
+                .edit()
                 .putLong(KEY_CMD_FLOOR, issuedAt)
                 .putBoolean(KEY_LOCKED, locked)
                 .commit(),

@@ -17,7 +17,6 @@ class FakeChildKeyStore(
     private val id: CommandTestSigner.Keypair = CommandTestSigner.newKeypair(),
     encPub: ByteArray = ByteArray(32) { (it + 1).toByte() },
 ) : ChildKeyStore {
-
     private val encPub: ByteArray = encPub.copyOf() // defensive copy: caller can't mutate post-construction
     private var provisioned = false
     var lastNonce: ByteArray? = null
@@ -45,8 +44,7 @@ class FakeChildKeyStore(
 
     override fun bindingPublicKey(): ByteArray? = if (provisioned) bind.spkiDer else null
 
-    override fun signBinding(message: ByteArray): ByteArray? =
-        if (provisioned) P256TestSigner.signDer(message, bind) else null
+    override fun signBinding(message: ByteArray): ByteArray? = if (provisioned) P256TestSigner.signDer(message, bind) else null
 
     override fun attestationChain(): List<ByteArray>? =
         if (provisioned) listOf(bind.spkiDer) else null // a non-empty synthetic chain; real chain is bench-only
