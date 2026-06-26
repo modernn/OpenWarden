@@ -94,13 +94,25 @@ class SealedBoxTest {
         }
     }
 
+    // Sealed layout: [0,32) ephemeral pub | [32,48) Poly1305 MAC tag | [48,N) ciphertext body.
     @Test
-    fun tamperedCiphertextFailsClosed() {
+    fun tamperedMacTagFailsClosed() {
         runBlocking {
             bootstrapCrypto()
             val sealed = hex(sealedHex)
-            // flip one bit in the ciphertext body (past the 32-byte ephemeral pub prefix) -> Poly1305 rejects
+            // flip a byte INSIDE the 16-byte MAC/tag region (bytes 32-47) -> Poly1305 rejects
             val tampered = sealed.copyOf().also { it[40] = (it[40] xor 0x01u).toUByte() }
+            assertEquals(SealedBox.OpenResult.Failure, SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), tampered))
+        }
+    }
+
+    @Test
+    fun tamperedCiphertextBodyFailsClosed() {
+        runBlocking {
+            bootstrapCrypto()
+            val sealed = hex(sealedHex)
+            // flip a byte INSIDE the encrypted plaintext body (>= index 48) -> MAC over ciphertext rejects
+            val tampered = sealed.copyOf().also { it[60] = (it[60] xor 0x01u).toUByte() }
             assertEquals(SealedBox.OpenResult.Failure, SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), tampered))
         }
     }
@@ -118,12 +130,24 @@ class SealedBoxTest {
     }
 
     @Test
-    fun truncatedSealedFailsClosed() {
+    fun truncatedBelowOverheadFailsClosed() {
         runBlocking {
             bootstrapCrypto()
             val tooShort = hex(sealedHex).copyOf(20) // < 32-byte ephemeral pub, structurally impossible
             val result = SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), tooShort)
-            assertEquals(SealedBox.OpenResult.Failure, result, "truncated input must fail closed, not throw")
+            assertEquals(SealedBox.OpenResult.Failure, result, "structurally too-short input must fail closed, not throw")
+        }
+    }
+
+    @Test
+    fun truncatedByOneByteFailsClosed() {
+        runBlocking {
+            bootstrapCrypto()
+            // drop the last ciphertext byte: structurally plausible length, but the MAC must reject
+            val sealed = hex(sealedHex)
+            val nearFull = sealed.copyOf(sealed.size - 1)
+            val result = SealedBox.open(hex(recipientPubHex), hex(recipientPrivHex), nearFull)
+            assertEquals(SealedBox.OpenResult.Failure, result, "one-byte truncation must fail the MAC, not partially decode")
         }
     }
 
