@@ -11,6 +11,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+command -v ktlint >/dev/null 2>&1 || {
+  echo "ktlint not found on PATH. Install ktlint 1.8.0 (the version CI pins, see ADR-044):" >&2
+  echo "  https://github.com/pinterest/ktlint/releases/tag/1.8.0" >&2
+  exit 1
+}
+
 echo "=== ktlint: child-android ==="
 ( cd child-android && ktlint )
 echo "=== ktlint: parent-kmp ==="
