@@ -14,14 +14,15 @@ import kotlin.test.assertTrue
  * on every missing / mismatched / malformed input.
  */
 class SpkiBindingTest {
-
     // Two distinct "TLS leaf cert SubjectPublicKeyInfo DER" blobs. Opaque bytes — the real cert lands
     // with the deferred TLS socket (ADR-031 D5); the binding only ever hashes the presented SPKI.
     private val certA = "leaf-cert-A-spki-der".toByteArray()
     private val certB = "leaf-cert-B-spki-der".toByteArray()
 
-    private fun assertionFor(provider: IdentityKeyProvider, spki: ByteArray) =
-        SpkiBindingSigner.assertFor(spki, provider)
+    private fun assertionFor(
+        provider: IdentityKeyProvider,
+        spki: ByteArray,
+    ) = SpkiBindingSigner.assertFor(spki, provider)
 
     @Test
     fun `genuine assertion for the presented cert verifies`() {
@@ -106,7 +107,11 @@ class SpkiBindingTest {
         // Not base64url at all → decode throws → reject (before the signature check).
         assertFalse(SpkiBinding.verify(a.copy(spki_sha256 = "!!! not base64 !!!"), certA, p.identityPublicKey()))
         // Valid base64url but not a 32-byte digest (3 bytes) → reject on the length check.
-        val shortPin = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(byteArrayOf(1, 2, 3))
+        val shortPin =
+            java.util.Base64
+                .getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(byteArrayOf(1, 2, 3))
         assertFalse(SpkiBinding.verify(a.copy(spki_sha256 = shortPin), certA, p.identityPublicKey()))
     }
 
@@ -116,9 +121,9 @@ class SpkiBindingTest {
         // encoding (e.g. switching to standard base64 or hex) or digest is caught — not a tautology.
         val h = SpkiBinding.spkiSha256(certA)
         assertEquals("uVeFXpFKx6o3rRkj0XMLu4S2n-ZwKkywc64azFXdb-0", h)
-        assertEquals(43, h.length)                       // 32-byte digest, base64url no padding
-        assertFalse(h.contains('='))                     // no padding
-        assertFalse(h.contains('+') || h.contains('/'))  // url-safe alphabet
+        assertEquals(43, h.length) // 32-byte digest, base64url no padding
+        assertFalse(h.contains('=')) // no padding
+        assertFalse(h.contains('+') || h.contains('/')) // url-safe alphabet
     }
 
     @Test
@@ -131,11 +136,12 @@ class SpkiBindingTest {
         val a = SpkiAssertion(v = 1, spki_sha256 = SpkiBinding.spkiSha256(certA))
         val aBody = String(SpkiBinding.canonicalBody(a))
         assertEquals("{\"spki_sha256\":\"${a.spki_sha256}\",\"v\":1}", aBody)
-        val cmdBody = String(
-            CommandVerifier.canonicalBody(
-                SignedCommand(v = 1, type = "lock", child_device_id = "child-abcd", issued_at = 1),
-            ),
-        )
+        val cmdBody =
+            String(
+                CommandVerifier.canonicalBody(
+                    SignedCommand(v = 1, type = "lock", child_device_id = "child-abcd", issued_at = 1),
+                ),
+            )
         assertFalse(aBody == cmdBody)
     }
 }

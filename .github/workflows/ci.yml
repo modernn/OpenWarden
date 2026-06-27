@@ -1,0 +1,60 @@
+# PR + main gate: ktlint (whole tree) + JVM unit tests for both Gradle builds (ADR-044, #31).
+# connectedAndroidTest is deliberately NOT here (emulator cost + the DISALLOW_DEBUGGING_FEATURES /
+# ADB-severance constraint, #124). Fast and deterministic so the gate is real, not a flaky tax.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so a force-push doesn't pile up jobs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ktlint:
+    name: ktlint (whole tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Install ktlint 1.8.0 (pinned to match .editorconfig / local)
+        run: |
+          curl -fsSLo ktlint \
+            https://github.com/pinterest/ktlint/releases/download/1.8.0/ktlint
+          chmod +x ktlint
+      # ktlint walks up to the repo-root .editorconfig (Compose / Ktor / test-naming exemptions).
+      - name: ktlint child-android
+        working-directory: child-android
+        run: ../ktlint
+      - name: ktlint parent-kmp
+        working-directory: parent-kmp
+        run: ../ktlint
+
+  child-android-tests:
+    name: child-android unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      # Pin JDK 17 via the runner's preinstalled toolchain (the var is a real runner env, available
+      # in-shell — avoids a setup-java action + its own SHA pin). Both Gradle builds target JDK 17.
+      - name: :app:testDebugUnitTest
+        working-directory: child-android
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          ./gradlew --no-daemon :app:testDebugUnitTest
+
+  parent-kmp-tests:
+    name: parent-kmp unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: proto + shared + androidApp unit tests
+        working-directory: parent-kmp
+        run: |
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          ./gradlew --no-daemon :proto:jvmTest :shared:jvmTest :androidApp:testDebugUnitTest

@@ -12,7 +12,6 @@ import org.junit.Test
  * (it returned `null` while the provider was [NotProvisionedIdentityKeyProvider]).
  */
 class ChildKeyManagerTest {
-
     private val nonce = ByteArray(32) { (it * 3 + 1).toByte() }
 
     @Test

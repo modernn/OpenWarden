@@ -32,15 +32,15 @@ import java.security.spec.ECGenParameterSpec
  *  - every accessor returns `null` on any error or before provisioning.
  */
 class KeystoreChildKeys : ChildKeyStore {
-
     private val ks: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
     @Synchronized
-    override fun isProvisioned(): Boolean = try {
-        ks.containsAlias(ALIAS_BIND) && ks.containsAlias(ALIAS_ID) && ks.containsAlias(ALIAS_ENC)
-    } catch (e: Exception) {
-        false
-    }
+    override fun isProvisioned(): Boolean =
+        try {
+            ks.containsAlias(ALIAS_BIND) && ks.containsAlias(ALIAS_ID) && ks.containsAlias(ALIAS_ENC)
+        } catch (e: Exception) {
+            false
+        }
 
     @Synchronized
     override fun provision(nonce: ByteArray) {
@@ -51,7 +51,8 @@ class KeystoreChildKeys : ChildKeyStore {
             // 1. K_bind — EC P-256 in StrongBox: the only hardware-attestable key (Curve25519 cannot be).
             KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, ANDROID_KEYSTORE).apply {
                 initialize(
-                    KeyGenParameterSpec.Builder(ALIAS_BIND, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    KeyGenParameterSpec
+                        .Builder(ALIAS_BIND, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
                         .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
                         .setDigests(KeyProperties.DIGEST_SHA256)
                         .setIsStrongBoxBacked(true) // non-negotiable for K_bind; throws if no StrongBox (no TEE fallback on Tier 1)
@@ -68,7 +69,8 @@ class KeystoreChildKeys : ChildKeyStore {
             // shows the constants — a doc inaccuracy to reconcile; the runnable form is the string.
             KeyPairGenerator.getInstance(ALG_ED25519, ANDROID_KEYSTORE).apply {
                 initialize(
-                    KeyGenParameterSpec.Builder(ALIAS_ID, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                    KeyGenParameterSpec
+                        .Builder(ALIAS_ID, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
                         .setUnlockedDeviceRequired(true)
                         .build(),
                 )
@@ -78,7 +80,8 @@ class KeystoreChildKeys : ChildKeyStore {
             // 3. K_enc — X25519 in the TEE. The sealed-box audience.
             KeyPairGenerator.getInstance(ALG_XDH, ANDROID_KEYSTORE).apply {
                 initialize(
-                    KeyGenParameterSpec.Builder(ALIAS_ENC, KeyProperties.PURPOSE_AGREE_KEY)
+                    KeyGenParameterSpec
+                        .Builder(ALIAS_ENC, KeyProperties.PURPOSE_AGREE_KEY)
                         .setUnlockedDeviceRequired(true)
                         .build(),
                 )
@@ -94,46 +97,50 @@ class KeystoreChildKeys : ChildKeyStore {
     override fun identityPublicKey(): ByteArray? = rawCurve25519PublicKey(ALIAS_ID, ED25519_SPKI_PREFIX)
 
     @Synchronized
-    override fun signIdentity(message: ByteArray): ByteArray? = try {
-        val priv = ks.getKey(ALIAS_ID, null) as? PrivateKey ?: return null
-        Signature.getInstance(SIG_ED25519).run {
-            initSign(priv)
-            update(message)
-            sign()
+    override fun signIdentity(message: ByteArray): ByteArray? =
+        try {
+            val priv = ks.getKey(ALIAS_ID, null) as? PrivateKey ?: return null
+            Signature.getInstance(SIG_ED25519).run {
+                initSign(priv)
+                update(message)
+                sign()
+            }
+        } catch (e: Exception) {
+            null
         }
-    } catch (e: Exception) {
-        null
-    }
 
     @Synchronized
     override fun encryptionPublicKey(): ByteArray? = rawCurve25519PublicKey(ALIAS_ENC, X25519_SPKI_PREFIX)
 
     @Synchronized
-    override fun bindingPublicKey(): ByteArray? = try {
-        // Full X.509 SubjectPublicKeyInfo (DER) of the P-256 key — what P256.verify / the parent consume.
-        ks.getCertificate(ALIAS_BIND)?.publicKey?.encoded
-    } catch (e: Exception) {
-        null
-    }
-
-    @Synchronized
-    override fun signBinding(message: ByteArray): ByteArray? = try {
-        val priv = ks.getKey(ALIAS_BIND, null) as? PrivateKey ?: return null
-        Signature.getInstance(SIG_ECDSA_P256).run {
-            initSign(priv)
-            update(message)
-            sign() // DER-encoded ECDSA signature
+    override fun bindingPublicKey(): ByteArray? =
+        try {
+            // Full X.509 SubjectPublicKeyInfo (DER) of the P-256 key — what P256.verify / the parent consume.
+            ks.getCertificate(ALIAS_BIND)?.publicKey?.encoded
+        } catch (e: Exception) {
+            null
         }
-    } catch (e: Exception) {
-        null
-    }
 
     @Synchronized
-    override fun attestationChain(): List<ByteArray>? = try {
-        ks.getCertificateChain(ALIAS_BIND)?.map { it.encoded }?.takeIf { it.isNotEmpty() }
-    } catch (e: Exception) {
-        null
-    }
+    override fun signBinding(message: ByteArray): ByteArray? =
+        try {
+            val priv = ks.getKey(ALIAS_BIND, null) as? PrivateKey ?: return null
+            Signature.getInstance(SIG_ECDSA_P256).run {
+                initSign(priv)
+                update(message)
+                sign() // DER-encoded ECDSA signature
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+    @Synchronized
+    override fun attestationChain(): List<ByteArray>? =
+        try {
+            ks.getCertificateChain(ALIAS_BIND)?.map { it.encoded }?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
 
     /** Best-effort delete of all three aliases; swallows per-alias errors (reads stay fail-closed). */
     private fun deleteAll() {
@@ -153,17 +160,21 @@ class KeystoreChildKeys : ChildKeyStore {
      * fail-closed) any encoding whose length or prefix does not match — so a deviating provider
      * encoding or an alias↔curve mismatch is caught, not silently mis-sliced. Bench-verify per gate.
      */
-    private fun rawCurve25519PublicKey(alias: String, expectedPrefix: ByteArray): ByteArray? = try {
-        val spki = ks.getCertificate(alias)?.publicKey?.encoded
-        when {
-            spki == null -> null
-            spki.size != expectedPrefix.size + 32 -> null
-            !spki.copyOfRange(0, expectedPrefix.size).contentEquals(expectedPrefix) -> null
-            else -> spki.copyOfRange(spki.size - 32, spki.size)
+    private fun rawCurve25519PublicKey(
+        alias: String,
+        expectedPrefix: ByteArray,
+    ): ByteArray? =
+        try {
+            val spki = ks.getCertificate(alias)?.publicKey?.encoded
+            when {
+                spki == null -> null
+                spki.size != expectedPrefix.size + 32 -> null
+                !spki.copyOfRange(0, expectedPrefix.size).contentEquals(expectedPrefix) -> null
+                else -> spki.copyOfRange(spki.size - 32, spki.size)
+            }
+        } catch (e: Exception) {
+            null
         }
-    } catch (e: Exception) {
-        null
-    }
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -177,11 +188,35 @@ class KeystoreChildKeys : ChildKeyStore {
 
         // RFC 8410 SubjectPublicKeyInfo prefixes (12 bytes): SEQ, SEQ, OID 1.3.101.{112 Ed25519 | 110 X25519},
         // BIT STRING(33){0x00 ‖ 32-byte key}. The OID byte (0x70 / 0x6e) pins the curve.
-        val ED25519_SPKI_PREFIX = byteArrayOf(
-            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
-        )
-        val X25519_SPKI_PREFIX = byteArrayOf(
-            0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00,
-        )
+        val ED25519_SPKI_PREFIX =
+            byteArrayOf(
+                0x30,
+                0x2a,
+                0x30,
+                0x05,
+                0x06,
+                0x03,
+                0x2b,
+                0x65,
+                0x70,
+                0x03,
+                0x21,
+                0x00,
+            )
+        val X25519_SPKI_PREFIX =
+            byteArrayOf(
+                0x30,
+                0x2a,
+                0x30,
+                0x05,
+                0x06,
+                0x03,
+                0x2b,
+                0x65,
+                0x6e,
+                0x03,
+                0x21,
+                0x00,
+            )
     }
 }

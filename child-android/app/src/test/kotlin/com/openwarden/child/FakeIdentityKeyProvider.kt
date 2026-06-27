@@ -8,8 +8,9 @@ import java.security.MessageDigest
  * standing in for the StrongBox child identity key issue #22 will provide. A `null` keypair models the
  * pre-pairing state ([NotProvisionedIdentityKeyProvider]). Test-source only.
  */
-class FakeIdentityKeyProvider(private val kp: CommandTestSigner.Keypair?) : IdentityKeyProvider {
-
+class FakeIdentityKeyProvider(
+    private val kp: CommandTestSigner.Keypair?,
+) : IdentityKeyProvider {
     override fun identityPublicKey(): ByteArray? = kp?.pubRaw
 
     override fun sign(message: ByteArray): ByteArray? {
@@ -22,6 +23,7 @@ class FakeIdentityKeyProvider(private val kp: CommandTestSigner.Keypair?) : Iden
 
     companion object {
         fun withNewKey() = FakeIdentityKeyProvider(CommandTestSigner.newKeypair())
+
         fun notProvisioned() = FakeIdentityKeyProvider(null)
     }
 }

@@ -22,7 +22,6 @@ import java.security.SecureRandom
  *   >>> for this PR (#5/#10).
  */
 object DeviceIdentity {
-
     /** Hex of 16 CSPRNG bytes — a stable, unique recipient name for audience binding. */
     fun generateStableId(): String {
         val bytes = ByteArray(16)

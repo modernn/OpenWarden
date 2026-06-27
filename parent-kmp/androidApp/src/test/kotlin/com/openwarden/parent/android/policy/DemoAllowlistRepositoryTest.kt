@@ -15,7 +15,6 @@ import org.junit.Test
  * tests run in milliseconds.
  */
 class DemoAllowlistRepositoryTest {
-
     // ---------------------------------------------------------------------------
     // Allowlist persistence
     // ---------------------------------------------------------------------------
@@ -54,32 +53,36 @@ class DemoAllowlistRepositoryTest {
     // ---------------------------------------------------------------------------
 
     @Test
-    fun fetchInstalledApps_onError_returnsFetchAppsResultError() = runTest {
-        val repo = DemoAllowlistRepository { FetchAppsResult.Error("Connection refused") }
-        val result = repo.fetchInstalledApps()
-        assertTrue(result is FetchAppsResult.Error)
-        assertEquals("Connection refused", (result as FetchAppsResult.Error).message)
-    }
+    fun fetchInstalledApps_onError_returnsFetchAppsResultError() =
+        runTest {
+            val repo = DemoAllowlistRepository { FetchAppsResult.Error("Connection refused") }
+            val result = repo.fetchInstalledApps()
+            assertTrue(result is FetchAppsResult.Error)
+            assertEquals("Connection refused", (result as FetchAppsResult.Error).message)
+        }
 
     @Test
-    fun fetchInstalledApps_onSuccess_mapsEntriesToAppInfo() = runTest {
-        val expected = listOf(
-            AppInfo("com.example.one", "One"),
-            AppInfo("com.example.two", "Two"),
-        )
-        val repo = DemoAllowlistRepository { FetchAppsResult.Success(expected) }
-        val result = repo.fetchInstalledApps()
-        assertTrue(result is FetchAppsResult.Success)
-        assertEquals(expected, (result as FetchAppsResult.Success).apps)
-    }
+    fun fetchInstalledApps_onSuccess_mapsEntriesToAppInfo() =
+        runTest {
+            val expected =
+                listOf(
+                    AppInfo("com.example.one", "One"),
+                    AppInfo("com.example.two", "Two"),
+                )
+            val repo = DemoAllowlistRepository { FetchAppsResult.Success(expected) }
+            val result = repo.fetchInstalledApps()
+            assertTrue(result is FetchAppsResult.Success)
+            assertEquals(expected, (result as FetchAppsResult.Success).apps)
+        }
 
     @Test
-    fun fetchInstalledApps_onEmptySuccess_returnsSuccessWithEmptyList() = runTest {
-        // An empty list from the child is a valid (though ambiguous) response — repo
-        // passes it through; the ViewModel / UI layer is responsible for the warning.
-        val repo = DemoAllowlistRepository { FetchAppsResult.Success(emptyList()) }
-        val result = repo.fetchInstalledApps()
-        assertTrue(result is FetchAppsResult.Success)
-        assertTrue((result as FetchAppsResult.Success).apps.isEmpty())
-    }
+    fun fetchInstalledApps_onEmptySuccess_returnsSuccessWithEmptyList() =
+        runTest {
+            // An empty list from the child is a valid (though ambiguous) response — repo
+            // passes it through; the ViewModel / UI layer is responsible for the warning.
+            val repo = DemoAllowlistRepository { FetchAppsResult.Success(emptyList()) }
+            val result = repo.fetchInstalledApps()
+            assertTrue(result is FetchAppsResult.Success)
+            assertTrue((result as FetchAppsResult.Success).apps.isEmpty())
+        }
 }

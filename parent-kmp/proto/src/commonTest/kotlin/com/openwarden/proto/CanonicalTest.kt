@@ -8,8 +8,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class CanonicalTest {
-    private fun canon(json: String): String =
-        Canonical.canonicalize(Json.parseToJsonElement(json))
+    private fun canon(json: String): String = Canonical.canonicalize(Json.parseToJsonElement(json))
 
     @Test
     fun sortsObjectKeysAndStripsWhitespace() {
@@ -75,17 +74,18 @@ class CanonicalTest {
     // §2, and the bug is caught at unit-test time, not at runtime SIG_FAIL.
     //
     // body := JCS-canonical of the §2 bundle with "sig" removed.
-    private val interopBundle = PolicyBundle(
-        v = 1,
-        policySeq = 5,
-        childDeviceId = "dev-1",
-        issuedAt = 50,
-        notBefore = 100,
-        notAfter = 200,
-        nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
-        policy = Policy(allowlist = listOf("com.a")),
-        sig = null,
-    )
+    private val interopBundle =
+        PolicyBundle(
+            v = 1,
+            policySeq = 5,
+            childDeviceId = "dev-1",
+            issuedAt = 50,
+            notBefore = 100,
+            notAfter = 200,
+            nonce = "9f1b3c4d5e6f70819a2b3c4d5e6f7081",
+            policy = Policy(allowlist = listOf("com.a")),
+            sig = null,
+        )
 
     @Test
     fun interopGoldenCanonicalBytesAreStable() {

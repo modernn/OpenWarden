@@ -50,7 +50,6 @@ class PolicyEnforcer(
     private val alwaysExempt: () -> Set<String> = defaultExemptReader(context),
     private val lock: () -> Unit = defaultLockAction(context),
 ) {
-
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val admin = AdminReceiver.componentName(context)
 
@@ -73,35 +72,36 @@ class PolicyEnforcer(
      * @throws IllegalArgumentException if this app is not Device Owner.
      * @throws RestrictionEnforcementException if any required restriction is not verifiably set.
      */
-    fun applyDayOneRestrictions() = synchronized(APPLY_LOCK) {
-        require(dpm.isDeviceOwnerApp(context.packageName)) {
-            "Not Device Owner — cannot enforce restrictions"
-        }
+    fun applyDayOneRestrictions() =
+        synchronized(APPLY_LOCK) {
+            require(dpm.isDeviceOwnerApp(context.packageName)) {
+                "Not Device Owner — cannot enforce restrictions"
+            }
 
-        requiredRestrictions.forEach { key ->
+            requiredRestrictions.forEach { key ->
+                try {
+                    dpm.addUserRestriction(admin, key)
+                    Log.i(TAG, "Restriction applied: $key")
+                } catch (e: Exception) {
+                    // Do NOT return here — keep applying the rest (fail toward more restriction),
+                    // then let verifyOrThrow() catch the gap. Swallowing-and-returning was the
+                    // old fail-OPEN bug.
+                    Log.e(TAG, "Failed to apply $key: ${e.message}")
+                }
+            }
+
             try {
-                dpm.addUserRestriction(admin, key)
-                Log.i(TAG, "Restriction applied: $key")
+                verifyOrThrow()
             } catch (e: Exception) {
-                // Do NOT return here — keep applying the rest (fail toward more restriction),
-                // then let verifyOrThrow() catch the gap. Swallowing-and-returning was the
-                // old fail-OPEN bug.
-                Log.e(TAG, "Failed to apply $key: ${e.message}")
+                // Last-resort containment: a partially-unrestricted device must not stay usable. Catch
+                // ANY exception, not just RestrictionEnforcementException (R3) — a readback-seam throw
+                // (e.g. getUserRestrictions failing) is itself a "can't prove the baseline" gap and must
+                // also lock, not propagate uncontained. runCatching so a lock failure can't mask it.
+                runCatching { lock() }
+                    .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
+                throw e
             }
         }
-
-        try {
-            verifyOrThrow()
-        } catch (e: Exception) {
-            // Last-resort containment: a partially-unrestricted device must not stay usable. Catch
-            // ANY exception, not just RestrictionEnforcementException (R3) — a readback-seam throw
-            // (e.g. getUserRestrictions failing) is itself a "can't prove the baseline" gap and must
-            // also lock, not propagate uncontained. runCatching so a lock failure can't mask it.
-            runCatching { lock() }
-                .onFailure { Log.e(TAG, "lockNow() containment failed: ${it.message}") }
-            throw e
-        }
-    }
 
     /** Required restrictions that are not currently set, per the [isRestrictionSet] readback. */
     fun missingRestrictions(): List<String> = requiredRestrictions.filterNot(isRestrictionSet)
@@ -135,8 +135,7 @@ class PolicyEnforcer(
      * @throws IllegalArgumentException if this app is not Device Owner.
      * @throws AllowlistEnforcementException if any deny-target app is still launchable after apply.
      */
-    fun applyAllowlist(allowlist: Set<String>): AllowlistResult =
-        synchronized(APPLY_LOCK) { applyAllowlistLocked(allowlist) }
+    fun applyAllowlist(allowlist: Set<String>): AllowlistResult = synchronized(APPLY_LOCK) { applyAllowlistLocked(allowlist) }
 
     /**
      * Load + apply the active allowlist atomically under [APPLY_LOCK] (R4). The loader runs INSIDE
@@ -205,7 +204,10 @@ class PolicyEnforcer(
         // now-allowed app stuck blocked is over-restriction, not a leak).
         val failedUnsuspend =
             runCatching { dpm.setPackagesSuspended(admin, allowTargets.toTypedArray(), false).toList() }
-                .getOrElse { Log.e(TAG, "unsuspend allowlisted threw: ${it.message}"); emptyList() }
+                .getOrElse {
+                    Log.e(TAG, "unsuspend allowlisted threw: ${it.message}")
+                    emptyList()
+                }
         if (failedUnsuspend.isNotEmpty()) Log.w(TAG, "allowlisted apps still suspended (could not un-suspend): $failedUnsuspend")
         allowTargets.forEach { pkg ->
             runCatching { dpm.setApplicationHidden(admin, pkg, false) }
@@ -250,10 +252,12 @@ class PolicyEnforcer(
             Log.w(TAG, "FRP policy requires API 30+; running on ${Build.VERSION.SDK_INT} — not applied")
             return
         }
-        val policy = FactoryResetProtectionPolicy.Builder()
-            .setFactoryResetProtectionAccounts(accountIds)
-            .setFactoryResetProtectionEnabled(true)
-            .build()
+        val policy =
+            FactoryResetProtectionPolicy
+                .Builder()
+                .setFactoryResetProtectionAccounts(accountIds)
+                .setFactoryResetProtectionEnabled(true)
+                .build()
         dpm.setFactoryResetProtectionPolicy(admin, policy)
         Log.i(TAG, "FRP policy applied for ${accountIds.size} account(s)")
     }
@@ -315,30 +319,31 @@ class PolicyEnforcer(
          * owned by issue #19 (ADR-016) so the DNS story lives in one place.
          */
         @Suppress("DEPRECATION")
-        fun requiredRestrictionsForSdk(sdkInt: Int): List<String> = buildList {
-            add(UserManager.DISALLOW_FACTORY_RESET)
-            add(UserManager.DISALLOW_SAFE_BOOT)
-            add(UserManager.DISALLOW_DEBUGGING_FEATURES)
-            add(UserManager.DISALLOW_CONFIG_VPN)
-            add(UserManager.DISALLOW_MODIFY_ACCOUNTS)
-            add(DISALLOW_OEM_UNLOCK)
-            add(UserManager.DISALLOW_APPS_CONTROL)
-            add(UserManager.DISALLOW_USB_FILE_TRANSFER)
-            add(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY)
-            add(UserManager.DISALLOW_USER_SWITCH)
-            add(UserManager.DISALLOW_ADD_USER)
-            add(UserManager.DISALLOW_REMOVE_USER)
-            add(UserManager.DISALLOW_CONFIG_DATE_TIME)
-            add(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA)
-            add(UserManager.DISALLOW_CONFIG_TETHERING)
-            add(UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS)
-            add(UserManager.DISALLOW_OUTGOING_BEAM)
-            // ADR-022 profile-escape block.
-            add(UserManager.DISALLOW_ADD_MANAGED_PROFILE)
-            if (sdkInt >= PRIVATE_SPACE_MIN_SDK) {
-                add(DISALLOW_ADD_PRIVATE_PROFILE)
+        fun requiredRestrictionsForSdk(sdkInt: Int): List<String> =
+            buildList {
+                add(UserManager.DISALLOW_FACTORY_RESET)
+                add(UserManager.DISALLOW_SAFE_BOOT)
+                add(UserManager.DISALLOW_DEBUGGING_FEATURES)
+                add(UserManager.DISALLOW_CONFIG_VPN)
+                add(UserManager.DISALLOW_MODIFY_ACCOUNTS)
+                add(DISALLOW_OEM_UNLOCK)
+                add(UserManager.DISALLOW_APPS_CONTROL)
+                add(UserManager.DISALLOW_USB_FILE_TRANSFER)
+                add(UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY)
+                add(UserManager.DISALLOW_USER_SWITCH)
+                add(UserManager.DISALLOW_ADD_USER)
+                add(UserManager.DISALLOW_REMOVE_USER)
+                add(UserManager.DISALLOW_CONFIG_DATE_TIME)
+                add(UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA)
+                add(UserManager.DISALLOW_CONFIG_TETHERING)
+                add(UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS)
+                add(UserManager.DISALLOW_OUTGOING_BEAM)
+                // ADR-022 profile-escape block.
+                add(UserManager.DISALLOW_ADD_MANAGED_PROFILE)
+                if (sdkInt >= PRIVATE_SPACE_MIN_SDK) {
+                    add(DISALLOW_ADD_PRIVATE_PROFILE)
+                }
             }
-        }
 
         /**
          * Default readback seam: the **DO-authoritative** restriction state via
@@ -354,15 +359,17 @@ class PolicyEnforcer(
         }
 
         /** Default installed-apps seam: every installed package except self, with its system flag. */
-        private fun defaultInstalledAppsReader(context: Context): () -> List<InstalledApp> = {
-            val self = context.packageName
-            context.packageManager.getInstalledPackages(0)
-                .filter { it.packageName != self }
-                .map { info ->
-                    val isSystem = ((info.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_SYSTEM) != 0
-                    InstalledApp(info.packageName, isSystem)
-                }
-        }
+        private fun defaultInstalledAppsReader(context: Context): () -> List<InstalledApp> =
+            {
+                val self = context.packageName
+                context.packageManager
+                    .getInstalledPackages(0)
+                    .filter { it.packageName != self }
+                    .map { info ->
+                        val isSystem = ((info.applicationInfo?.flags ?: 0) and ApplicationInfo.FLAG_SYSTEM) != 0
+                        InstalledApp(info.packageName, isSystem)
+                    }
+            }
 
         /**
          * Default launch-blocked seam: a package is launch-blocked for this admin when it is
@@ -390,13 +397,16 @@ class PolicyEnforcer(
          * as default, it stays usable here — enforcing the stock launcher is DEFENSES Kid §3.4,
          * tracked separately, not part of this deny-by-default change.
          */
-        private fun defaultExemptReader(context: Context): () -> Set<String> = {
-            val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-            val default = context.packageManager
-                .resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY)
-                ?.activityInfo?.packageName
-            setOfNotNull(default)
-        }
+        private fun defaultExemptReader(context: Context): () -> Set<String> =
+            {
+                val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                val default =
+                    context.packageManager
+                        .resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY)
+                        ?.activityInfo
+                        ?.packageName
+                setOfNotNull(default)
+            }
 
         /** Default fail-closed containment action: lock the device via this admin's `lockNow()`. */
         private fun defaultLockAction(context: Context): () -> Unit {
@@ -407,22 +417,29 @@ class PolicyEnforcer(
 }
 
 /** An installed package and whether it is a system app (system apps are never suspended). */
-data class InstalledApp(val pkg: String, val isSystem: Boolean)
+data class InstalledApp(
+    val pkg: String,
+    val isSystem: Boolean,
+)
 
 /**
  * Outcome of [PolicyEnforcer.applyAllowlist] on success (it throws on a fail-closed gap):
  * [blocked] = the deny-by-default targets that were suspended/hidden; [exempt] = installed
  * packages that were left alone (system / self / active launcher).
  */
-data class AllowlistResult(val blocked: List<String>, val exempt: List<String>)
+data class AllowlistResult(
+    val blocked: List<String>,
+    val exempt: List<String>,
+)
 
 /**
  * Thrown when the Day-One restriction baseline cannot be verified fully set. Carries the
  * list of restrictions that are still missing so the caller / logs can see exactly what
  * failed to lock down.
  */
-class RestrictionEnforcementException(val missing: List<String>) :
-    IllegalStateException("Fail-closed: required user restrictions not verifiably set: $missing")
+class RestrictionEnforcementException(
+    val missing: List<String>,
+) : IllegalStateException("Fail-closed: required user restrictions not verifiably set: $missing")
 
 /**
  * Thrown when deny-by-default launch enforcement cannot prove the deny set is contained — either a

@@ -9,21 +9,22 @@ import kotlin.test.assertEquals
  * device (the issue's "watchdog ratchet step" coverage).
  */
 class RatchetWiringTest {
-
-    private fun loaded(allow: List<String>, dns: String? = null) =
-        PolicyStore.LoadResult.Loaded(
-            SignedBundle(
-                v = 1,
-                child_device_id = "c",
-                policy_seq = 1L,
-                issued_at = 1L,
-                not_before = 1L,
-                not_after = 2L,
-                nonce = "00",
-                policy = PolicyDoc(allowlist = allow, private_dns = dns),
-                sig = "",
-            ),
-        )
+    private fun loaded(
+        allow: List<String>,
+        dns: String? = null,
+    ) = PolicyStore.LoadResult.Loaded(
+        SignedBundle(
+            v = 1,
+            child_device_id = "c",
+            policy_seq = 1L,
+            issued_at = 1L,
+            not_before = 1L,
+            not_after = 2L,
+            nonce = "00",
+            policy = PolicyDoc(allowlist = allow, private_dns = dns),
+            sig = "",
+        ),
+    )
 
     @Test
     fun `FRESH enforces the bundle allowlist`() {

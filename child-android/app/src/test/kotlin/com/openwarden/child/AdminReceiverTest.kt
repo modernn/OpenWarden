@@ -24,7 +24,7 @@ class AdminReceiverTest {
         val receiver = AdminReceiver()
         assertTrue(
             receiver is DeviceAdminReceiver,
-            "AdminReceiver must extend DeviceAdminReceiver"
+            "AdminReceiver must extend DeviceAdminReceiver",
         )
     }
 
@@ -41,12 +41,12 @@ class AdminReceiverTest {
         assertEquals(
             context.packageName,
             componentName.packageName,
-            "ComponentName package must be the application's package"
+            "ComponentName package must be the application's package",
         )
         assertEquals(
             "com.openwarden.child.AdminReceiver",
             componentName.className,
-            "ComponentName class must be AdminReceiver's fully qualified name"
+            "ComponentName class must be AdminReceiver's fully qualified name",
         )
     }
 
@@ -64,12 +64,12 @@ class AdminReceiverTest {
         assertEquals(
             "com.openwarden.child.AdminReceiver",
             componentName.className,
-            "className must match expected"
+            "className must match expected",
         )
         assertEquals(
             expectedName.className,
             componentName.className,
-            "className from both methods must match"
+            "className from both methods must match",
         )
     }
 }

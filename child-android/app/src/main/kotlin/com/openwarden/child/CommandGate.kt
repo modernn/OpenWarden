@@ -21,7 +21,10 @@ interface CommandStore {
      * intact (the command is then treated as not-admitted). One commit so a crash can never leave
      * the floor advanced (command consumed) but the lock flag unchanged, or vice versa.
      */
-    fun admitCommand(issuedAt: Long, locked: Boolean)
+    fun admitCommand(
+        issuedAt: Long,
+        locked: Boolean,
+    )
 }
 
 /**
@@ -42,14 +45,15 @@ class CommandGate(
         expectedType: String,
         pinnedParentPubkey: ByteArray?,
     ): CommandAdmission.Outcome {
-        val outcome = CommandAdmission.decide(
-            cmd = cmd,
-            expectedType = expectedType,
-            myChildDeviceId = store.childDeviceId(),
-            pinnedParentPubkey = pinnedParentPubkey,
-            commandFloor = store.commandFloor(),
-            nowMs = clock(),
-        )
+        val outcome =
+            CommandAdmission.decide(
+                cmd = cmd,
+                expectedType = expectedType,
+                myChildDeviceId = store.childDeviceId(),
+                pinnedParentPubkey = pinnedParentPubkey,
+                commandFloor = store.commandFloor(),
+                nowMs = clock(),
+            )
         if (outcome is CommandAdmission.Outcome.Accept) {
             // Floor advance + lock-flag set are one atomic durable commit (see CommandStore.admitCommand).
             store.admitCommand(cmd.issued_at, locked = outcome.type == SignedCommand.TYPE_LOCK)

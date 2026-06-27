@@ -14,7 +14,6 @@ enum class MonitoredCategory(
     val title: String,
     val plainLanguage: String,
 ) {
-
     /**
      * DNS / web-query log.
      * The DPC intercepts DNS lookups via the Always-on VPN / private-DNS channel
@@ -23,9 +22,10 @@ enum class MonitoredCategory(
      */
     DNS_WEB_QUERIES(
         title = "Websites looked up",
-        plainLanguage = "Your phone tells your parent which website names it looks up " +
-            "(like \"youtube.com\"). Your parent never sees what you read or watched, " +
-            "only that the name was looked up.",
+        plainLanguage =
+            "Your phone tells your parent which website names it looks up " +
+                "(like \"youtube.com\"). Your parent never sees what you read or watched, " +
+                "only that the name was looked up.",
     ),
 
     /**
@@ -35,8 +35,9 @@ enum class MonitoredCategory(
      */
     APP_USAGE(
         title = "Which apps you use",
-        plainLanguage = "Your parent sees which apps were open and for how long " +
-            "(like \"Roblox — 47 minutes\"). They can't see what you did inside the app.",
+        plainLanguage =
+            "Your parent sees which apps were open and for how long " +
+                "(like \"Roblox — 47 minutes\"). They can't see what you did inside the app.",
     ),
 
     /**
@@ -48,8 +49,9 @@ enum class MonitoredCategory(
      */
     INSTALLED_APPS(
         title = "Which apps are on your phone",
-        plainLanguage = "Your parent can see the list of apps installed on your phone, " +
-            "so they can choose which ones you're allowed to open.",
+        plainLanguage =
+            "Your parent can see the list of apps installed on your phone, " +
+                "so they can choose which ones you're allowed to open.",
     ),
 
     /**
@@ -58,8 +60,9 @@ enum class MonitoredCategory(
      */
     SCREEN_TIME(
         title = "How long you use your phone",
-        plainLanguage = "Your parent sees the total minutes your screen was on each day " +
-            "and per-app totals. No detail beyond that.",
+        plainLanguage =
+            "Your parent sees the total minutes your screen was on each day " +
+                "and per-app totals. No detail beyond that.",
     ),
 
     /**
@@ -74,9 +77,10 @@ enum class MonitoredCategory(
      */
     LOCATION(
         title = "Where you are, sometimes",
-        plainLanguage = "Your parent can see where you are, but only if something " +
-            "unexpected happens — like leaving school during school hours or not being " +
-            "home by curfew. Your location is not shared all the time.",
+        plainLanguage =
+            "Your parent can see where you are, but only if something " +
+                "unexpected happens — like leaving school during school hours or not being " +
+                "home by curfew. Your location is not shared all the time.",
     ),
 
     /**
@@ -86,9 +90,10 @@ enum class MonitoredCategory(
      */
     HEARTBEAT_BATTERY(
         title = "Phone battery level",
-        plainLanguage = "OpenWarden sends your parent a check-in signal so they know " +
-            "your phone is on. That signal includes your battery level so they know if " +
-            "your phone is about to run out of power.",
+        plainLanguage =
+            "OpenWarden sends your parent a check-in signal so they know " +
+                "your phone is on. That signal includes your battery level so they know if " +
+                "your phone is about to run out of power.",
     ),
 
     /**
@@ -98,7 +103,8 @@ enum class MonitoredCategory(
      */
     BLOCK_EVENTS(
         title = "When something is blocked",
-        plainLanguage = "If OpenWarden blocks an app or website, your parent sees that " +
-            "it was blocked and when. They don't see what you were doing inside it.",
+        plainLanguage =
+            "If OpenWarden blocks an app or website, your parent sees that " +
+                "it was blocked and when. They don't see what you were doing inside it.",
     ),
 }

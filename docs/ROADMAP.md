@@ -100,9 +100,13 @@ A parent can pair, see state, and push a policy — from a phone.
 Make setup repeatable and make the gates real before inviting anyone in.
 
 - [ ] Finalize `docs/PROVISIONING.md` + one-page printable setup *(#29)*
-- [ ] E2E: provision Pixel 7 from factory in <30 min — exit-criteria runbook +
-  `connectedAndroidTest` *(#30)*
-- [ ] CI: enforce ktlint + unit tests + `connectedAndroidTest` gating on PRs *(#31)*
+- [x] E2E: provision Pixel 7 from factory in <30 min — exit-criteria runbook +
+  `connectedAndroidTest` *(#30, PR #122 — criteria 1 (DO) + 3 (latency) automated; criterion 2
+  (restrictions intact) is verified out-of-band because enforcing `DISALLOW_DEBUGGING_FEATURES`
+  disables ADB)*
+- [x] CI: enforce ktlint + unit tests + `connectedAndroidTest` gating on PRs *(#31, PR #125,
+  ADR-044 — ktlint (whole tree) + JVM unit tests gate every PR; `connectedAndroidTest` deferred
+  to #124, the `DISALLOW_DEBUGGING_FEATURES`/ADB-severance constraint)*
 - [ ] Contributor autopilot — `/openwarden` role-picker + agent-ready routing *(#32)*
 
 ### "Oliver's phone works" — internal proof (lands within v0.2–v0.4)

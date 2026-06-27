@@ -4,9 +4,9 @@ import android.content.Context
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.nio.file.AtomicMoveNotSupportedException
 
 /**
  * Loads + persists signed policy bundles. Verifies Ed25519 sig against pinned parent pubkey.
@@ -14,15 +14,20 @@ import java.nio.file.AtomicMoveNotSupportedException
  *
  * Storage: app's internal storage (encrypted at rest by FBE; DO-only access).
  */
-class PolicyStore(private val context: Context) {
-
+class PolicyStore(
+    private val context: Context,
+) {
     private val dir get() = File(context.filesDir, "policy").apply { mkdirs() }
     private val activeFile get() = File(dir, "active.json")
     private val pubkeyFile get() = File(dir, "parent.pub")
 
     sealed class LoadResult {
-        data class Loaded(val bundle: SignedBundle) : LoadResult()
+        data class Loaded(
+            val bundle: SignedBundle,
+        ) : LoadResult()
+
         object Missing : LoadResult()
+
         object Corrupt : LoadResult()
     }
 
@@ -31,8 +36,7 @@ class PolicyStore(private val context: Context) {
         pubkeyFile.writeBytes(rawPubkey)
     }
 
-    fun parentPubkey(): ByteArray? =
-        if (pubkeyFile.exists()) pubkeyFile.readBytes() else null
+    fun parentPubkey(): ByteArray? = if (pubkeyFile.exists()) pubkeyFile.readBytes() else null
 
     /**
      * Atomically persists [bundle] to internal storage.
@@ -78,11 +82,12 @@ class PolicyStore(private val context: Context) {
      * JCS integer bound, genesis gate, and two-phase commit. This method's `issued_at`
      * string comparison is NOT the ADR-017 replay floor and MUST NOT be used as one.
      * Retained only so it still compiles for any out-of-tree caller; the `/policy`
-     * route now routes through [PolicyAdmission]. Do not add new callers.
+     * route now routes through [PolicyAdmission]. Do not add new callers. The
+     * verify-over-received-bytes path is `PolicyAdmission.admit` / `BundleVerifier.verifyDocument`
+     * (ADR-040).
      */
     @Deprecated("Use PolicyAdmission.admit (ADR-017 replay floor + audience + two-phase commit)")
     @Suppress("DEPRECATION") // legacy path holds only a TYPED bundle (no received bytes); the live
-    // verify-over-received-bytes path is PolicyAdmission.admit/BundleVerifier.verifyDocument (ADR-040).
     fun ingest(bundle: SignedBundle): IngestResult {
         val pubkey = parentPubkey() ?: return IngestResult.NoParentPinned
         if (!BundleVerifier.verify(bundle, pubkey)) return IngestResult.BadSignature
@@ -149,10 +154,10 @@ data class SignedBundle(
     val policy_seq: Long = 0L,
     // PROTOCOL.md §2: integer Unix-ms timestamps (u53-bounded), NOT ISO-8601 strings.
     // `expires_at` (ISO string) is GONE — replaced by the §2 not_before/not_after window.
-    val issued_at: Long,  // parent's claimed authorship time, ms
+    val issued_at: Long, // parent's claimed authorship time, ms
     val not_before: Long, // earliest legal application time, ms
-    val not_after: Long,  // latest legal application time, ms (short freshness window)
-    val nonce: String,    // hex (32 chars / 16 bytes)
+    val not_after: Long, // latest legal application time, ms (short freshness window)
+    val nonce: String, // hex (32 chars / 16 bytes)
     val policy: PolicyDoc,
     // hex Ed25519 over canonicalized bundle minus "sig" (now includes child_device_id +
     // policy_seq). Tolerant of absence (default "") for verify-over-raw-bytes / storage-layer

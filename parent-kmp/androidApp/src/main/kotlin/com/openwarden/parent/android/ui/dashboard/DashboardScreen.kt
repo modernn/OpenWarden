@@ -90,9 +90,10 @@ fun DashboardScreen(
     Scaffold(modifier = modifier) { innerPadding ->
         Surface(modifier = Modifier.fillMaxSize()) {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
             ) {
                 // Fixed title bar — always visible.
                 DashboardTitleBar(
@@ -115,9 +116,10 @@ fun DashboardScreen(
 @Composable
 private fun DashboardTitleBar(onRefresh: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -139,9 +141,10 @@ private fun DashboardTitleBar(onRefresh: () -> Unit) {
 @Composable
 private fun LoadingState() {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .semantics { contentDescription = "Loading dashboard" },
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .semantics { contentDescription = "Loading dashboard" },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -163,19 +166,21 @@ private fun LoadingState() {
 @Composable
 private fun ErrorState(message: String) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-            .semantics { contentDescription = "Child offline or unknown — error loading data" },
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .semantics { contentDescription = "Child offline or unknown — error loading data" },
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         OnlineBadge(status = ChildOnlineStatus.OFFLINE_OR_UNKNOWN)
         Spacer(modifier = Modifier.height(16.dp))
         Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-            ),
+            colors =
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(
@@ -200,9 +205,10 @@ private fun SuccessContent(
     onOpenPairing: () -> Unit = {},
 ) {
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Spacer(modifier = Modifier.height(4.dp)) }
@@ -270,6 +276,7 @@ private fun SuccessContent(
                     )
                 }
             }
+
             is BlocksData.Known -> {
                 if (blocks.attempts.isEmpty()) {
                     item {
@@ -316,11 +323,12 @@ internal fun LockUnlockSection(presenter: LockPresenter) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = when (uiState.lockState) {
-                LockState.LOCKED -> "Child device: LOCKED"
-                LockState.UNLOCKED -> "Child device: UNLOCKED"
-                LockState.UNKNOWN -> "Child device: unknown"
-            },
+            text =
+                when (uiState.lockState) {
+                    LockState.LOCKED -> "Child device: LOCKED"
+                    LockState.UNLOCKED -> "Child device: UNLOCKED"
+                    LockState.UNKNOWN -> "Child device: unknown"
+                },
             style = MaterialTheme.typography.bodyLarge,
         )
 
@@ -334,9 +342,10 @@ internal fun LockUnlockSection(presenter: LockPresenter) {
             Button(
                 onClick = { scope.launch { presenter.lockNow() } },
                 enabled = !uiState.isBusy,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                ),
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
             ) {
                 Text("Lock Now")
             }
@@ -370,9 +379,10 @@ private fun OnlineBadge(status: ChildOnlineStatus) {
     val tint = if (isOnline) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = label },
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = label },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -406,9 +416,10 @@ private fun OnlineBadge(status: ChildOnlineStatus) {
 private fun UsageSummaryCard(usage: TodayUsage) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -437,6 +448,7 @@ private fun UsageSummaryCard(usage: TodayUsage) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+
                 is TodayUsage.Known -> {
                     // Total
                     Row(
@@ -504,9 +516,10 @@ private fun BlockedAttemptRow(block: BlockedAttempt) {
     // by the BlockedAttempt domain type.
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
     ) {
         Column(
             modifier = Modifier.padding(10.dp),

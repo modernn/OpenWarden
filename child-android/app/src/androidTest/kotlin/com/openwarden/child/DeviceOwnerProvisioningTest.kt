@@ -51,7 +51,7 @@ class DeviceOwnerProvisioningTest {
     fun testIsDeviceOwnerApp() {
         assertTrue(
             dpm.isDeviceOwnerApp(context.packageName),
-            "App must be provisioned as Device Owner (run: adb shell dpm set-device-owner)"
+            "App must be provisioned as Device Owner (run: adb shell dpm set-device-owner)",
         )
     }
 
@@ -63,7 +63,7 @@ class DeviceOwnerProvisioningTest {
     fun testAdminReceiverIsActiveAdmin() {
         assertTrue(
             dpm.isAdminActive(adminComponentName),
-            "AdminReceiver must be an active admin"
+            "AdminReceiver must be an active admin",
         )
     }
 
@@ -77,7 +77,7 @@ class DeviceOwnerProvisioningTest {
         assertEquals(
             "com.openwarden.child.AdminReceiver",
             adminComponentName.className,
-            "ComponentName className must point to AdminReceiver"
+            "ComponentName className must point to AdminReceiver",
         )
     }
 
@@ -87,15 +87,16 @@ class DeviceOwnerProvisioningTest {
      */
     @Test
     fun testAdminReceiverManifestDeclaration() {
-        val componentInfo = context.packageManager.getReceiverInfo(
-            adminComponentName,
-            0
-        )
+        val componentInfo =
+            context.packageManager.getReceiverInfo(
+                adminComponentName,
+                0,
+            )
         assertNotNull(componentInfo, "AdminReceiver must be declared in AndroidManifest.xml")
         assertEquals(
             "com.openwarden.child.AdminReceiver",
             componentInfo.name,
-            "Declared receiver name must match our AdminReceiver"
+            "Declared receiver name must match our AdminReceiver",
         )
     }
 }

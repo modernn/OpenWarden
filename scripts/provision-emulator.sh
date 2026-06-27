@@ -5,7 +5,12 @@ set -euo pipefail
 
 DEVICE="${DEVICE:-emulator-5554}"
 APK="${APK:-child-android/app/build/outputs/apk/debug/app-debug.apk}"
-DPC_COMPONENT="${DPC_COMPONENT:-com.openwarden.child/.AdminReceiver}"
+# Must match the INSTALLED package: the default APK is the DEBUG build, whose applicationId carries
+# the `.debug` suffix (build.gradle.kts), so the Device-Owner component is
+# `com.openwarden.child.debug/com.openwarden.child.AdminReceiver` (the AdminReceiver CLASS stays in
+# the com.openwarden.child package regardless of the applicationId suffix). For a release APK,
+# override: DPC_COMPONENT=com.openwarden.child/com.openwarden.child.AdminReceiver.
+DPC_COMPONENT="${DPC_COMPONENT:-com.openwarden.child.debug/com.openwarden.child.AdminReceiver}"
 
 echo "=== Check device ==="
 adb -s "$DEVICE" wait-for-device
@@ -22,7 +27,13 @@ echo "=== Install OpenWarden APK ==="
 adb -s "$DEVICE" install -r "$APK"
 
 echo "=== Set Device Owner ==="
-adb -s "$DEVICE" shell dpm set-device-owner "$DPC_COMPONENT"
+# Idempotent: `dpm set-device-owner` THROWS if a device owner is already set, so a re-run against an
+# already-provisioned device would hard-fail. Skip when our component already owns the device.
+if adb -s "$DEVICE" shell dpm list-owners | grep -qF "$DPC_COMPONENT"; then
+  echo "Device Owner already set to $DPC_COMPONENT — skipping set-device-owner (re-run safe)"
+else
+  adb -s "$DEVICE" shell dpm set-device-owner "$DPC_COMPONENT"
+fi
 
 echo "=== Verify ==="
 adb -s "$DEVICE" shell dpm list-owners | grep -q "openwarden" && echo "DO set OK"

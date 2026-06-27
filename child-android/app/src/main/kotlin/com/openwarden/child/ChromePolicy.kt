@@ -29,8 +29,9 @@ import android.util.Log
  *
  * TODO(#8): apply from enforcement sequence once provisioning is wired (human-gated)
  */
-class ChromePolicy(private val context: Context) {
-
+class ChromePolicy(
+    private val context: Context,
+) {
     private val dpm =
         context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val admin = AdminReceiver.componentName(context)
@@ -48,23 +49,24 @@ class ChromePolicy(private val context: Context) {
     // G1 mitigations: gds.google.com, support.google.com/help, play.google.com/help
     // W1 mitigations: translate.goog, *.translate.goog, web.archive.org, 12ft.io,
     //                 data:* (data URI), blob:* (blob URI), file:* (local files)
-    val urlBlocklist: List<String> = listOf(
-        // G1 — Play-Services WebView hidden browser leak endpoints
-        "gds.google.com",
-        "support.google.com/help",
-        "play.google.com/help",
-        // W1 — Google Translate proxy
-        "translate.goog",
-        "*.translate.goog",
-        // W1 — Archive / bypass proxies
-        "web.archive.org",
-        "12ft.io",
-        // W1 — Dangerous URI schemes (data-URL exploit, local file access, blob pages)
-        // Chrome URLBlocklist: opaque schemes use "scheme:*" (no "//"), not "scheme://*".
-        "data:*",
-        "blob:*",
-        "file:*",
-    )
+    val urlBlocklist: List<String> =
+        listOf(
+            // G1 — Play-Services WebView hidden browser leak endpoints
+            "gds.google.com",
+            "support.google.com/help",
+            "play.google.com/help",
+            // W1 — Google Translate proxy
+            "translate.goog",
+            "*.translate.goog",
+            // W1 — Archive / bypass proxies
+            "web.archive.org",
+            "12ft.io",
+            // W1 — Dangerous URI schemes (data-URL exploit, local file access, blob pages)
+            // Chrome URLBlocklist: opaque schemes use "scheme:*" (no "//"), not "scheme://*".
+            "data:*",
+            "blob:*",
+            "file:*",
+        )
 
     /**
      * Pushes the Chrome enterprise policy bundle to the system via
@@ -79,14 +81,15 @@ class ChromePolicy(private val context: Context) {
             "ChromePolicy.apply() called without Device Owner — cannot push Chrome restrictions"
         }
 
-        val bundle = Bundle().apply {
-            putStringArray("URLBlocklist", urlBlocklist.toTypedArray())
-            // SafeSites level 1 = filter adult content (Chrome enterprise documented value)
-            putInt("SafeSitesFilterBehavior", SAFE_SITES_FILTER_ENABLED)
-            // 1 = incognito mode disabled
-            putInt("IncognitoModeAvailability", INCOGNITO_MODE_DISABLED)
-            putBoolean("SafeBrowsingEnabled", true)
-        }
+        val bundle =
+            Bundle().apply {
+                putStringArray("URLBlocklist", urlBlocklist.toTypedArray())
+                // SafeSites level 1 = filter adult content (Chrome enterprise documented value)
+                putInt("SafeSitesFilterBehavior", SAFE_SITES_FILTER_ENABLED)
+                // 1 = incognito mode disabled
+                putInt("IncognitoModeAvailability", INCOGNITO_MODE_DISABLED)
+                putBoolean("SafeBrowsingEnabled", true)
+            }
 
         dpm.setApplicationRestrictions(admin, CHROME_PKG, bundle)
         Log.i(TAG, "Chrome enterprise policy applied: ${urlBlocklist.size} URLBlocklist entries")

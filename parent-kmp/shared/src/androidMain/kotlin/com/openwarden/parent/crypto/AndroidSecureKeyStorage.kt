@@ -18,14 +18,17 @@ import androidx.security.crypto.MasterKey
  * Exercised on-device (androidInstrumentedTest); the fail-closed provider logic is host-tested
  * against an in-memory [SecureKeyStorage] double.
  */
-class AndroidSecureKeyStorage(context: Context) : SecureKeyStorage {
-
+class AndroidSecureKeyStorage(
+    context: Context,
+) : SecureKeyStorage {
     private val prefs by lazy {
-        val masterKey = MasterKey.Builder(context, MASTER_KEY_ALIAS)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .setRequestStrongBoxBacked(true)
-            .setUserAuthenticationRequired(true)
-            .build()
+        val masterKey =
+            MasterKey
+                .Builder(context, MASTER_KEY_ALIAS)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .setRequestStrongBoxBacked(true)
+                .setUserAuthenticationRequired(true)
+                .build()
         EncryptedSharedPreferences.create(
             context,
             PREFS_FILE,
@@ -50,10 +53,8 @@ class AndroidSecureKeyStorage(context: Context) : SecureKeyStorage {
         const val PREFS_FILE = "openwarden_parent_root_keys"
         const val KEY = "root_keys_v1"
 
-        fun ByteArray.toHex(): String =
-            joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+        fun ByteArray.toHex(): String = joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
 
-        fun String.fromHex(): ByteArray =
-            chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        fun String.fromHex(): ByteArray = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 }

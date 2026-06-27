@@ -38,8 +38,11 @@ class Section73AttestationVerifier(
             parser.parse(post.response.childAttestationCertChain)
                 ?: return refuse("chain-parse")
 
-        // Check 1 (policy): the chain roots in an allow-listed attestation root.
+        // Check 1 (policy): the chain roots in an allow-listed attestation root. A null or
+        // zero-length top SPKI is no trust anchor at all — refuse explicitly so a future parser
+        // returning an empty `rootSpkiDer` can never coincide with an empty pin (ADR-037 D7, #120).
         val root = ev.rootSpkiDer ?: return refuse("untrusted-root")
+        if (root.isEmpty()) return refuse("untrusted-root")
         if (!policy.isAllowedRoot(root)) return refuse("untrusted-root")
 
         // Check 2: leaf attestation challenge == the issued provisioning_nonce.

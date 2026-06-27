@@ -25,7 +25,6 @@ class FakeChildStateRepository(
      */
     private val freshReportedAt: Instant = Instant.fromEpochSeconds(1_718_000_100L),
 ) : ChildStateRepository {
-
     sealed class Scenario {
         /** Child is online with realistic fixture data and a fresh reportedAt. */
         data object Online : Scenario()
@@ -41,11 +40,12 @@ class FakeChildStateRepository(
         data object Error : Scenario()
     }
 
-    override suspend fun fetchSnapshot(): ChildDashboardSnapshot = when (scenario) {
-        Scenario.Online -> onlineFixture(freshReportedAt)
-        Scenario.Offline -> offlineSnapshot()
-        Scenario.Error -> offlineSnapshot() // errors degrade to offline; see contract in interface
-    }
+    override suspend fun fetchSnapshot(): ChildDashboardSnapshot =
+        when (scenario) {
+            Scenario.Online -> onlineFixture(freshReportedAt)
+            Scenario.Offline -> offlineSnapshot()
+            Scenario.Error -> offlineSnapshot() // errors degrade to offline; see contract in interface
+        }
 
     companion object {
         /**
@@ -53,55 +53,59 @@ class FakeChildStateRepository(
          * reportedAt = null → ViewModel derives OFFLINE_OR_UNKNOWN regardless of any flag.
          * todayUsage = Unknown, blocksData = Unknown → UI shows "unavailable", never "0m"/"none".
          */
-        fun offlineSnapshot() = ChildDashboardSnapshot(
-            reportedAt = null,
-            todayUsage = TodayUsage.Unknown,
-            blocksData = BlocksData.Unknown,
-        )
+        fun offlineSnapshot() =
+            ChildDashboardSnapshot(
+                reportedAt = null,
+                todayUsage = TodayUsage.Unknown,
+                blocksData = BlocksData.Unknown,
+            )
 
         /** Realistic fixture for the Online scenario. */
-        fun onlineFixture(
-            reportedAt: Instant = Instant.fromEpochSeconds(1_718_000_100L),
-        ) = ChildDashboardSnapshot(
-            reportedAt = reportedAt,
-            todayUsage = TodayUsage.Known(
-                totalForegroundMs = 2_700_000L, // 45 min
-                perApp = listOf(
-                    AppUsageSummary(
-                        packageName = "com.android.chrome",
-                        label = "Chrome",
-                        foregroundMs = 1_200_000L,
+        fun onlineFixture(reportedAt: Instant = Instant.fromEpochSeconds(1_718_000_100L)) =
+            ChildDashboardSnapshot(
+                reportedAt = reportedAt,
+                todayUsage =
+                    TodayUsage.Known(
+                        totalForegroundMs = 2_700_000L, // 45 min
+                        perApp =
+                            listOf(
+                                AppUsageSummary(
+                                    packageName = "com.android.chrome",
+                                    label = "Chrome",
+                                    foregroundMs = 1_200_000L,
+                                ),
+                                AppUsageSummary(
+                                    packageName = "com.roblox.client",
+                                    label = "Roblox",
+                                    foregroundMs = 900_000L,
+                                ),
+                                AppUsageSummary(
+                                    packageName = "com.google.android.youtube",
+                                    label = "YouTube",
+                                    foregroundMs = 600_000L,
+                                ),
+                            ),
                     ),
-                    AppUsageSummary(
-                        packageName = "com.roblox.client",
-                        label = "Roblox",
-                        foregroundMs = 900_000L,
+                blocksData =
+                    BlocksData.Known(
+                        attempts =
+                            listOf(
+                                BlockedAttempt(
+                                    packageName = "com.discord",
+                                    appLabel = "Discord",
+                                    category = AppCategory.SOCIAL,
+                                    blockedAt = Instant.fromEpochSeconds(1_718_000_000L),
+                                    countToday = 2,
+                                ),
+                                BlockedAttempt(
+                                    packageName = "com.google.android.youtube",
+                                    appLabel = "YouTube",
+                                    category = AppCategory.ENTERTAINMENT,
+                                    blockedAt = Instant.fromEpochSeconds(1_717_990_000L),
+                                    countToday = 1,
+                                ),
+                            ),
                     ),
-                    AppUsageSummary(
-                        packageName = "com.google.android.youtube",
-                        label = "YouTube",
-                        foregroundMs = 600_000L,
-                    ),
-                ),
-            ),
-            blocksData = BlocksData.Known(
-                attempts = listOf(
-                    BlockedAttempt(
-                        packageName = "com.discord",
-                        appLabel = "Discord",
-                        category = AppCategory.SOCIAL,
-                        blockedAt = Instant.fromEpochSeconds(1_718_000_000L),
-                        countToday = 2,
-                    ),
-                    BlockedAttempt(
-                        packageName = "com.google.android.youtube",
-                        appLabel = "YouTube",
-                        category = AppCategory.ENTERTAINMENT,
-                        blockedAt = Instant.fromEpochSeconds(1_717_990_000L),
-                        countToday = 1,
-                    ),
-                ),
-            ),
-        )
+            )
     }
 }

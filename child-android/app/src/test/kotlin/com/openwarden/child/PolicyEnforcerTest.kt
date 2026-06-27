@@ -33,7 +33,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class PolicyEnforcerTest {
-
     private lateinit var context: Context
     private lateinit var dpm: DevicePolicyManager
 
@@ -42,27 +41,28 @@ class PolicyEnforcerTest {
      * ship set). Spelled out here, NOT derived from [PolicyEnforcer.requiredRestrictions], so a
      * change to the production list is caught instead of rubber-stamped.
      */
-    private val canonical17 = setOf(
-        UserManager.DISALLOW_FACTORY_RESET,
-        UserManager.DISALLOW_SAFE_BOOT,
-        UserManager.DISALLOW_DEBUGGING_FEATURES,
-        UserManager.DISALLOW_CONFIG_VPN,
-        UserManager.DISALLOW_MODIFY_ACCOUNTS,
-        // DISALLOW_OEM_UNLOCK is a hidden @SystemApi constant; pin its AOSP key literally so
-        // this witness stays independent of the production source.
-        "no_oem_unlock",
-        UserManager.DISALLOW_APPS_CONTROL,
-        UserManager.DISALLOW_USB_FILE_TRANSFER,
-        UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY,
-        UserManager.DISALLOW_USER_SWITCH,
-        UserManager.DISALLOW_ADD_USER,
-        UserManager.DISALLOW_REMOVE_USER,
-        UserManager.DISALLOW_CONFIG_DATE_TIME,
-        UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,
-        UserManager.DISALLOW_CONFIG_TETHERING,
-        UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS,
-        UserManager.DISALLOW_OUTGOING_BEAM,
-    )
+    private val canonical17 =
+        setOf(
+            UserManager.DISALLOW_FACTORY_RESET,
+            UserManager.DISALLOW_SAFE_BOOT,
+            UserManager.DISALLOW_DEBUGGING_FEATURES,
+            UserManager.DISALLOW_CONFIG_VPN,
+            UserManager.DISALLOW_MODIFY_ACCOUNTS,
+            // DISALLOW_OEM_UNLOCK is a hidden @SystemApi constant; pin its AOSP key literally so
+            // this witness stays independent of the production source.
+            "no_oem_unlock",
+            UserManager.DISALLOW_APPS_CONTROL,
+            UserManager.DISALLOW_USB_FILE_TRANSFER,
+            UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES_GLOBALLY,
+            UserManager.DISALLOW_USER_SWITCH,
+            UserManager.DISALLOW_ADD_USER,
+            UserManager.DISALLOW_REMOVE_USER,
+            UserManager.DISALLOW_CONFIG_DATE_TIME,
+            UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA,
+            UserManager.DISALLOW_CONFIG_TETHERING,
+            UserManager.DISALLOW_CONFIG_MOBILE_NETWORKS,
+            UserManager.DISALLOW_OUTGOING_BEAM,
+        )
 
     @Before
     fun setUp() {
@@ -78,8 +78,7 @@ class PolicyEnforcerTest {
     }
 
     /** Enforcer whose verify readback is fully controlled by the test. */
-    private fun enforcerReading(setKeys: Set<String>): PolicyEnforcer =
-        PolicyEnforcer(context, isRestrictionSet = { it in setKeys })
+    private fun enforcerReading(setKeys: Set<String>): PolicyEnforcer = PolicyEnforcer(context, isRestrictionSet = { it in setKeys })
 
     // Profile-escape block (ADR-022). Both pinned literally so this witness stays independent of
     // the production source (and dodges the @Deprecated symbol on DISALLOW_ADD_MANAGED_PROFILE).
@@ -174,9 +173,10 @@ class PolicyEnforcerTest {
     fun `verifyOrThrow throws listing the missing restrictions`() {
         // Inject a partial state: everything set EXCEPT factory reset + VPN.
         val missing = setOf(UserManager.DISALLOW_FACTORY_RESET, UserManager.DISALLOW_CONFIG_VPN)
-        val ex = assertFailsWith<RestrictionEnforcementException> {
-            enforcerReading(api34Required - missing).verifyOrThrow()
-        }
+        val ex =
+            assertFailsWith<RestrictionEnforcementException> {
+                enforcerReading(api34Required - missing).verifyOrThrow()
+            }
         assertEquals(missing, ex.missing.toSet(), "Exception must name exactly the missing restrictions")
     }
 
@@ -213,9 +213,10 @@ class PolicyEnforcerTest {
         // Failure-injection: even though we are Device Owner and call addUserRestriction for all
         // 17, the readback reports NONE stuck. The enforcer must NOT return in a partial state —
         // it must throw rather than silently log-and-continue (the old fail-OPEN bug).
-        val ex = assertFailsWith<RestrictionEnforcementException>("must fail closed on partial apply") {
-            PolicyEnforcer(context, isRestrictionSet = { false }).applyDayOneRestrictions()
-        }
+        val ex =
+            assertFailsWith<RestrictionEnforcementException>("must fail closed on partial apply") {
+                PolicyEnforcer(context, isRestrictionSet = { false }).applyDayOneRestrictions()
+            }
         // @Config(sdk=[34]) → the required set is the canonical 17 + the managed-profile block (ADR-022).
         assertEquals(
             api34Required,
@@ -229,11 +230,12 @@ class PolicyEnforcerTest {
         // R3: a readback-seam throw (e.g. getUserRestrictions failing) is itself a "can't prove the
         // baseline" gap — it must lock + propagate, not bypass containment as a generic exception.
         var locked = 0
-        val enforcer = PolicyEnforcer(
-            context,
-            isRestrictionSet = { throw RuntimeException("getUserRestrictions failed") },
-            lock = { locked++ },
-        )
+        val enforcer =
+            PolicyEnforcer(
+                context,
+                isRestrictionSet = { throw RuntimeException("getUserRestrictions failed") },
+                lock = { locked++ },
+            )
         assertFailsWith<RuntimeException>("a readback throw must propagate after containment") {
             enforcer.applyDayOneRestrictions()
         }
@@ -317,24 +319,27 @@ class PolicyEnforcerTest {
         launchBlocked: Set<String>,
         exempt: Set<String> = emptySet(),
         onLock: () -> Unit = {},
-    ): PolicyEnforcer = PolicyEnforcer(
-        context,
-        installedApps = { installed },
-        isLaunchBlocked = { it in launchBlocked },
-        alwaysExempt = { exempt },
-        lock = onLock,
-    )
+    ): PolicyEnforcer =
+        PolicyEnforcer(
+            context,
+            installedApps = { installed },
+            isLaunchBlocked = { it in launchBlocked },
+            alwaysExempt = { exempt },
+            lock = onLock,
+        )
 
     @Test
     fun `applyAllowlist suspends every non-allowlisted user app`() {
-        val installed = listOf(
-            InstalledApp("com.school", isSystem = false),
-            InstalledApp("com.game", isSystem = false),
-            InstalledApp("com.chat", isSystem = false),
-        )
+        val installed =
+            listOf(
+                InstalledApp("com.school", isSystem = false),
+                InstalledApp("com.game", isSystem = false),
+                InstalledApp("com.chat", isSystem = false),
+            )
         // Simulate suspension sticking for the two deny targets (verify readback sees them blocked).
-        val result = allowlistEnforcer(installed, launchBlocked = setOf("com.game", "com.chat"))
-            .applyAllowlist(setOf("com.school"))
+        val result =
+            allowlistEnforcer(installed, launchBlocked = setOf("com.game", "com.chat"))
+                .applyAllowlist(setOf("com.school"))
 
         assertEquals(
             setOf("com.game", "com.chat"),
@@ -349,9 +354,10 @@ class PolicyEnforcerTest {
         val installed = listOf(InstalledApp("com.evil.clone", isSystem = false))
         var locked = 0
         // launchBlocked is EMPTY: the app resisted both suspend and hide -> still launchable.
-        val ex = assertFailsWith<AllowlistEnforcementException>("must fail closed on an un-contained deny app") {
-            allowlistEnforcer(installed, launchBlocked = emptySet(), onLock = { locked++ }).applyAllowlist(emptySet())
-        }
+        val ex =
+            assertFailsWith<AllowlistEnforcementException>("must fail closed on an un-contained deny app") {
+                allowlistEnforcer(installed, launchBlocked = emptySet(), onLock = { locked++ }).applyAllowlist(emptySet())
+            }
         assertEquals(
             listOf("com.evil.clone"),
             ex.stillLaunchable,
@@ -366,13 +372,14 @@ class PolicyEnforcerTest {
         // F1: if we can't even read the installed-package list we can't prove containment — that is
         // a fail-OPEN read error, so contain (lock) + throw rather than silently skip enforcement.
         var locked = 0
-        val enforcer = PolicyEnforcer(
-            context,
-            installedApps = { throw RuntimeException("PackageManager enumeration failed") },
-            isLaunchBlocked = { false },
-            alwaysExempt = { emptySet() },
-            lock = { locked++ },
-        )
+        val enforcer =
+            PolicyEnforcer(
+                context,
+                installedApps = { throw RuntimeException("PackageManager enumeration failed") },
+                isLaunchBlocked = { false },
+                alwaysExempt = { emptySet() },
+                lock = { locked++ },
+            )
         assertFailsWith<AllowlistEnforcementException>("enumeration failure must fail closed") {
             enforcer.applyAllowlist(emptySet())
         }
@@ -384,13 +391,14 @@ class PolicyEnforcerTest {
         // R2: resolving the active launcher (alwaysExempt) is a read that can throw; it must fail
         // closed (lock) like the package enumeration, not skip suspend/verify/lock outside the guard.
         var locked = 0
-        val enforcer = PolicyEnforcer(
-            context,
-            installedApps = { listOf(InstalledApp("com.game", isSystem = false)) },
-            isLaunchBlocked = { false },
-            alwaysExempt = { throw RuntimeException("launcher resolve failed") },
-            lock = { locked++ },
-        )
+        val enforcer =
+            PolicyEnforcer(
+                context,
+                installedApps = { listOf(InstalledApp("com.game", isSystem = false)) },
+                isLaunchBlocked = { false },
+                alwaysExempt = { throw RuntimeException("launcher resolve failed") },
+                lock = { locked++ },
+            )
         assertFailsWith<AllowlistEnforcementException>("exempt-set read failure must fail closed") {
             enforcer.applyAllowlist(emptySet())
         }
@@ -403,14 +411,16 @@ class PolicyEnforcerTest {
         // locks and throws; the allowlist-restore step is physically AFTER the throw, so a failed
         // apply never relaxes (widens) access.
         var locked = 0
-        val installed = listOf(
-            InstalledApp("com.school", isSystem = false), // allowlisted
-            InstalledApp("com.evil", isSystem = false), // deny target, uncontainable (launchBlocked stays false)
-        )
-        val ex = assertFailsWith<AllowlistEnforcementException> {
-            allowlistEnforcer(installed, launchBlocked = emptySet(), onLock = { locked++ })
-                .applyAllowlist(setOf("com.school"))
-        }
+        val installed =
+            listOf(
+                InstalledApp("com.school", isSystem = false), // allowlisted
+                InstalledApp("com.evil", isSystem = false), // deny target, uncontainable (launchBlocked stays false)
+            )
+        val ex =
+            assertFailsWith<AllowlistEnforcementException> {
+                allowlistEnforcer(installed, launchBlocked = emptySet(), onLock = { locked++ })
+                    .applyAllowlist(setOf("com.school"))
+            }
         assertEquals(listOf("com.evil"), ex.stillLaunchable, "only the uncontainable deny target is reported")
         assertEquals(1, locked, "must lock on the uncontainable deny target even with an allowlisted app present")
     }
@@ -427,16 +437,18 @@ class PolicyEnforcerTest {
 
     @Test
     fun `applyAllowlist never suspends self or the active launcher`() {
-        val installed = listOf(
-            InstalledApp(context.packageName, isSystem = false), // self
-            InstalledApp("com.android.launcher", isSystem = false), // active launcher (alwaysExempt)
-            InstalledApp("com.game", isSystem = false), // a real deny target
-        )
-        val result = allowlistEnforcer(
-            installed,
-            launchBlocked = setOf("com.game"),
-            exempt = setOf("com.android.launcher"),
-        ).applyAllowlist(emptySet())
+        val installed =
+            listOf(
+                InstalledApp(context.packageName, isSystem = false), // self
+                InstalledApp("com.android.launcher", isSystem = false), // active launcher (alwaysExempt)
+                InstalledApp("com.game", isSystem = false), // a real deny target
+            )
+        val result =
+            allowlistEnforcer(
+                installed,
+                launchBlocked = setOf("com.game"),
+                exempt = setOf("com.android.launcher"),
+            ).applyAllowlist(emptySet())
 
         assertEquals(setOf("com.game"), result.blocked.toSet(), "Only the non-exempt user app is a deny target")
         assertFalse(context.packageName in result.blocked, "Must never suspend self")
@@ -445,12 +457,14 @@ class PolicyEnforcerTest {
 
     @Test
     fun `applyAllowlist empty allowlist denies all user apps - deny-by-default`() {
-        val installed = listOf(
-            InstalledApp("com.game", isSystem = false),
-            InstalledApp("com.chat", isSystem = false),
-        )
-        val result = allowlistEnforcer(installed, launchBlocked = setOf("com.game", "com.chat"))
-            .applyAllowlist(emptySet())
+        val installed =
+            listOf(
+                InstalledApp("com.game", isSystem = false),
+                InstalledApp("com.chat", isSystem = false),
+            )
+        val result =
+            allowlistEnforcer(installed, launchBlocked = setOf("com.game", "com.chat"))
+                .applyAllowlist(emptySet())
         assertEquals(
             setOf("com.game", "com.chat"),
             result.blocked.toSet(),
@@ -464,17 +478,19 @@ class PolicyEnforcerTest {
         // stricter bundle is never overwritten by a stale pre-loaded snapshot. The loader reads a
         // mutable "active" set; after it changes, the next apply must reflect the new value.
         var active = setOf("com.old")
-        val installed = listOf(
-            InstalledApp("com.old", isSystem = false),
-            InstalledApp("com.new", isSystem = false),
-        )
+        val installed =
+            listOf(
+                InstalledApp("com.old", isSystem = false),
+                InstalledApp("com.new", isSystem = false),
+            )
         // Whatever is NOT currently allowlisted reads back as launch-blocked (suspension stuck).
-        val enforcer = PolicyEnforcer(
-            context,
-            installedApps = { installed },
-            isLaunchBlocked = { it !in active },
-            alwaysExempt = { emptySet() },
-        )
+        val enforcer =
+            PolicyEnforcer(
+                context,
+                installedApps = { installed },
+                isLaunchBlocked = { it !in active },
+                alwaysExempt = { emptySet() },
+            )
 
         val first = enforcer.reassertActiveAllowlist { active }
         assertEquals(setOf("com.new"), first.blocked.toSet(), "old allowlist allows com.old, denies com.new")

@@ -22,7 +22,6 @@ import kotlin.test.assertNotNull
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class AccessibilityLockdownTest {
-
     private val context: Context get() = RuntimeEnvironment.getApplication()
     private val dpm: DevicePolicyManager get() =
         context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager

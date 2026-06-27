@@ -58,7 +58,7 @@ dependencies {
 
     // JSON + crypto
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    implementation("net.i2p.crypto:eddsa:0.3.0")          // Ed25519
+    implementation("net.i2p.crypto:eddsa:0.3.0") // Ed25519
     // BIP39 mnemonic lib added when #15 (recovery phrase) is built — pick a Maven Central lib then
 
     // QR
@@ -71,7 +71,8 @@ dependencies {
 
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
-    // kotlin.test on the instrumented classpath too, so androidTest uses the same assert idiom as
-    // the unit tests (it was unit-test-only; instrumented tests using kotlin.test failed to compile).
+    // kotlin.test on the androidTest classpath: DeviceOwnerProvisioningTest uses kotlin.test.*,
+    // which was never actually on this source set (the file had never compiled). Resolves it and
+    // keeps the connectedAndroidTest suite buildable.
     androidTestImplementation(kotlin("test-junit"))
 }

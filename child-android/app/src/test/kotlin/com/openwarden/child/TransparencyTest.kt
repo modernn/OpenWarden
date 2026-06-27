@@ -1,8 +1,8 @@
 package com.openwarden.child
 
-import android.widget.TextView
-import android.view.ViewGroup
 import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -23,7 +23,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class TransparencyTest {
-
     /** Collect all text strings rendered in a view hierarchy (recursive). */
     private fun collectText(root: View): List<String> {
         val texts = mutableListOf<String>()
@@ -52,12 +51,13 @@ class TransparencyTest {
         // TX1: DNS/web-query log must be explicitly listed. This is the category
         // most likely to be forgotten because it is inferred from permissions
         // rather than a user-visible feature.
-        val dnsEntry = MonitoredCategory.values().find { category ->
-            category.title.contains("website", ignoreCase = true) ||
-                category.title.contains("web", ignoreCase = true) ||
-                category.title.contains("dns", ignoreCase = true) ||
-                category.name == "DNS_WEB_QUERIES"
-        }
+        val dnsEntry =
+            MonitoredCategory.values().find { category ->
+                category.title.contains("website", ignoreCase = true) ||
+                    category.title.contains("web", ignoreCase = true) ||
+                    category.title.contains("dns", ignoreCase = true) ||
+                    category.name == "DNS_WEB_QUERIES"
+            }
         assertTrue(
             dnsEntry != null,
             "MonitoredCategory must include a DNS/web-query entry. " +
@@ -68,10 +68,11 @@ class TransparencyTest {
     @Test
     fun allCategoryTitlesRenderedInActivity() {
         // Build the activity through the full onCreate lifecycle.
-        val activity = Robolectric
-            .buildActivity(TransparencyActivity::class.java)
-            .setup()
-            .get()
+        val activity =
+            Robolectric
+                .buildActivity(TransparencyActivity::class.java)
+                .setup()
+                .get()
 
         val rootView = activity.window.decorView
         val renderedTexts = collectText(rootView)
@@ -90,10 +91,11 @@ class TransparencyTest {
 
     @Test
     fun activityHeaderTextRendered() {
-        val activity = Robolectric
-            .buildActivity(TransparencyActivity::class.java)
-            .setup()
-            .get()
+        val activity =
+            Robolectric
+                .buildActivity(TransparencyActivity::class.java)
+                .setup()
+                .get()
 
         val rootView = activity.window.decorView
         val renderedTexts = collectText(rootView)

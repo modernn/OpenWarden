@@ -16,14 +16,14 @@ import androidx.activity.ComponentActivity
  *   - Recovery phrase verification screen (parent enters phrase to access settings)
  */
 class MainActivity : ComponentActivity() {
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 96, 48, 48)
-        }
+        val column =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(48, 96, 48, 48)
+            }
 
         column.addView(
             TextView(this).apply {

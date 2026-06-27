@@ -23,8 +23,9 @@ import android.util.Log
  *   >>> has a real witness. NOT stubbed as a security control — it is the audit
  *   >>> mirror, and its absence is the same gap noted on ReplayFloorStore.chainFloor.
  */
-class DefaultPolicyApplier(private val context: Context) : PolicyAdmission.Applier {
-
+class DefaultPolicyApplier(
+    private val context: Context,
+) : PolicyAdmission.Applier {
     private val store = PolicyStore(context)
 
     override fun stage(bundle: SignedBundle) {

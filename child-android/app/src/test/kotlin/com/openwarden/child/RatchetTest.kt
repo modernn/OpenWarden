@@ -8,12 +8,14 @@ import kotlin.test.assertEquals
  * fail-closed silence calculation are deterministic (the issue's "clock-driven ratchet test").
  */
 class RatchetTest {
-
     private val stale = Ratchet.RATCHET_STALE_MS
     private val strict = Ratchet.RATCHET_STRICT_MS
 
-    private fun markers(wall: Long?, elapsed: Long?, hw: Long? = wall) =
-        Ratchet.Markers(lastContactWallMs = wall, lastContactElapsedMs = elapsed, wallHighWaterMs = hw)
+    private fun markers(
+        wall: Long?,
+        elapsed: Long?,
+        hw: Long? = wall,
+    ) = Ratchet.Markers(lastContactWallMs = wall, lastContactElapsedMs = elapsed, wallHighWaterMs = hw)
 
     @Test
     fun `tier thresholds are inclusive at the boundary`() {
@@ -55,7 +57,10 @@ class RatchetTest {
     fun `reboot (elapsed regressed) falls back to wall delta when not rolled back`() {
         // now elapsed < contact elapsed => reboot; wall advanced by `strict` and >= high-water.
         val m = markers(wall = 1_000_000L, elapsed = 9_000_000L, hw = 1_000_000L)
-        assertEquals(Ratchet.Tier.STRICT, Ratchet.tierFor(Ratchet.silenceMs(m, provisioned = true, nowWallMs = 1_000_000L + strict, nowElapsedMs = 500L)))
+        assertEquals(
+            Ratchet.Tier.STRICT,
+            Ratchet.tierFor(Ratchet.silenceMs(m, provisioned = true, nowWallMs = 1_000_000L + strict, nowElapsedMs = 500L)),
+        )
     }
 
     @Test
@@ -67,6 +72,9 @@ class RatchetTest {
     @Test
     fun `reboot with a small honest wall delta stays FRESH`() {
         val m = markers(wall = 1_000_000L, elapsed = 9_000_000L, hw = 1_000_000L)
-        assertEquals(Ratchet.Tier.FRESH, Ratchet.tierFor(Ratchet.silenceMs(m, provisioned = true, nowWallMs = 1_000_000L + 1_000L, nowElapsedMs = 200L)))
+        assertEquals(
+            Ratchet.Tier.FRESH,
+            Ratchet.tierFor(Ratchet.silenceMs(m, provisioned = true, nowWallMs = 1_000_000L + 1_000L, nowElapsedMs = 200L)),
+        )
     }
 }

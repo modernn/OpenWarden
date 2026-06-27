@@ -1,7 +1,12 @@
 # ADR-015: Event-log crypto primitives — sealed-box only, one signing rule
 
-Status: Proposed
+Status: Accepted
 Date: 2026-06-16
+Accepted: 2026-06-26 — implemented by [ADR-044](044-sealed-box-event-encryption-impl.md) / issue #3.
+The mandated PROTOCOL §6.2 nonce fix (BLAKE3 → BLAKE2b, doc-change #5 below) is now applied, and
+the `crypto_box_seal` encryption primitive (ruling 1) is KAT-tested against reference libsodium.
+Doc-changes #1–#4 (STORE_AND_FORWARD non-normative banners + signing-input unification) remain a
+tracked follow-up doc PR and do not affect the implemented crypto.
 
 ## Context
 

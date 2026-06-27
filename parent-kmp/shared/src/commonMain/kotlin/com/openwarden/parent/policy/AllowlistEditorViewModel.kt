@@ -60,6 +60,7 @@ class AllowlistEditorViewModel(
                     )
                 }
             }
+
             is FetchAppsResult.Error -> {
                 // Fail-closed: restore saved allowlist, show error, do NOT wipe allowlist.
                 _state.update {
@@ -83,12 +84,16 @@ class AllowlistEditorViewModel(
      * which could be stale under concurrent calls (e.g. two rapid toggles in quick succession).
      */
     fun toggle(packageName: String) {
-        val committed = _state.updateAndGet { s ->
-            val next =
-                if (packageName in s.allowlist) s.allowlist - packageName
-                else s.allowlist + packageName
-            s.copy(allowlist = next)
-        }
+        val committed =
+            _state.updateAndGet { s ->
+                val next =
+                    if (packageName in s.allowlist) {
+                        s.allowlist - packageName
+                    } else {
+                        s.allowlist + packageName
+                    }
+                s.copy(allowlist = next)
+            }
         repo.saveAllowlist(committed.allowlist)
     }
 }

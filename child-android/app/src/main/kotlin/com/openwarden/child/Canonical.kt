@@ -50,22 +50,34 @@ object Canonical {
      */
     fun requireAllIntegersJcsSafe(element: JsonElement) {
         when (element) {
-            is JsonObject -> element.values.forEach { requireAllIntegersJcsSafe(it) }
-            is JsonArray -> element.forEach { requireAllIntegersJcsSafe(it) }
-            JsonNull -> Unit // null carries no integer; null-policy is a separate verifier concern
-            is JsonPrimitive ->
+            is JsonObject -> {
+                element.values.forEach { requireAllIntegersJcsSafe(it) }
+            }
+
+            is JsonArray -> {
+                element.forEach { requireAllIntegersJcsSafe(it) }
+            }
+
+            JsonNull -> {
+                Unit
+            }
+
+            // null carries no integer; null-policy is a separate verifier concern
+            is JsonPrimitive -> {
                 if (!element.isString) {
                     val c = element.content
                     if (c != "true" && c != "false") {
                         // A bare JSON number. It MUST be an integer within the JCS-safe range.
                         // toLongOrNull() == null means a float/exponent or beyond Long range — reject.
-                        val l = c.toLongOrNull()
-                            ?: throw IllegalArgumentException(
-                                "JSON number '$c' is not a JCS-safe integer (must be an integer in 0..2^53-1)",
-                            )
+                        val l =
+                            c.toLongOrNull()
+                                ?: throw IllegalArgumentException(
+                                    "JSON number '$c' is not a JCS-safe integer (must be an integer in 0..2^53-1)",
+                                )
                         requireJcsSafe(l)
                     }
                 }
+            }
         }
     }
 
@@ -88,10 +100,15 @@ object Canonical {
     fun canonicalize(element: JsonElement): String = buildString { write(element, this) }
 
     /** Canonical JCS string of [obj] with the named field removed (the signing input; ADR-015). */
-    fun canonicalizeWithout(obj: JsonObject, field: String): String =
-        canonicalize(JsonObject(obj.filterKeys { it != field }))
+    fun canonicalizeWithout(
+        obj: JsonObject,
+        field: String,
+    ): String = canonicalize(JsonObject(obj.filterKeys { it != field }))
 
-    private fun write(e: JsonElement, sb: StringBuilder) {
+    private fun write(
+        e: JsonElement,
+        sb: StringBuilder,
+    ) {
         when (e) {
             is JsonObject -> {
                 sb.append('{')
@@ -104,6 +121,7 @@ object Canonical {
                 }
                 sb.append('}')
             }
+
             is JsonArray -> {
                 sb.append('[')
                 for ((i, v) in e.withIndex()) {
@@ -112,29 +130,45 @@ object Canonical {
                 }
                 sb.append(']')
             }
-            is JsonNull -> sb.append("null")
-            is JsonPrimitive -> writePrimitive(e, sb)
+
+            is JsonNull -> {
+                sb.append("null")
+            }
+
+            is JsonPrimitive -> {
+                writePrimitive(e, sb)
+            }
         }
     }
 
-    private fun writePrimitive(p: JsonPrimitive, sb: StringBuilder) {
+    private fun writePrimitive(
+        p: JsonPrimitive,
+        sb: StringBuilder,
+    ) {
         if (p.isString) {
             writeString(p.content, sb)
             return
         }
         when (val c = p.content) {
-            "true", "false", "null" -> sb.append(c)
+            "true", "false", "null" -> {
+                sb.append(c)
+            }
+
             else -> {
-                val l = c.toLongOrNull()
-                    ?: throw IllegalArgumentException(
-                        "non-integer JSON number '$c' not allowed (JCS subset, PROTOCOL.md §3.1)",
-                    )
+                val l =
+                    c.toLongOrNull()
+                        ?: throw IllegalArgumentException(
+                            "non-integer JSON number '$c' not allowed (JCS subset, PROTOCOL.md §3.1)",
+                        )
                 sb.append(l.toString())
             }
         }
     }
 
-    private fun writeString(s: String, sb: StringBuilder) {
+    private fun writeString(
+        s: String,
+        sb: StringBuilder,
+    ) {
         sb.append('"')
         for (ch in s) {
             when {

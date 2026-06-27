@@ -9,7 +9,6 @@ import kotlin.test.assertFailsWith
  * child audience id + version, never a secret.
  */
 class MdnsServiceSpecTest {
-
     @Test
     fun `forChild builds the canonical openwarden tcp advertisement`() {
         val spec = MdnsServiceSpec.forChild("child-abcd", 7180)

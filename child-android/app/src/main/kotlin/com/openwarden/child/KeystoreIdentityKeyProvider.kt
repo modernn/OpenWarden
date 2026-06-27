@@ -11,8 +11,9 @@ package com.openwarden.child
  * stays testable with a fake store. Fail-closed: a not-yet-provisioned store returns `null`, so the
  * signer still vouches for nothing.
  */
-class KeystoreIdentityKeyProvider(private val store: ChildKeyStore) : IdentityKeyProvider {
-
+class KeystoreIdentityKeyProvider(
+    private val store: ChildKeyStore,
+) : IdentityKeyProvider {
     override fun identityPublicKey(): ByteArray? = store.identityPublicKey()
 
     override fun sign(message: ByteArray): ByteArray? = store.signIdentity(message)

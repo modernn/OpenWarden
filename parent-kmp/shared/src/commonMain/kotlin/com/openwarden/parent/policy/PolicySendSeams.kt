@@ -40,14 +40,19 @@ interface PolicyTransport {
 
 sealed interface PolicyPostResult {
     /** Child applied the bundle (200, `{"status":"applied","policy_seq"}`). */
-    data class Applied(val policySeq: Long) : PolicyPostResult
+    data class Applied(
+        val policySeq: Long,
+    ) : PolicyPostResult
 
     /** Child rejected (400, `{"error","reason"}`) — e.g. REGRESSION, EXPIRED, SIG_FAIL. */
-    data class Rejected(val reason: String) : PolicyPostResult
+    data class Rejected(
+        val reason: String,
+    ) : PolicyPostResult
 
     /** Network/transport failure — the same signed bundle may be retried (ADR-034 D3). */
-    data class TransportError(val message: String) : PolicyPostResult
+    data class TransportError(
+        val message: String,
+    ) : PolicyPostResult
 }
 
-internal fun ByteArray.toHexLower(): String =
-    joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+internal fun ByteArray.toHexLower(): String = joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }

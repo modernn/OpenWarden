@@ -53,13 +53,15 @@ class LockPresenter(
                     appState.setLockState(LockState.LOCKED)
                     _uiState.value = UiState(lockState = LockState.LOCKED, isBusy = false)
                 }
+
                 is LockCommandResult.Failure -> {
                     appState.setLockState(LockState.UNKNOWN)
-                    _uiState.value = UiState(
-                        lockState = LockState.UNKNOWN,
-                        isBusy = false,
-                        lastError = result.message,
-                    )
+                    _uiState.value =
+                        UiState(
+                            lockState = LockState.UNKNOWN,
+                            isBusy = false,
+                            lastError = result.message,
+                        )
                 }
             }
         } catch (e: CancellationException) {
@@ -71,11 +73,12 @@ class LockPresenter(
         } catch (e: Exception) {
             // Unexpected throw from the seam — fail-closed: UNKNOWN.
             appState.setLockState(LockState.UNKNOWN)
-            _uiState.value = UiState(
-                lockState = LockState.UNKNOWN,
-                isBusy = false,
-                lastError = e.message ?: "unexpected error",
-            )
+            _uiState.value =
+                UiState(
+                    lockState = LockState.UNKNOWN,
+                    isBusy = false,
+                    lastError = e.message ?: "unexpected error",
+                )
         }
     }
 
@@ -97,13 +100,15 @@ class LockPresenter(
                     appState.setLockState(LockState.UNLOCKED)
                     _uiState.value = UiState(lockState = LockState.UNLOCKED, isBusy = false)
                 }
+
                 is LockCommandResult.Failure -> {
                     appState.setLockState(LockState.UNKNOWN)
-                    _uiState.value = UiState(
-                        lockState = LockState.UNKNOWN,
-                        isBusy = false,
-                        lastError = result.message,
-                    )
+                    _uiState.value =
+                        UiState(
+                            lockState = LockState.UNKNOWN,
+                            isBusy = false,
+                            lastError = result.message,
+                        )
                 }
             }
         } catch (e: CancellationException) {
@@ -115,11 +120,12 @@ class LockPresenter(
         } catch (e: Exception) {
             // Unexpected throw from the seam — fail-closed: UNKNOWN.
             appState.setLockState(LockState.UNKNOWN)
-            _uiState.value = UiState(
-                lockState = LockState.UNKNOWN,
-                isBusy = false,
-                lastError = e.message ?: "unexpected error",
-            )
+            _uiState.value =
+                UiState(
+                    lockState = LockState.UNKNOWN,
+                    isBusy = false,
+                    lastError = e.message ?: "unexpected error",
+                )
         }
     }
 }

@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
  * Ed25519 sigs, mirroring [HeartbeatAdmissionTest].
  */
 class CommandAdmissionTest {
-
     private val myId = "child-abcd"
     private val now = 10_000_000L // arbitrary fixed "now" well inside the JCS-safe range
 
@@ -119,8 +118,10 @@ class CommandAdmissionTest {
     fun `tampered type after signing fails closed`() {
         val kp = CommandTestSigner.newKeypair()
         // Sign an unlock, then flip the wire bytes to lock — the signature no longer covers them.
-        val signed = CommandTestSigner.sign(cmd(type = SignedCommand.TYPE_UNLOCK), kp)
-            .copy(type = SignedCommand.TYPE_LOCK)
+        val signed =
+            CommandTestSigner
+                .sign(cmd(type = SignedCommand.TYPE_UNLOCK), kp)
+                .copy(type = SignedCommand.TYPE_LOCK)
         assertFalse(accepts(decide(signed, kp, expectedType = SignedCommand.TYPE_LOCK)))
     }
 
@@ -137,8 +138,12 @@ class CommandAdmissionTest {
         assertFalse(
             accepts(
                 CommandAdmission.decide(
-                    SignedCommand(v = 1), SignedCommand.TYPE_LOCK, myId,
-                    CommandTestSigner.newKeypair().pubRaw, commandFloor = null, nowMs = now,
+                    SignedCommand(v = 1),
+                    SignedCommand.TYPE_LOCK,
+                    myId,
+                    CommandTestSigner.newKeypair().pubRaw,
+                    commandFloor = null,
+                    nowMs = now,
                 ),
             ),
         )
@@ -148,8 +153,8 @@ class CommandAdmissionTest {
     fun `replayed command at or below the floor rejects`() {
         val kp = CommandTestSigner.newKeypair()
         val signed = CommandTestSigner.sign(cmd(issuedAt = now), kp)
-        assertFalse(accepts(decide(signed, kp, floor = now)))      // equal to floor
-        assertFalse(accepts(decide(signed, kp, floor = now + 1)))  // below floor
+        assertFalse(accepts(decide(signed, kp, floor = now))) // equal to floor
+        assertFalse(accepts(decide(signed, kp, floor = now + 1))) // below floor
     }
 
     @Test

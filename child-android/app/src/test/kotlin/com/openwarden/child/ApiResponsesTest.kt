@@ -18,22 +18,26 @@ import kotlin.test.assertTrue
  * on-device E2E.
  */
 class ApiResponsesTest {
-
     // Mirror of ApiServer's ContentNegotiation Json config.
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            explicitNulls = false
+        }
 
     @Test
     fun `StateResponse serializes with exact snake_case wire keys and mixed types`() {
-        val out = json.encodeToString(
-            StateResponse(
-                version = "0.1.0-dev",
-                policyVersion = "none",
-                policyNotAfter = "n/a",
-                isLocked = false,
-                paired = true,
-                reportedAt = 1_700_000_000_000L,
-            ),
-        )
+        val out =
+            json.encodeToString(
+                StateResponse(
+                    version = "0.1.0-dev",
+                    policyVersion = "none",
+                    policyNotAfter = "n/a",
+                    isLocked = false,
+                    paired = true,
+                    reportedAt = 1_700_000_000_000L,
+                ),
+            )
         // The very thing mapOf<String, Any> could not do: encode String + Boolean + Long together.
         assertTrue(out.contains("\"version\":\"0.1.0-dev\""), out)
         assertTrue(out.contains("\"policy_version\":\"none\""), out)
@@ -45,13 +49,14 @@ class ApiResponsesTest {
 
     @Test
     fun `UsageResponse on-device emits only source, window_hours, per_app (notices omitted)`() {
-        val out = json.encodeToString(
-            UsageResponse(
-                source = "on-device",
-                windowHours = 24,
-                perApp = listOf(UsageStatsHelper.AppUsageEntry("com.x", "X", 12)),
-            ),
-        )
+        val out =
+            json.encodeToString(
+                UsageResponse(
+                    source = "on-device",
+                    windowHours = 24,
+                    perApp = listOf(UsageStatsHelper.AppUsageEntry("com.x", "X", 12)),
+                ),
+            )
         assertTrue(out.contains("\"source\":\"on-device\""), out)
         assertTrue(out.contains("\"window_hours\":24"), out)
         assertTrue(out.contains("\"per_app\":["), out)
@@ -65,9 +70,10 @@ class ApiResponsesTest {
 
     @Test
     fun `UsageResponse demo-fallback includes demo_notice`() {
-        val out = json.encodeToString(
-            UsageResponse(source = "demo-fallback", windowHours = 24, perApp = emptyList(), demoNotice = "x"),
-        )
+        val out =
+            json.encodeToString(
+                UsageResponse(source = "demo-fallback", windowHours = 24, perApp = emptyList(), demoNotice = "x"),
+            )
         assertTrue(out.contains("\"demo_notice\":\"x\""), out)
         assertFalse(out.contains("\"notice\""), out)
     }
@@ -77,9 +83,10 @@ class ApiResponsesTest {
         // The error body (HTTP 500) intentionally normalizes to the same envelope as the other
         // source states — source + window_hours + per_app + error. (The old mapOf error omitted
         // window_hours; the DTO adds it. The parent tolerates it via ignoreUnknownKeys + defaults.)
-        val out = json.encodeToString(
-            UsageResponse(source = "error", windowHours = 24, perApp = emptyList(), error = "boom"),
-        )
+        val out =
+            json.encodeToString(
+                UsageResponse(source = "error", windowHours = 24, perApp = emptyList(), error = "boom"),
+            )
         assertTrue(out.contains("\"source\":\"error\""), out)
         assertTrue(out.contains("\"error\":\"boom\""), out)
         assertTrue(out.contains("\"window_hours\":24"), out)
@@ -91,22 +98,28 @@ class ApiResponsesTest {
 
     @Test
     fun `AppUsageEntry with null label omits the label key (parent defaults it)`() {
-        val out = json.encodeToString(
-            UsageResponse(
-                source = "on-device",
-                windowHours = 24,
-                perApp = listOf(UsageStatsHelper.AppUsageEntry("com.x", null, 5)),
-            ),
-        )
+        val out =
+            json.encodeToString(
+                UsageResponse(
+                    source = "on-device",
+                    windowHours = 24,
+                    perApp = listOf(UsageStatsHelper.AppUsageEntry("com.x", null, 5)),
+                ),
+            )
         assertFalse(out.contains("\"label\""), out)
     }
 
     @Test
     fun `StateResponse round-trips back to an equal value`() {
-        val original = StateResponse(
-            "0.1.0-dev", "1700000000000", "1700000086400000",
-            isLocked = true, paired = false, reportedAt = 1_700_000_100_000L,
-        )
+        val original =
+            StateResponse(
+                "0.1.0-dev",
+                "1700000000000",
+                "1700000086400000",
+                isLocked = true,
+                paired = false,
+                reportedAt = 1_700_000_100_000L,
+            )
         val decoded = json.decodeFromString<StateResponse>(json.encodeToString(original))
         assertEquals(original, decoded)
     }

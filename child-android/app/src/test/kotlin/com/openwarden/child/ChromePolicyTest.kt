@@ -32,7 +32,6 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ChromePolicyTest {
-
     private lateinit var context: Context
     private lateinit var dpm: DevicePolicyManager
     private lateinit var shadow: ShadowDevicePolicyManager
@@ -218,9 +217,10 @@ class ChromePolicyTest {
     @Test
     fun `apply() throws IllegalArgumentException when not device owner`() {
         // Create a fresh context whose package name is NOT the Device Owner.
-        val otherContext = object : android.content.ContextWrapper(context) {
-            override fun getPackageName(): String = "com.some.other.app"
-        }
+        val otherContext =
+            object : android.content.ContextWrapper(context) {
+                override fun getPackageName(): String = "com.some.other.app"
+            }
         val nonOwnerPolicy = ChromePolicy(otherContext)
 
         var threw = false

@@ -22,10 +22,11 @@ class PolicySender(
 ) {
     // Matches PolicySigner's wire config so the transmitted JSON is the PROTOCOL §2 shape:
     // defaults included, null optionals omitted (§3.1 rule 6 forbids `null` on the wire).
-    private val json = Json {
-        encodeDefaults = true
-        explicitNulls = false
-    }
+    private val json =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
 
     /** Build + sign + send [policy] under a fresh strictly-greater seq. */
     suspend fun send(policy: Policy): SendResult {
@@ -34,16 +35,18 @@ class PolicySender(
         if (rootKeyProvider.rootPublicKey() == null) return SendResult.NotProvisioned
 
         val seq = seqStore.reserveNext()
-        val unsigned = PolicyBundleBuilder.build(
-            policy = policy,
-            childDeviceId = childId,
-            policySeq = seq,
-            nowMs = clockMs(),
-            freshnessWindowMs = freshnessWindowMs,
-            nonceHex = nonceGenerator.newNonceHex(),
-        )
-        val signed = SignedBundleAssembler.assemble(unsigned, rootKeyProvider)
-            ?: return SendResult.NotProvisioned // key vanished between check and sign — fail closed
+        val unsigned =
+            PolicyBundleBuilder.build(
+                policy = policy,
+                childDeviceId = childId,
+                policySeq = seq,
+                nowMs = clockMs(),
+                freshnessWindowMs = freshnessWindowMs,
+                nonceHex = nonceGenerator.newNonceHex(),
+            )
+        val signed =
+            SignedBundleAssembler.assemble(unsigned, rootKeyProvider)
+                ?: return SendResult.NotProvisioned // key vanished between check and sign — fail closed
         return post(signed)
     }
 
@@ -70,13 +73,22 @@ class PolicySender(
 
 sealed interface SendResult {
     /** Child applied the bundle. */
-    data class Sent(val policySeq: Long, val bundle: PolicyBundle) : SendResult
+    data class Sent(
+        val policySeq: Long,
+        val bundle: PolicyBundle,
+    ) : SendResult
 
     /** Child rejected (e.g. REGRESSION/EXPIRED/SIG_FAIL) — [reason] is the child's. */
-    data class Rejected(val reason: String, val bundle: PolicyBundle) : SendResult
+    data class Rejected(
+        val reason: String,
+        val bundle: PolicyBundle,
+    ) : SendResult
 
     /** Transport failed — retry the SAME [bundle] via [PolicySender.resend] (ADR-034 D3). */
-    data class TransportFailed(val message: String, val bundle: PolicyBundle) : SendResult
+    data class TransportFailed(
+        val message: String,
+        val bundle: PolicyBundle,
+    ) : SendResult
 
     /** No root key — onboarding (#24) not complete. */
     data object NotProvisioned : SendResult

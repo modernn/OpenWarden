@@ -27,7 +27,6 @@ class PolicyWatchdog(
     private val reassertDnsFloor: () -> Unit = {},
     private val checkProfiles: () -> Unit = {},
 ) {
-
     /**
      * Re-assert every local policy surface, in fail-closed order (restrictions first). Each step
      * is guarded independently so a failure in one does not skip the others, and nothing
@@ -60,10 +59,17 @@ class PolicyWatchdog(
          *     never a frozen allowlist (ATTACKS.md item 4, DEFENSES.md G2). `loadActive()`
          *     collapses Missing+Corrupt to null, which is why the watchdog branches on `load()`.
          */
-        fun allowlistFor(result: PolicyStore.LoadResult): Set<String> = when (result) {
-            is PolicyStore.LoadResult.Loaded -> result.bundle.policy.allowlist.toSet()
-            else -> emptySet()
-        }
+        fun allowlistFor(result: PolicyStore.LoadResult): Set<String> =
+            when (result) {
+                is PolicyStore.LoadResult.Loaded -> {
+                    result.bundle.policy.allowlist
+                        .toSet()
+                }
+
+                else -> {
+                    emptySet()
+                }
+            }
 
         /**
          * ADR-024 no-contact ratchet — the allowlist to enforce given the current [tier]:
@@ -73,8 +79,10 @@ class PolicyWatchdog(
          *     longer trusted, so every non-allowlisted (i.e. every) app is suspended.
          * Pure so the ratchet wiring is unit-testable without a device.
          */
-        fun ratchetAllowlist(tier: Ratchet.Tier, result: PolicyStore.LoadResult): Set<String> =
-            if (tier == Ratchet.Tier.FRESH) allowlistFor(result) else emptySet()
+        fun ratchetAllowlist(
+            tier: Ratchet.Tier,
+            result: PolicyStore.LoadResult,
+        ): Set<String> = if (tier == Ratchet.Tier.FRESH) allowlistFor(result) else emptySet()
 
         /**
          * ADR-024 — the DNS resolver to pin given the current [tier]:
@@ -84,7 +92,10 @@ class PolicyWatchdog(
          *   - otherwise → the bundle's `private_dns` (still trusted at FRESH/STALE).
          * The floor itself never resolves to OFF/OPPORTUNISTIC regardless (ADR-016).
          */
-        fun ratchetDns(tier: Ratchet.Tier, result: PolicyStore.LoadResult): String? =
+        fun ratchetDns(
+            tier: Ratchet.Tier,
+            result: PolicyStore.LoadResult,
+        ): String? =
             if (tier == Ratchet.Tier.STRICT) {
                 null
             } else {
@@ -109,21 +120,34 @@ class PolicyWatchdog(
          *   - no active bundle → [Ratchet.Tier.FRESH]: the Missing/Corrupt deny-all path covers it.
          * Pure → unit-testable without a device. Composed via [effectiveTier] (freshness only tightens).
          */
-        fun freshnessTier(result: PolicyStore.LoadResult, now: FreshnessClock.Now): Ratchet.Tier {
+        fun freshnessTier(
+            result: PolicyStore.LoadResult,
+            now: FreshnessClock.Now,
+        ): Ratchet.Tier {
             val bundle = (result as? PolicyStore.LoadResult.Loaded)?.bundle ?: return Ratchet.Tier.FRESH
             return when (now) {
-                is FreshnessClock.Now.Unusable -> Ratchet.Tier.STALE // can't confirm freshness ⇒ deny-all
-                is FreshnessClock.Now.Usable ->
+                is FreshnessClock.Now.Unusable -> {
+                    Ratchet.Tier.STALE
+                }
+
+                // can't confirm freshness ⇒ deny-all
+                is FreshnessClock.Now.Usable -> {
                     if (now.monotonicNowMs >= bundle.not_after) Ratchet.Tier.STALE else Ratchet.Tier.FRESH
+                }
             }
         }
 
         /** The stricter of the no-contact ratchet tier and the freshness tier (freshness only tightens). */
-        fun effectiveTier(ratchetTier: Ratchet.Tier, freshnessTier: Ratchet.Tier): Ratchet.Tier =
-            if (freshnessTier.ordinal > ratchetTier.ordinal) freshnessTier else ratchetTier
+        fun effectiveTier(
+            ratchetTier: Ratchet.Tier,
+            freshnessTier: Ratchet.Tier,
+        ): Ratchet.Tier = if (freshnessTier.ordinal > ratchetTier.ordinal) freshnessTier else ratchetTier
 
         /** The §5.1 monotonic estimate from the persisted anchor + the kernel clock (ADR-041). */
-        fun freshnessNow(store: ReplayFloorStore, nowElapsedMs: Long): FreshnessClock.Now =
+        fun freshnessNow(
+            store: ReplayFloorStore,
+            nowElapsedMs: Long,
+        ): FreshnessClock.Now =
             FreshnessClock.estimate(
                 FreshnessClock.Anchor(
                     parentAnchorMs = store.freshnessAnchorParentMs(),
@@ -147,10 +171,11 @@ class PolicyWatchdog(
                 // for the silence part) is read outside the lock; the bundle load stays inside it, so
                 // deny-all on STALE/STRICT still honors R4.
                 reassertAllowlist = {
-                    val tier = effectiveTier(
-                        ratchet.currentTier(),
-                        freshnessTier(store.load(), freshnessNow(floorStore, SystemClock.elapsedRealtime())),
-                    )
+                    val tier =
+                        effectiveTier(
+                            ratchet.currentTier(),
+                            freshnessTier(store.load(), freshnessNow(floorStore, SystemClock.elapsedRealtime())),
+                        )
                     enforcer.reassertActiveAllowlist { ratchetAllowlist(tier, store.load()) }
                 },
                 // Pin the fail-closed DNS floor (ADR-016). The parent's chosen resolver comes
@@ -160,10 +185,11 @@ class PolicyWatchdog(
                 // ADR-024/ADR-041: at STRICT (silence) or an EXPIRED active bundle the bundle's
                 // resolver is ignored (default filtering host).
                 reassertDnsFloor = {
-                    val tier = effectiveTier(
-                        ratchet.currentTier(),
-                        freshnessTier(store.load(), freshnessNow(floorStore, SystemClock.elapsedRealtime())),
-                    )
+                    val tier =
+                        effectiveTier(
+                            ratchet.currentTier(),
+                            freshnessTier(store.load(), freshnessNow(floorStore, SystemClock.elapsedRealtime())),
+                        )
                     DnsFloor(context).applyFloor(ratchetDns(tier, store.load()))
                 },
                 // ADR-022 profile-escape backstop: the restrictions above already BLOCK
