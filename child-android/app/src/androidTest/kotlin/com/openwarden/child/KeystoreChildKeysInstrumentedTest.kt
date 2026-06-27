@@ -14,6 +14,7 @@ import org.junit.runner.RunWith
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Signature
+import java.security.spec.ECGenParameterSpec
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -28,7 +29,10 @@ import kotlin.test.assertTrue
  *
  *  - **Any Android device (incl. the emulator):**
  *      - the fail-closed contract: a never-provisioned [KeystoreChildKeys] reports `isProvisioned()==false`
- *        and every accessor returns `null` (test 1).
+ *        and every accessor returns `null` (test 1);
+ *      - the extractor REJECTS a non-Curve25519 key — a P-256 key under the production `K_id`/`K_enc`
+ *        aliases yields `null`, executing the "91-byte P-256 ⇒ null ⇒ cannot pair" fail-closed path on
+ *        the emulator rather than just asserting it in prose (test 1b).
  *  - **A genuine-Curve25519 device only (a real Pixel 7):**
  *      - the **SPKI-encoding assumption** the class's `rawCurve25519PublicKey` extractor pins — that
  *        AndroidKeyStore emits exactly the 12-byte RFC 8410 prefix ‖ 32-byte key — for Ed25519 (`K_id`)
@@ -78,7 +82,9 @@ class KeystoreChildKeysInstrumentedTest {
             try {
                 if (ks.containsAlias(alias)) ks.deleteEntry(alias)
             } catch (e: Exception) {
-                // best-effort; a surviving alias only affects a subsequent run, never correctness here
+                // best-effort. A surviving prod alias does not silently pass a fail-closed test: the
+                // fail-closed assertions check for *absence*, so a leftover key makes them FAIL loudly
+                // (the safe direction), never falsely green.
             }
         }
     }
@@ -98,6 +104,37 @@ class KeystoreChildKeysInstrumentedTest {
         assertNull(store.signIdentity(byteArrayOf(1, 2, 3)), "no identity signature pre-provision")
         assertNull(store.signBinding(byteArrayOf(1, 2, 3)), "no binding signature pre-provision")
         assertNull(store.attestationChain(), "no attestation chain pre-provision")
+    }
+
+    /**
+     * Test 1b (executed fail-closed, ANY device incl. the emulator): the production extractor REJECTS a
+     * non-Curve25519 key. Put a real **P-256** key — what the emulator's AndroidKeyStore actually yields
+     * for an `"Ed25519"`/`"XDH"` request — under the **production** `K_id`/`K_enc` aliases, then assert
+     * `identityPublicKey()`/`encryptionPublicKey()` return `null`. This **executes** the "91-byte P-256 ⇒
+     * `null` ⇒ child cannot pair" fail-closed path that tests 2/3 only describe in prose: the extractor's
+     * `size != 44` + OID-prefix guards reject it rather than mis-slicing 32 bytes out of a P-256 key.
+     */
+    @Test
+    fun nonCurve25519KeyUnderProdAliasIsRejected() {
+        cleanup()
+        // Occupy each production Curve25519 alias with a genuine EC P-256 key (the emulator's de-facto
+        // "Ed25519"/"XDH" output) — purpose is irrelevant; the extractor only reads the cert SPKI.
+        for (alias in listOf("openwarden_child_ed25519", "openwarden_child_x25519")) {
+            KeyPairGenerator
+                .getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+                .apply {
+                    initialize(
+                        KeyGenParameterSpec
+                            .Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
+                            .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+                            .setDigests(KeyProperties.DIGEST_SHA256)
+                            .build(),
+                    )
+                }.generateKeyPair()
+        }
+        val store = KeystoreChildKeys()
+        assertNull(store.identityPublicKey(), "a P-256 key under K_id must be rejected — not a 32-byte Curve25519 key")
+        assertNull(store.encryptionPublicKey(), "a P-256 key under K_enc must be rejected — not a 32-byte Curve25519 key")
     }
 
     /**
@@ -197,10 +234,19 @@ class KeystoreChildKeysInstrumentedTest {
     // ---- StrongBox device only (bench Pixel 7) --------------------------------------------------
 
     /**
-     * Test 4 (ADR-032 gate): on real StrongBox, the full child path produces an attested `K_bind` binding
-     * the **real parent verifier** accepts — `provisionAndBind` → [ChildKeyManager.ProvisionResult] →
-     * [ChildKeyBindingVerifier.verify] (PROTOCOL §7.3 check 4b) passes, the attestation chain is present,
-     * and the TEE keys are exactly 32 raw bytes. This is the on-device confirmation the gate requires.
+     * Test 4 (ADR-032 gate, **check 4b only**): on real StrongBox, the full child path produces an attested
+     * `K_bind` binding the **real parent verifier** accepts — `provisionAndBind` →
+     * [ChildKeyManager.ProvisionResult] → [ChildKeyBindingVerifier.verify] (PROTOCOL §7.3 **check 4b**)
+     * passes, the attestation chain is present, and the TEE keys are exactly 32 raw bytes.
+     *
+     * **Scope — what a green run here does and does NOT clear:** it confirms the binding-signature link
+     * (check 4b) with real StrongBox ECDSA-P-256 + the keygen/encoding half of the gate. It does **NOT**
+     * exercise PROTOCOL §7.3 checks 1–4 (chain roots in the Google attestation root, leaf challenge ==
+     * `provisioning_nonce`, GREEN boot + locked, allow-listed model, **`securityLevel == STRONGBOX`**) —
+     * those are the parent-side cert-chain work ([ChildKeyBindingVerifier] disclaims them) and remain a
+     * **manual gate item**: the maintainer's bench run must separately confirm the leaf `securityLevel ==
+     * STRONGBOX (2)` and attestation `challenge == provisioning_nonce` from the live chain before treating
+     * ADR-032's gate as cleared.
      */
     @Test
     fun strongBoxProvisionBindVerifyRoundTrip() {
@@ -208,6 +254,7 @@ class KeystoreChildKeysInstrumentedTest {
             "no StrongBox on this device — run on a bench Pixel 7 to clear the ADR-032 gate",
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE),
         )
+        cleanup() // deterministic: start from no prior key set (provision() rotates, but be explicit).
         val store = KeystoreChildKeys()
         val nonce = ByteArray(32) { 7 }
         val result =
@@ -236,6 +283,7 @@ class KeystoreChildKeysInstrumentedTest {
             "no StrongBox on this device — run on a bench Pixel 7 to clear the ADR-032 gate",
             context.packageManager.hasSystemFeature(PackageManager.FEATURE_STRONGBOX_KEYSTORE),
         )
+        cleanup() // deterministic: start from no prior key set.
         val store = KeystoreChildKeys()
         val nonce = ByteArray(32) { 7 }
         val result =
