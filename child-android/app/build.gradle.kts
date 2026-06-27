@@ -71,4 +71,7 @@ dependencies {
 
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+    // kotlin.test on the instrumented classpath too, so androidTest uses the same assert idiom as
+    // the unit tests (it was unit-test-only; instrumented tests using kotlin.test failed to compile).
+    androidTestImplementation(kotlin("test-junit"))
 }
