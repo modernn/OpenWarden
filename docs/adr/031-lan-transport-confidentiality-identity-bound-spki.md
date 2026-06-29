@@ -63,6 +63,13 @@ The acceptance — *"a spoofed responder without the pinned SPKI/identity is rej
 
 **D6 — Relationship to ADR-030's disclosed D4 residual.** ADR-030 D4 disclosed that on **plaintext** LAN a captured `unlock` is repeatably replayable within the freshness window. The confidential channel this ADR defines (once the deferred socket lands) closes the *capture* vector that residual depends on; until then ADR-030's 5-minute freshness window remains the bound, unchanged. This ADR lands the **provenance and auth-independence** that make the eventual confidential channel trustworthy **without** a TOFU window — i.e. it removes the *new* MITM exposure that naively adding TLS would have introduced (TR1), rather than itself flipping the socket.
 
+**D7 — (amendment 2026-06-29, issue #21) The parent-side verifier is ported to `parent-kmp`, seam-injected + host-tested; the live socket + discovery stay deferred.** D5 deferred "the parent-side discovery + cert-pin + reject" and flagged that `SpkiAssertion` would need adding to `parent-kmp` as its own `agent-blocked` step. This amendment lands that **verifier half**:
+- `SpkiAssertion` (wire type; `@SerialName` snake_case so its JCS is byte-identical to the child's) + `SpkiBindingVerifier` (the D2 accept/reject decision) in `parent-kmp/shared/commonMain`, mirroring child-android `SpkiBinding.verify` exactly — same four ordered checks, same fail-closed posture, no TOFU;
+- the Ed25519 verify is an injected **`Ed25519Verifier`** seam (commonMain interface + `BouncyCastleEd25519Verifier` androidMain actual, RFC 8032 — BC ≡ the child's i2p/libsodium signer per the ADR-033 KATs), so the whole matrix is host-deterministic in `commonTest` and proven with **real** BC crypto in `androidUnitTest`;
+- SHA-256 reuses the existing `openwardenSha256` seam; base64url + JCS reuse the existing `Base64Url` + `com.openwarden.proto.Canonical` — no second primitive, the one signing rule preserved.
+
+The deterministic accept/reject matrix (incl. the spoofed-responder-presents-a-different-cert reject — the #21 acceptance) plus the **golden `spki_sha256` vector shared verbatim with the child** (`uVeFXpFKx6o3rRkj0XMLu4S2n-ZwKkywc64azFXdb-0`) prove parent↔child byte-agreement, so a genuine child-emitted assertion verifies on the parent. **Still deferred (unchanged from D5), each its own step:** the live TLS socket; the parent's mDNS discovery; and the **real-cert SPKI extraction** that must feed `presentedSpkiDer` from the *negotiated TLS leaf of a completed handshake* — never a cert echoed in a payload (the D5 carry-forward conformance), with a real-cert SPKI vector under `docs/test-vectors/`. This lands the *verifier* ahead of its live caller — the same wiring-ahead posture the child half shipped in; the real StrongBox child identity key (#22) remains the runtime dependency for an end-to-end pair.
+
 ## Consequences
 
 **Good:**
@@ -74,7 +81,7 @@ The acceptance — *"a spoofed responder without the pinned SPKI/identity is rej
 **Bad / accepted limits (disclosed):**
 - **No confidentiality actually ships yet** — the live TLS socket is deferred (D5), so the ADR-030 D4 plaintext-replay residual persists until that sibling lands; this ADR makes the *future* socket safe, it does not yet encrypt the wire.
 - **The binding cannot run for real until issue #22** supplies the StrongBox identity key; today the signer no-ops fail-closed and only the verifier + tests exercise the path (with an injected synthetic key). This is wiring-ahead, deliberately seam-injected.
-- **The parent half is out of scope** (parent-kmp, ADR-025 D5); the end-to-end spoof rejection is proven by the shared verifier + unit tests, not yet by a running parent app.
+- **The parent-side *verifier* now lands (D7 amendment, #21)** — `SpkiAssertion` + `SpkiBindingVerifier` are in `parent-kmp`, host-tested with real BC Ed25519 and proven byte-agreeing with the child. **Still deferred:** the live TLS socket, the parent's mDNS discovery, and the real-cert SPKI extraction (D5 carry-forward) — so the *live* "parent app rejects a spoofed child on the LAN" E2E is still not claimed; it is the verifier proven by a running parent's tests, not yet by a running socket.
 - mDNS advertising adds a small always-on LAN broadcast of the child's presence + audience id (metadata only, never content/secret) — acceptable and consistent with KID_TRANSPARENCY (the child may see it is discoverable).
 
 ## Test plan (binds the implementation)
