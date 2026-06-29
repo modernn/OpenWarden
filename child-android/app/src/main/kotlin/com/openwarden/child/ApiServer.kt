@@ -167,6 +167,19 @@ class ApiServer(
                     }
                     post("/lock") { handleCommand(call, SignedCommand.TYPE_LOCK) }
                     post("/unlock") { handleCommand(call, SignedCommand.TYPE_UNLOCK) }
+                    get("/apps") {
+                        // METADATA ONLY — package name + human-readable label for each user-installed
+                        // (non-system) app, excluding self. No content, no usage times, no in-app data.
+                        // See InstalledAppsHelper for the system-app exclusion rationale and
+                        // InstalledAppsHelper.mapToEntries for the host-testable pure logic.
+                        // Errors fail closed to an empty list: the parent receives a valid envelope
+                        // (never HTTP 500) and handles the empty case by showing no toggles.
+                        val ctx = this@ApiServer.context
+                        val entries =
+                            runCatching { InstalledAppsHelper.query(ctx) }
+                                .getOrElse { emptyList() }
+                        call.respond(AppsResponse(apps = entries))
+                    }
                     get("/usage") {
                         // ADR-042: real per-app foreground usage (METADATA ONLY — package + label +
                         // foreground minutes; never in-app content). On-device data when the
