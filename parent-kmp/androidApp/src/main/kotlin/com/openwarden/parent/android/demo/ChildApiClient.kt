@@ -1,15 +1,20 @@
 package com.openwarden.parent.android.demo
 
 import io.ktor.client.HttpClient
+import io.ktor.client.call.NoTransformationFoundException
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.IOException
 
 /**
  * DEMO ONLY — insecure, hardcoded, no auth/TLS.
@@ -85,6 +90,44 @@ sealed class ApiResult<out T> {
 }
 
 /**
+ * Maps a [Throwable] thrown by a Ktor child-API call to a clean, human-readable
+ * error message safe to display in the UI.
+ *
+ * This function is **pure** (no I/O, no side effects) so it can be unit-tested
+ * without a live socket. It deliberately avoids leaking class names, package paths,
+ * or Ktor-internal URLs into the user-facing string.
+ *
+ * Cases:
+ * - [ResponseException] with HTTP 404  → endpoint not yet implemented on the child.
+ * - [ResponseException] for any other  → the child returned an unexpected HTTP status.
+ * - [NoTransformationFoundException]   → body could not be deserialized to the expected type.
+ * - [IOException] / [HttpRequestTimeoutException] → network / connectivity failure.
+ * - Anything else                      → generic safe fallback (never exposes a class name).
+ */
+internal fun childErrorMessage(t: Throwable): String =
+    when {
+        t is ResponseException && t.response.status == HttpStatusCode.NotFound -> {
+            "The child device isn't reporting its installed apps yet."
+        }
+
+        t is ResponseException -> {
+            "The child device returned an unexpected response (HTTP ${t.response.status.value})."
+        }
+
+        t is NoTransformationFoundException -> {
+            "The child device sent an unexpected response."
+        }
+
+        t is HttpRequestTimeoutException || (t is IOException) -> {
+            "Couldn't reach the child device. Check it's on the same network and try again."
+        }
+
+        else -> {
+            "Couldn't load data from the child device. Try again."
+        }
+    }
+
+/**
  * Thin Ktor client scoped to the demo child server.
  *
  * Implements [java.io.Closeable]: call [close] when the client is no longer needed
@@ -101,6 +144,9 @@ internal class ChildApiClient : java.io.Closeable {
     private val http =
         HttpClient(OkHttp) {
             install(ContentNegotiation) { json(json) }
+            // expectSuccess = true makes Ktor throw ResponseException for non-2xx responses,
+            // which lets childErrorMessage distinguish HTTP 404 from serialization errors.
+            expectSuccess = true
             // Short timeouts so the UI fails fast and visibly rather than hanging.
             engine {
                 config {
@@ -123,7 +169,7 @@ internal class ChildApiClient : java.io.Closeable {
             http.get("$DEMO_CHILD_BASE_URL/state").body<ChildStateResponse>()
         }.fold(
             onSuccess = { ApiResult.Success(it) },
-            onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
+            onFailure = { ApiResult.Failure(childErrorMessage(it)) },
         )
 
     suspend fun postLock(): ApiResult<Unit> =
@@ -131,7 +177,7 @@ internal class ChildApiClient : java.io.Closeable {
             http.post("$DEMO_CHILD_BASE_URL/lock")
         }.fold(
             onSuccess = { ApiResult.Success(Unit) },
-            onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
+            onFailure = { ApiResult.Failure(childErrorMessage(it)) },
         )
 
     suspend fun getUsage(): ApiResult<List<AppUsageEntry>> =
@@ -140,7 +186,7 @@ internal class ChildApiClient : java.io.Closeable {
             http.get("$DEMO_CHILD_BASE_URL/usage").body<UsageResponse>().perApp
         }.fold(
             onSuccess = { ApiResult.Success(it) },
-            onFailure = { ApiResult.Failure(it.message ?: "Unknown error") },
+            onFailure = { ApiResult.Failure(childErrorMessage(it)) },
         )
 
     /**
@@ -159,7 +205,7 @@ internal class ChildApiClient : java.io.Closeable {
             http.get("$DEMO_CHILD_BASE_URL/apps").body<InstalledAppsResponse>().apps
         }.fold(
             onSuccess = { ApiResult.Success(it) },
-            onFailure = { ApiResult.Failure(it.message ?: "Unknown error fetching /apps") },
+            onFailure = { ApiResult.Failure(childErrorMessage(it)) },
         )
 
     /** Release the underlying OkHttp thread pool and connection pool. */
