@@ -160,6 +160,95 @@ class PolicyEnforcerTest {
     }
 
     // ---------------------------------------------------------------------
+    // restrictionFilter test seam (ADR-045 / issue #131)
+    //
+    // The seam exists so instrumented tests can assert the ENFORCED baseline on a provisioned
+    // device while keeping adb alive (DISALLOW_DEBUGGING_FEATURES kills adb the instant it
+    // enforces). The default filter is the identity, so the RELEASE set is never narrowed — these
+    // tests pin both halves: production keeps the full set; a test filter drops only what it names.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `default restrictionFilter preserves the full release baseline including DISALLOW_DEBUGGING_FEATURES`() {
+        // Regression: the production construction (default identity filter) must apply the COMPLETE
+        // baseline. If a future change accidentally narrowed the default, this fails.
+        val required = PolicyEnforcer(context).requiredRestrictions
+        assertTrue(
+            UserManager.DISALLOW_DEBUGGING_FEATURES in required,
+            "Release set must always include DISALLOW_DEBUGGING_FEATURES (it is the only adb-console close; ADR-045)",
+        )
+        assertEquals(
+            api34Required,
+            required.toSet(),
+            "Default (production) requiredRestrictions must be the full canonical 17 + managed-profile block",
+        )
+    }
+
+    @Test
+    fun `restrictionFilter omitting DISALLOW_DEBUGGING_FEATURES drops exactly that one key`() {
+        val filtered =
+            PolicyEnforcer(
+                context,
+                restrictionFilter = { it != UserManager.DISALLOW_DEBUGGING_FEATURES },
+            ).requiredRestrictions
+
+        assertFalse(
+            UserManager.DISALLOW_DEBUGGING_FEATURES in filtered,
+            "The injected test filter must remove DISALLOW_DEBUGGING_FEATURES",
+        )
+        assertEquals(
+            api34Required - UserManager.DISALLOW_DEBUGGING_FEATURES,
+            filtered.toSet(),
+            "The filter must drop ONLY the named restriction — every other baseline entry remains",
+        )
+        assertEquals(
+            api34Required.size - 1,
+            filtered.size,
+            "Filtering one restriction must shrink the set by exactly one (no other change)",
+        )
+    }
+
+    @Test
+    fun `applyDayOneRestrictions with the test filter verifies the filtered set cleanly`() {
+        // The instrumented-test scenario, host-simulated: omit DISALLOW_DEBUGGING_FEATURES via the
+        // seam, and have the readback report the FILTERED set as present. apply must return cleanly
+        // (verify passes) and report nothing missing — i.e. omitting the adb-killer lets the rest
+        // of the enforced baseline be asserted.
+        val debugging = UserManager.DISALLOW_DEBUGGING_FEATURES
+        val filteredPresent = api34Required - debugging
+        val enforcer =
+            PolicyEnforcer(
+                context,
+                isRestrictionSet = { it in filteredPresent },
+                restrictionFilter = { it != debugging },
+            )
+        enforcer.applyDayOneRestrictions()
+        assertTrue(
+            enforcer.missingRestrictions().isEmpty(),
+            "With the filter applied, the readback of the filtered set must leave nothing missing",
+        )
+    }
+
+    @Test
+    fun `without the filter the same filtered readback fails closed - proving the filter is load-bearing`() {
+        // Contrast to the test above: with the DEFAULT (full) set, a readback that is missing
+        // DISALLOW_DEBUGGING_FEATURES must FAIL CLOSED. This proves the prior test passes BECAUSE of
+        // the filter, not because the restriction was vacuously absent — and that the release path
+        // still demands DISALLOW_DEBUGGING_FEATURES.
+        val debugging = UserManager.DISALLOW_DEBUGGING_FEATURES
+        val filteredPresent = api34Required - debugging
+        val ex =
+            assertFailsWith<RestrictionEnforcementException>("the full release set must still require the adb-killer") {
+                PolicyEnforcer(context, isRestrictionSet = { it in filteredPresent }).applyDayOneRestrictions()
+            }
+        assertEquals(
+            setOf(debugging),
+            ex.missing.toSet(),
+            "Exactly DISALLOW_DEBUGGING_FEATURES must be reported missing by the unfiltered (release) path",
+        )
+    }
+
+    // ---------------------------------------------------------------------
     // verify / missing — deterministic via injected reader
     // ---------------------------------------------------------------------
 

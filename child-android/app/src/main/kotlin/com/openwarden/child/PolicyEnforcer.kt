@@ -41,6 +41,15 @@ import android.util.Log
  *   cannot leave a stale exemption (the now-non-default launcher must become a deny target).
  * @param lock the fail-closed containment action (default `dpm.lockNow()`). Routed through a seam
  *   so the lock half of the fail-closed contract is independently testable.
+ * @param restrictionFilter test-wiring seam over the Day-One baseline (ADR-045). Defaults to the
+ *   identity `{ true }`, so **every production construction applies the complete baseline,
+ *   unchanged**. The ONLY callers that narrow it are instrumented tests, which inject
+ *   `{ it != UserManager.DISALLOW_DEBUGGING_FEATURES }` so the enforced baseline can be asserted on
+ *   a provisioned device while adb stays alive (that one restriction kills adb the instant it
+ *   enforces). This is test-wiring, NOT a runtime build flag: there is no `BuildConfig.DEBUG` gate
+ *   on the restriction set, because a release variant that defaults to *less* restriction would be a
+ *   fail-OPEN hole (ADR-020 D1 / the fail-closed non-negotiable). `DISALLOW_DEBUGGING_FEATURES` is
+ *   non-redundant and stays always-on in release — see `docs/research/09-…` and issue #131.
  */
 class PolicyEnforcer(
     private val context: Context,
@@ -49,6 +58,7 @@ class PolicyEnforcer(
     private val isLaunchBlocked: (String) -> Boolean = defaultLaunchBlockedReader(context),
     private val alwaysExempt: () -> Set<String> = defaultExemptReader(context),
     private val lock: () -> Unit = defaultLockAction(context),
+    restrictionFilter: (String) -> Boolean = { true },
 ) {
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val admin = AdminReceiver.componentName(context)
@@ -57,8 +67,15 @@ class PolicyEnforcer(
      * The canonical Day-One user-restriction baseline for *this* device's OS level — the
      * ADR-020 ship set plus the ADR-022 profile-escape block. API-aware; see
      * [requiredRestrictionsForSdk] for the full composition and the per-OS rationale.
+     *
+     * Passed through [restrictionFilter] (ADR-045). The default filter is the identity, so the
+     * production set is byte-for-byte the full baseline; only instrumented tests narrow it (to keep
+     * adb alive while asserting the enforced set). Both [applyDayOneRestrictions] (apply) and
+     * [missingRestrictions]/[verifyOrThrow] (readback-verify) operate over THIS filtered list, so a
+     * test that omits one restriction applies and verifies a consistently-smaller set — the
+     * fail-closed shape is unchanged.
      */
-    val requiredRestrictions: List<String> = requiredRestrictionsForSdk(Build.VERSION.SDK_INT)
+    val requiredRestrictions: List<String> = requiredRestrictionsForSdk(Build.VERSION.SDK_INT).filter(restrictionFilter)
 
     /**
      * Apply the full Day-One baseline, then verify every restriction is set. Idempotent —
