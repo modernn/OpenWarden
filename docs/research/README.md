@@ -20,6 +20,7 @@ If something here contradicts a canon doc, the canon doc wins. ADRs in [`../adr/
 | [05-redteam-deeper.md](05-redteam-deeper.md) | Red team: deeper bypass research (P9 Play Services Help, accessibility class, etc.) | ~5700 |
 | [06-defenses-raw.md](06-defenses-raw.md) | Defense engineering: StrongBox patterns, AVB attestation, sealed-box envelope | ~3500 |
 | [07-redteam-design-review.md](07-redteam-design-review.md) | Red team (2026-06-16): adversarial review of the v1 *spec* — gaps, bypasses, and doc/ADR contradictions found before any code. AI-generated, human-verify before acting. | ~2600 |
+| [09-disallow-debugging-and-cross-oem-provisioning.md](09-disallow-debugging-and-cross-oem-provisioning.md) | DISALLOW_DEBUGGING_FEATURES analysis (keep always-on, not redundant); testing around adb-dark; cross-OEM DO provisioning matrix (Pixel/Samsung/OnePlus/Motorola/Nothing/Xiaomi); two new ADR gaps (#133 Play Protect DPC allowlist, #134 P-384 attestation root rotation). 2026-06-29. | ~3600 |
 
 ## How these became canon docs
 
