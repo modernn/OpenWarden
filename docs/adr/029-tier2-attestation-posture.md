@@ -7,6 +7,8 @@ Relates: ADR-026 (commits Pixel + Samsung + OnePlus at v1.0 — this ADR is its 
 
 > **Amended by ADR-032 (Proposed, 2026-06-22):** StrongBox/TEE cannot hold **Curve25519**, so the attested leaf is the EC **P-256 `K_bind`** device-binding key, not `child_ed25519_pub` (ADR-032). On Tier 2 this changes nothing about ADR-029's two relaxations (root, security-level) — it adds **one tier-independent change**: the leaf-pubkey binding becomes "leaf == `K_bind`" plus a new **check 4b** verifying `child_binding_sig` (ECDSA-P-256 by `K_bind`) over the TEE-resident Ed25519/X25519 keys. `K_bind` is P-256, so it inherits this ADR's StrongBox→TEE keygen fallback and `STRONGBOX`-or-`TRUSTED_ENVIRONMENT` acceptance unchanged. Wherever this ADR says "leaf-cert pubkey == `child_ed25519_pub`", read "leaf == `K_bind` + `child_binding_sig` verifies". See **ADR-032 D4a**.
 
+> **Amendment 2026-06-29 (issues #134, #135):** Google's key-attestation root **rotated to ECDSA P-384** for RKP devices (~April 2026); legacy devices still chain to the old RSA root — so `oem_roots.json` (D6) must trust **BOTH** Google roots, or attestation fails on all modern devices. Separately, the **Samsung A55 ships Knox Vault** (StrongBox), correcting the context line below that calls it "TEE-only." See the **Amendment (2026-06-29)** section at the end.
+
 ## Context
 
 ADR-026 (Proposed) commits **Samsung (S22+/A55+/Note) + OnePlus 11+** to the v1.0 release at the ADR-023 disclosed-gap floor. ADR-025 (Accepted) — the ratified pairing trust model — makes those devices **unpairable as written**:
@@ -81,3 +83,27 @@ These do not block ratifying the posture, but each must be resolved fail-closed 
 - [ADR-026](026-top-oem-release-scope.md) / [ADR-027](027-provisioning-distribution-model.md) (Proposed — unblocked by this ADR)
 - [docs/CRYPTO.md](../CRYPTO.md) §3 (L124), §10 (L453/L456) — reconciled here
 - docs/ANDROID_COMPAT.md §3 (StrongBox/TEE matrix), §4 (per-OEM roots); docs/ATTACKS.md §1 (threat model), H3; docs/DEFENSES.md #4/#14
+
+## Amendment (2026-06-29) — `oem_roots.json` must trust BOTH Google attestation roots (RSA + P-384); A55 is StrongBox-capable (issues #134, #135)
+
+Source: cross-OEM provisioning research, `docs/research/09-disallow-debugging-and-cross-oem-provisioning.md`.
+
+### A. Google attestation root rotation — the two-root requirement (issue #134)
+
+**Finding.** Google rotated the hardware key-attestation **root certificate** to an **ECDSA P-384** root for all RKP (Remote Key Provisioning) devices; the rotation completed ~**April 2026**. Devices that still use factory-provisioned attestation keys continue to chain to the **legacy RSA** Google root. So a modern Pixel / Samsung-flagship / OnePlus chain roots in the **new P-384** root, while older hardware roots in the **old RSA** root.
+
+**Impact on D1 / D6.** The `oem_roots.json` allowlist (D6) — and the chain verifier — **MUST pin and trust BOTH Google roots simultaneously from launch**:
+- the **legacy RSA** Google Hardware Attestation root, AND
+- the **new ECDSA P-384** Google root.
+
+Pinning only the legacy RSA root would make **check 1 (cert-chain root)** fail on **every modern RKP-enabled device** — including Tier-1 Pixels — i.e. a fail-closed refusal of genuine, in-scope hardware. This is an **availability/correctness** correction, not a trust relaxation: both roots are Google's; the allowlist simply must enumerate both. D6's update-path constraints (app-signing + recovery-phrase gated, never the bundle channel) apply unchanged to adding the P-384 root.
+
+**Binds the implementation:** the D6 `oem_roots.json` issue must ship both Google roots; the Test plan gains a vector pair that validates a P-384-rooted chain and an RSA-rooted chain (both accept on Tier 1) and confirms a chain rooting in *neither* still refuses (`ATTEST_ROOT_UNKNOWN`).
+
+### B. Samsung A55 is StrongBox-capable — corrects the "TEE-only A55" context (issue #135)
+
+The Context above (and ADR-026 D5) state the committed **Samsung A55 is TEE-only**. Per ADR-026's (2026-06-29) amendment, the **A55 actually ships Knox Vault** (discrete secure element), so it is **StrongBox-capable**: `K_bind` (P-256) may attest at `securityLevel == STRONGBOX` on the A55.
+
+This **does not change D1's two relaxations** — it means the A55 may meet the *stronger* `STRONGBOX` bar D1 already accepts, so the StrongBox→TEE keygen fallback (D5) simply will not trigger on an A55 that reports StrongBox. The A55 chain still roots in **Samsung Knox** (not Google), so the OEM-root allowlist requirement is unchanged; only the *expected security level* on the A55 improves. Bench-confirm (issue #135) whether a Knox-Vault `setIsStrongBoxBacked(true)` key produces a Samsung-Knox-rooted or a Google-rooted (RKP) chain — and per part A, `oem_roots.json` must in any case trust both Google roots.
+
+**Net:** part A is a hard correctness fix that gates attestation working at all on modern devices; part B is a favorable hardware correction. Neither relaxes the trust boundary — the only changes are *enumerate both Google roots* and *expect possible StrongBox on A55*.

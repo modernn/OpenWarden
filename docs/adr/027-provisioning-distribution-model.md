@@ -6,6 +6,8 @@ Relates: docs/PROVISIONING_V2.md (the ADB state machine S0–S10), ADR-026 (comm
 Amends: PROVISIONING_V2.md "Locked decisions" (relaxes *ADB-only* and *Pixel-7-only* for the consumer path)
 Resolved-by: the ADR-025 Tier-2 amendment landed as **ADR-029** (Accepted, 2026-06-18). The pairing reuse is now defined for the committed Samsung/OnePlus targets (OEM-root allowlist + TEE-level acceptance + disclosed downgrade; four-key SAS mandatory; refuse-closed on *unknown* root). Remaining provisioning items (QR-OOBE flow, signed-APK/Play distribution, disclosure UI) are agent-blocked implementation tracked separately.
 
+> **Amendment 2026-06-29 (issue #133):** the **Google Play Protect DPC allowlist** (live since late-2025) blocks Device-Owner provisioning **at OOBE** for a non-allowlisted DPC — so D2's "Play clearance is a tracked release prerequisite" now also gates the **D1 QR-OOBE primary path**, not just Play-Store install. See the **Amendment (2026-06-29)** section at the end.
+
 ## Context
 
 Every strong defense in OpenWarden is downstream of one fact: the child app is **Device Owner (DO)**. Android sets a hard constraint on how DO can be established:
@@ -56,3 +58,16 @@ PROVISIONING_V2.md currently specifies the **ADB/USB** path only (S0–S10, `adb
 - The **emulator cannot validate** real-OEM QR-OOBE quirks — bench devices (Pixel + Samsung + OnePlus per ADR-026) are required to certify the consumer path.
 
 **Security note:** QR-OOBE keeps the same Device Owner, FRP, and attested-pairing *model* as ADB, with the I3-window atomicity **re-derived** for the no-tether path (D5) rather than assumed — done right (full-screen provisioning hold + on-device self-check), it closes the same window without the cable. The only way "no-USB" could have *weakened* the model is the rejected option C (no-DO); D4 forecloses it. Fail-closed, no-SaaS/telemetry/content-monitoring, and recovery-phrase root authority all stand. Note this ADR is **Proposed**, not Accepted: the Tier-2 pairing reuse is gated on the Blocked-on ADR-025 amendment.
+
+## Amendment (2026-06-29) — Google Play Protect DPC allowlist now gates the QR-OOBE path, not just Play install (issue #133)
+
+Source: cross-OEM provisioning research, `docs/research/09-disallow-debugging-and-cross-oem-provisioning.md`.
+
+**Finding.** D2 already tracks "Play policy clearance … as a release prerequisite," but framed it as a *Play-Store-install* risk mitigated by the D2 signed-APK fallback. The research surfaced a **stronger, newer gate**: since **late-2025 Google enforces a DPC allowlist during managed provisioning itself**. A DPC that is **not on Google's allowlist is blocked at OOBE** with a "Harmful app blocked" warning — i.e. the gate fires on the **D1 QR-OOBE primary consumer path**, the standard AOSP `android.app.action.PROVISION_MANAGED_DEVICE` flow, *before* DO is set. This is broader than "Play might reject the listing."
+
+**Impact on the decisions:**
+- **D1 (QR-OOBE primary path) is gated on DPC-allowlist approval.** A non-allowlisted OpenWarden DPC cannot complete QR-OOBE provisioning on a current device, regardless of Play-listing status. Allowlist approval is therefore a **hard release prerequisite for the primary consumer path**, elevated from D2's narrower "Play listing" framing.
+- **D2 signed-APK fallback — does it bypass the allowlist?** **Unconfirmed.** The QR can carry a signed-APK HTTPS URL + `EXTRA_PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM`; whether AOSP managed provisioning still consults the Play Protect allowlist when the APK is URL-fetched (not Play-fetched) must be **empirically confirmed on a current device** before relying on it as the allowlist escape hatch. Until confirmed, treat the allowlist as gating **both** channels.
+- **Approval posture (favorable, not guaranteed).** Google's allowlist review requires: no surveillance-first capabilities, Mobile-Unwanted-Software compliance, no silent autoinstall, and passing human review on appeal. OpenWarden's **no-content-monitoring** non-negotiable + parental-control framing are favorable signals, but approval is **not guaranteed** and must be pursued + tracked as a release blocker (issue #133).
+
+**Honesty note:** this does not relax any non-negotiable; it tightens an external dependency. It is recorded so the release plan does not assume the QR-OOBE path "just works" once the app is built — it additionally requires Google's DPC-allowlist clearance. This is an **external-dependency disclosure**, not a scope pivot.

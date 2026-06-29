@@ -6,6 +6,8 @@ Relates: ADR-001 (device-tier system), ADR-023 (tiers defined by enforcement flo
 Amends: ADR-001 (release timing of Tier 2), ADR-023 (which Tier-2 models are *release-committed*)
 Resolved-by: the Tier-2 attestation amendment landed as **ADR-029** (Accepted, 2026-06-18) — OEM-root allowlist + TEE-level acceptance + parent-disclosed downgrade, four-key SAS still mandatory, fail-closed pair-refusal on any *unknown* root. The device commitment is now buildable; the remaining D5 items (TEE keygen fallback, `oem_roots.json`, QR-OOBE provisioning, disclosure UI, bench QA) are agent-blocked implementation tracked separately.
 
+> **Amendment 2026-06-29 (issue #135):** cross-OEM research corrects D5's "the committed A55 is TEE-only" — the **Samsung Galaxy A55 ships Knox Vault** (discrete secure element), so it is **StrongBox-capable**. See the **Amendment (2026-06-29)** section at the end.
+
 ## Context
 
 ADR-001 adopted a device-tier system and ADR-023 redefined the tiers by their **enforcement floor**, recording honestly that Tier-2 OEM devices are *measurably more bypassable* than Tier-1 Pixel-class hardware (OEM-preloaded `FLAG_SYSTEM` browser/store stay launchable past the deny-by-default allowlist, factory-reset / OEM-unlock is best-effort, no StrongBox guarantee, and the FGS watchdog depends on a per-OEM battery-optimization exemption). The committed **release** posture that fell out of those ADRs — reinforced by ANDROID_COMPAT.md §10 — was **Tier 1 (Pixel) at v1.0, with Tier-2 (Samsung / OnePlus / Motorola / Nothing) deferred to a v2.0 epic.**
@@ -67,3 +69,16 @@ Motorola Edge 50+ and Nothing Phone 2+ remain **Tier-2-supported but not release
 - The test/triage cost rises per committed OEM; Motorola/Nothing/Xiaomi stay non-gating precisely to bound that cost.
 
 **Security note:** committing these OEMs does **not** relax any non-negotiable. Fail-closed still holds on every path (D2); the DNS floor (ADR-016), signed-bundle verification (ADR-019), sealed-box event log, and replay floors are all transport/OEM-agnostic and unchanged. The *only* thing that moves is the honest, parent-acknowledged enforcement-strength disclosure — which this ADR makes a hard release gate (D3) rather than a deferred nicety.
+
+## Amendment (2026-06-29) — Samsung A55 ships Knox Vault (StrongBox-capable); corrects D5's "A55 is TEE-only" (issue #135)
+
+Source: cross-OEM provisioning research, `docs/research/09-disallow-debugging-and-cross-oem-provisioning.md`.
+
+**Finding.** D5 (and ADR-029 context) assume the committed **Samsung Galaxy A55 is TEE-only**. That is **wrong, in the favorable direction**: the A55 is the first mid-range Samsung A-series to carry **Knox Vault**, a discrete secure element. So the EC **P-256 `K_bind`** device-binding key (ADR-032) can attest at `securityLevel == STRONGBOX` on the A55, not only `TRUSTED_ENVIRONMENT`.
+
+**Impact (no trust-boundary change):**
+- This is a **strengthening**, not a relaxation — A55 may meet the *stronger* StrongBox bar that ADR-029 already accepts. The Tier-2 disclosed-gap floor (D2) and the disclosure UI (D3) are unchanged; an A55 that reports StrongBox simply discloses *less* downgrade than a TEE-only device.
+- The attestation chain still roots in **Samsung Knox** (not Google), so the `oem_roots.json` OEM-root allowlist (ADR-029 D6) remains required exactly as before — only the *expected security level* on A55 improves.
+- **Open bench item (issue #135):** confirm whether `setIsStrongBoxBacked(true)` on a Knox Vault device yields a **Samsung-Knox-rooted** chain or a **Google-rooted (RKP)** chain; `oem_roots.json` must handle whichever (and per the ADR-029 (2026-06-29) amendment, must trust both Google roots regardless).
+
+This amendment is a **status/assumption correction**, not a scope pivot: it does not change which devices are committed, the release floor, or any non-negotiable. It corrects a hardware fact in the favorable direction and is recorded so the StrongBox→TEE fallback (ADR-029 D5) is not mis-applied to the A55.
