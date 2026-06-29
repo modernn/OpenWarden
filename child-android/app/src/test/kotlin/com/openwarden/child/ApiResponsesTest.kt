@@ -123,4 +123,93 @@ class ApiResponsesTest {
         val decoded = json.decodeFromString<StateResponse>(json.encodeToString(original))
         assertEquals(original, decoded)
     }
+
+    // ---- /apps endpoint DTO tests ----
+
+    @Test
+    fun `AppEntry serializes with camelCase packageName and label wire keys`() {
+        val out = json.encodeToString(AppEntry(packageName = "com.example.game", label = "My Game"))
+        assertTrue(out.contains("\"packageName\":\"com.example.game\""), out)
+        assertTrue(out.contains("\"label\":\"My Game\""), out)
+    }
+
+    @Test
+    fun `AppsResponse serializes the apps envelope with a list of entries`() {
+        val out =
+            json.encodeToString(
+                AppsResponse(
+                    apps =
+                        listOf(
+                            AppEntry(packageName = "com.a", label = "App A"),
+                            AppEntry(packageName = "com.b", label = "App B"),
+                        ),
+                ),
+            )
+        assertTrue(out.contains("\"apps\":["), out)
+        assertTrue(out.contains("\"packageName\":\"com.a\""), out)
+        assertTrue(out.contains("\"label\":\"App A\""), out)
+        assertTrue(out.contains("\"packageName\":\"com.b\""), out)
+    }
+
+    @Test
+    fun `AppsResponse empty list serializes to apps array empty`() {
+        val out = json.encodeToString(AppsResponse(apps = emptyList()))
+        assertTrue(out.contains("\"apps\":[]"), out)
+    }
+
+    @Test
+    fun `AppsResponse round-trips through encode+decode`() {
+        val original =
+            AppsResponse(
+                apps =
+                    listOf(
+                        AppEntry("com.example.one", "One"),
+                        AppEntry("com.example.two", "Two"),
+                    ),
+            )
+        val decoded = json.decodeFromString<AppsResponse>(json.encodeToString(original))
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun `InstalledAppsHelper mapToEntries filters system and self packages`() {
+        val raw =
+            listOf(
+                Triple("com.example.user", 0, "User App"), // user — include
+                Triple("android", android.content.pm.ApplicationInfo.FLAG_SYSTEM, "Android"), // system — exclude
+                Triple("com.openwarden.child", 0, "Self"), // self — exclude
+                Triple("com.example.another", 0, null), // user, no label — fallback to pkg
+            )
+        val entries = InstalledAppsHelper.mapToEntries(raw, selfPackage = "com.openwarden.child")
+        assertEquals(2, entries.size)
+        val pkgs = entries.map { it.packageName }
+        assertTrue(pkgs.contains("com.example.user"), "expected com.example.user in $pkgs")
+        assertTrue(pkgs.contains("com.example.another"), "expected com.example.another in $pkgs")
+        // No-label case must fall back to packageName, not null or empty.
+        val noLabel = entries.first { it.packageName == "com.example.another" }
+        assertEquals("com.example.another", noLabel.label)
+    }
+
+    @Test
+    fun `InstalledAppsHelper mapToEntries returns sorted by label`() {
+        val raw =
+            listOf(
+                Triple("com.z", 0, "Zebra"),
+                Triple("com.a", 0, "Apple"),
+                Triple("com.m", 0, "Mango"),
+            )
+        val entries = InstalledAppsHelper.mapToEntries(raw, selfPackage = "com.self")
+        assertEquals(listOf("Apple", "Mango", "Zebra"), entries.map { it.label })
+    }
+
+    @Test
+    fun `InstalledAppsHelper mapToEntries returns empty list when all are system or self`() {
+        val raw =
+            listOf(
+                Triple("android", android.content.pm.ApplicationInfo.FLAG_SYSTEM, "Android"),
+                Triple("com.self", 0, "Self"),
+            )
+        val entries = InstalledAppsHelper.mapToEntries(raw, selfPackage = "com.self")
+        assertTrue(entries.isEmpty(), "expected empty list, got $entries")
+    }
 }

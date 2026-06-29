@@ -42,3 +42,34 @@ data class UsageResponse(
     val notice: String? = null,
     val error: String? = null,
 )
+
+/**
+ * A single entry in the `/apps` response: package name + human-readable label.
+ *
+ * Wire shape matches the parent's `InstalledAppEntry`: camelCase `packageName` and `label`
+ * (no [SerialName] override needed — Kotlin property names are already camelCase).
+ *
+ * METADATA ONLY: package name + label only. No content, no in-app data — stalkerware boundary.
+ */
+@Serializable
+data class AppEntry(
+    val packageName: String,
+    val label: String,
+)
+
+/**
+ * `/apps` response envelope. [apps] lists user-installed (non-system) packages excluding self —
+ * the same deny-by-default surface the parent's allowlist editor needs to toggle.
+ *
+ * Wire shape: `{"apps":[{"packageName":"…","label":"…"}]}`.
+ *
+ * System-app inclusion decision: we return ONLY non-system user-installed apps. System apps are
+ * never suspend-targeted by [PolicyEnforcer.applyAllowlist] (they are always exempt); including
+ * them here would clutter the allowlist editor with packages the parent cannot meaningfully
+ * block. The parent toggles the user-installed surface; system apps stay visible on the device
+ * regardless of the allowlist.
+ */
+@Serializable
+data class AppsResponse(
+    val apps: List<AppEntry>,
+)
