@@ -32,29 +32,17 @@ import androidx.security.crypto.MasterKey
  * The floor is **device-global** and NOT keyed by parent pubkey: a `RotateKey`
  * carries it forward and never lowers it (ADR-017 K2 / §Carried-forward).
  */
-class ReplayFloorStore(
-    context: Context,
+class ReplayFloorStore internal constructor(
+    // Injectable so the at-rest protocol logic (e.g. seedGenesisProvisioning, advanceFloor) is
+    // host-testable with a plain SharedPreferences — EncryptedSharedPreferences can't init under
+    // Robolectric (no AndroidKeyStore provider). Production uses the StrongBox/TEE-backed store.
+    private val prefsFactory: () -> SharedPreferences,
 ) : PolicyAdmission.FloorState,
     ContactStore,
     CommandStore {
-    private val prefs: SharedPreferences by lazy { open(context) }
+    constructor(context: Context) : this({ openEncryptedPrefs(context) })
 
-    private fun open(context: Context): SharedPreferences {
-        val masterKey =
-            MasterKey
-                .Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                // Best-effort hardware binding; falls back to TEE where StrongBox is absent.
-                .setRequestStrongBoxBacked(true)
-                .build()
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
-    }
+    private val prefs: SharedPreferences by lazy { prefsFactory() }
 
     /**
      * The persisted at-rest replay floor, or `null` if never seeded. `null` is a
@@ -165,6 +153,33 @@ class ReplayFloorStore(
         check(prefs.edit().putBoolean(KEY_PROVISIONED, true).commit()) {
             "provisioning marker commit() failed (fail-closed)"
         }
+    }
+
+    /**
+     * Couple genesis for the v0.x demo-pair path (ADR-046 D1, PROTOCOL §5 item 6, #150 crypto review
+     * Finding 1): seed the at-rest floor to [ReplayFloor.GENESIS_FLOOR] AND write the provisioning
+     * marker, so a subsequent signed bundle with `policy_seq >= 1` admits via the **normal** path
+     * (`seq > floor = 0`) instead of tripping [PolicyAdmission]'s "provisioned-but-no-floor → anomaly"
+     * reject. Without this, `/pair` would pin the key in isolation — exactly the split PROTOCOL §5
+     * item 6 forbids — and every signed `/policy` after pairing would be rejected to strict baseline.
+     *
+     * Idempotent + **fail-closed**: no-op once provisioned; throws on a failed durable write (same
+     * commit+readback contract as [advanceFloor]/[markProvisioned]). Ordering matters — the floor is
+     * seeded BEFORE the marker, and only when no floor exists yet (never lowers an established floor),
+     * so a crash between the two leaves the child still un-provisioned (marker absent) and `/pair` can
+     * safely re-run rather than wedging.
+     */
+    fun seedGenesisProvisioning() {
+        if (isProvisioned()) return
+        if (atRestFloor() == null) {
+            check(prefs.edit().putLong(KEY_FLOOR, ReplayFloor.GENESIS_FLOOR).commit()) {
+                "genesis floor seed commit() failed (fail-closed)"
+            }
+            check(prefs.getLong(KEY_FLOOR, -1L) == ReplayFloor.GENESIS_FLOOR) {
+                "genesis floor seed readback != GENESIS_FLOOR (fail-closed)"
+            }
+        }
+        markProvisioned()
     }
 
     /**
@@ -354,6 +369,25 @@ class ReplayFloorStore(
 
     companion object {
         const val PREFS_NAME = "openwarden_replay_floor"
+
+        /** Production at-rest store: StrongBox-backed where available, TEE-backed otherwise (ADR-017 part 1). */
+        private fun openEncryptedPrefs(context: Context): SharedPreferences {
+            val masterKey =
+                MasterKey
+                    .Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    // Best-effort hardware binding; falls back to TEE where StrongBox is absent.
+                    .setRequestStrongBoxBacked(true)
+                    .build()
+            return EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
+
         const val KEY_FLOOR = "policy_seq_floor"
         const val KEY_PROVISIONED = "provisioned"
         const val KEY_CHILD_ID = "child_device_id"

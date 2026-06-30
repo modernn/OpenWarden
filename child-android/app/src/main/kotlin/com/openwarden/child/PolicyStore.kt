@@ -33,7 +33,29 @@ class PolicyStore(
 
     fun pinParentPubkey(rawPubkey: ByteArray) {
         require(rawPubkey.size == 32) { "Ed25519 pubkey must be 32 bytes" }
-        pubkeyFile.writeBytes(rawPubkey)
+        // Atomic write (#150 crypto review F6): a crash mid-write must never leave a truncated
+        // parent.pub that reads as "paired" yet fails every signature check — wedging the child until
+        // factory reset. Mirror persist(): write a unique temp, then a single atomic rename(2) over the
+        // target (same-fs fallbacks preserved). Fail-closed: an IO failure throws, so /pair never
+        // claims paired (and the genesis coupling that follows the pin never runs).
+        val tmp = File.createTempFile("parent", ".pub.tmp", dir)
+        try {
+            tmp.writeBytes(rawPubkey)
+            try {
+                Files.move(
+                    tmp.toPath(),
+                    pubkeyFile.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                if (!tmp.renameTo(pubkeyFile)) {
+                    Files.move(tmp.toPath(), pubkeyFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+            }
+        } finally {
+            if (tmp.exists()) tmp.delete()
+        }
     }
 
     fun parentPubkey(): ByteArray? = if (pubkeyFile.exists()) pubkeyFile.readBytes() else null

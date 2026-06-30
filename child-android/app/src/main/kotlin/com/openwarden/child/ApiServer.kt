@@ -1,6 +1,7 @@
 package com.openwarden.child
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.SystemClock
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -30,6 +31,10 @@ class ApiServer(
 ) {
     private var engine: ApplicationEngine? = null
     private val mdns = MdnsAdvertiser(context)
+
+    // Serializes the demo-pair check→pin→genesis-seed critical section so two concurrent first-pair
+    // POSTs cannot both win the pin (#150 crypto review F3 TOCTOU). One ApiServer instance per process.
+    private val pairLock = Any()
 
     fun start() {
         engine =
@@ -165,6 +170,13 @@ class ApiServer(
                             call.respond(HttpStatusCode.BadRequest, mapOf("error" to "REJECTED"))
                         }
                     }
+                    // ADR-046 F4 (#150 crypto review): the unauthenticated demo-pair endpoint is
+                    // registered ONLY on debuggable (debug) builds, so a real release / enforcing child
+                    // NEVER exposes an open pin endpoint on 0.0.0.0. Fail-closed — release has no /pair
+                    // at all; the attested ADR-043 flow (#96) supersedes it for distribution.
+                    if ((this@ApiServer.context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                        post("/pair") { handlePair(call) }
+                    }
                     post("/lock") { handleCommand(call, SignedCommand.TYPE_LOCK) }
                     post("/unlock") { handleCommand(call, SignedCommand.TYPE_UNLOCK) }
                     get("/apps") {
@@ -254,8 +266,110 @@ class ApiServer(
     }
 
     /**
+     * v0.x demo-grade pairing (ADR-046 D1): pin the parent Ed25519 public key so the existing signed
+     * `/policy` + `/lock` paths become reachable. App-layer, **unauthenticated** LAN endpoint — see
+     * ADR-046 for the security delta (no attestation / SAS / TLS) and why it is v0.x-interim-only.
+     *
+     * Fail-closed: already-paired → 409 (first-pairing-only, never overwrite); malformed key → 400;
+     * a pin-write failure → 500 with **no** "paired" claim. On accept it responds with the **real**
+     * `child_device_id` ([ReplayFloorStore.childDeviceId]) — the audience for signed bundles/commands.
+     */
+    private suspend fun handlePair(call: ApplicationCall) {
+        val ctx = context
+        // DoS guard (fail-closed, mirrors /policy): bound the body BEFORE buffering it. /pair carries
+        // only a ~44-char base64 key, so a tiny cap is ample and a LAN host cannot OOM the child.
+        val declaredLen = call.request.contentLength()
+        if (declaredLen == null || declaredLen > MAX_PAIR_BODY_BYTES) {
+            call.respond(
+                HttpStatusCode.PayloadTooLarge,
+                mapOf("error" to "MALFORMED", "reason" to "missing or oversize Content-Length"),
+            )
+            return
+        }
+        val store = PolicyStore(ctx)
+        val floor = ReplayFloorStore(ctx)
+        // Parse the body OUTSIDE the lock (receive is suspending; the critical section must not suspend).
+        val body = runCatching { call.receive<PairRequest>() }.getOrNull()
+        // Critical section (#150 crypto review F1 + F3): the already-provisioned check, the key pin, and
+        // the genesis coupling (floor + marker) run under ONE lock so (a) two concurrent first-pair POSTs
+        // cannot both win the pin (TOCTOU), and (b) pin + provisioning-marker + seeded-floor commit
+        // together as one genesis (PROTOCOL §5 item 6) — never a half-provisioned child whose first
+        // signed bundle is then rejected as a "missing floor" anomaly. "Already paired" is the
+        // provisioning MARKER (not merely the key file): a crash-partial pair re-runs here, not 409-wedges.
+        val commit =
+            synchronized(pairLock) {
+                when (val decision = PairingAdmission.decide(body?.parentPubkey, alreadyPaired = floor.isProvisioned())) {
+                    is PairingAdmission.Outcome.AlreadyPaired -> {
+                        PairCommit.AlreadyPaired
+                    }
+
+                    is PairingAdmission.Outcome.Malformed -> {
+                        PairCommit.Malformed(decision.reason)
+                    }
+
+                    is PairingAdmission.Outcome.Accept -> {
+                        runCatching {
+                            store.pinParentPubkey(decision.rawPubkey)
+                            floor.seedGenesisProvisioning()
+                            floor.childDeviceId()
+                        }.fold(
+                            onSuccess = { childId -> PairCommit.Paired(childId) },
+                            // Fail-closed: any pin/seed failure -> no "paired" claim. The marker is written
+                            // LAST, so a failure leaves the child not-provisioned and /pair can be retried.
+                            onFailure = { PairCommit.Failed },
+                        )
+                    }
+                }
+            }
+        when (commit) {
+            PairCommit.AlreadyPaired -> {
+                call.respond(
+                    HttpStatusCode.Conflict,
+                    mapOf("error" to "ALREADY_PAIRED", "reason" to "this child is already paired; re-pairing is recovery-gated"),
+                )
+            }
+
+            is PairCommit.Malformed -> {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("error" to "MALFORMED", "reason" to commit.reason),
+                )
+            }
+
+            PairCommit.Failed -> {
+                call.respond(
+                    HttpStatusCode.InternalServerError,
+                    mapOf("error" to "PIN_FAILED", "reason" to "could not persist the pairing"),
+                )
+            }
+
+            is PairCommit.Paired -> {
+                call.respond(
+                    HttpStatusCode.OK,
+                    PairResponse(status = "paired", childId = commit.childId),
+                )
+            }
+        }
+    }
+
+    /** Result of the locked demo-pair critical section, mapped to an HTTP response outside the lock. */
+    private sealed interface PairCommit {
+        data class Paired(
+            val childId: String,
+        ) : PairCommit
+
+        data object AlreadyPaired : PairCommit
+
+        data class Malformed(
+            val reason: String,
+        ) : PairCommit
+
+        data object Failed : PairCommit
+    }
+
+    /**
      * Admit a [SignedCommand] for [expectedType] (ADR-030). [CommandGate] verifies the parent Ed25519
-     * signature against the pinned key + audience + endpoint↔type binding + monotonic replay floor +
+     * signature against the pinned key + audience + endpoint/type binding + monotonic replay floor +
      * freshness window, and on accept atomically advances the floor and sets the durable lock flag.
      * A lock additionally fires the best-effort DPM keyguard (`lockNow`); the authenticated state is
      * already durable via the gate regardless.
@@ -298,5 +412,12 @@ class ApiServer(
          * a LAN host cannot OOM the child with an unbounded body (fail-closed DoS guard).
          */
         const val MAX_POLICY_BODY_BYTES = 131072L
+
+        /**
+         * Max accepted `/pair` request body (bytes). The body is a single ~44-char base64 Ed25519 key
+         * in a tiny JSON envelope; 4 KiB is generous headroom while capping the pre-parse buffer so a
+         * LAN host cannot OOM the child with an unbounded body (fail-closed DoS guard, mirrors `/policy`).
+         */
+        const val MAX_PAIR_BODY_BYTES = 4096L
     }
 }
