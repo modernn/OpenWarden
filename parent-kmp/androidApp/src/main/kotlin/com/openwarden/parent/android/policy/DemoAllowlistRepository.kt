@@ -2,6 +2,7 @@ package com.openwarden.parent.android.policy
 
 import com.openwarden.parent.android.demo.ApiResult
 import com.openwarden.parent.android.demo.ChildApiClient
+import com.openwarden.parent.dashboard.AppCategory
 import com.openwarden.parent.policy.AllowlistRepository
 import com.openwarden.parent.policy.AppInfo
 import com.openwarden.parent.policy.FetchAppsResult
@@ -45,7 +46,13 @@ class DemoAllowlistRepository private constructor(
         return when (val result = checkNotNull(client).getApps()) {
             is ApiResult.Success -> {
                 FetchAppsResult.Success(
-                    result.data.map { AppInfo(packageName = it.packageName, label = it.label) },
+                    result.data.map {
+                        AppInfo(
+                            packageName = it.packageName,
+                            label = it.label,
+                            category = AppCategory.fromRaw(it.category),
+                        )
+                    },
                 )
             }
 
