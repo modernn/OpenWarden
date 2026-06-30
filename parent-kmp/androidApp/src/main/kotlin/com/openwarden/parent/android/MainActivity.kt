@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import com.openwarden.parent.android.command.RealLockCommandSender
 import com.openwarden.parent.android.demo.ApiChildStateRepository
 import com.openwarden.parent.android.demo.ChildApiClient
 import com.openwarden.parent.android.demo.DemoPairChildStoreImpl
@@ -24,6 +25,7 @@ import com.openwarden.parent.android.ui.onboarding.RecoveryOnboardingScreen
 import com.openwarden.parent.android.ui.pair.PairingFlowScreen
 import com.openwarden.parent.android.ui.pair.PairingViewModel
 import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
+import com.openwarden.parent.command.LockCommandSender
 import com.openwarden.parent.crypto.AndroidSecureKeyStorage
 import com.openwarden.parent.crypto.RecoveryOnboarding
 import com.openwarden.parent.crypto.StoredRootKeyProvider
@@ -146,6 +148,19 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Real signed lock / unlock sender (ADR-046 D3) — replaces the empty-body demo stub the child
+     * 400-rejects. Reads the demo-pair'd `child_id` (the audience) and signs each command with
+     * [rootKeyProvider]; fail-closed to a Failure result until both pairing and provisioning are done.
+     */
+    private val lockSender by lazy {
+        val demoPairPrefs = getSharedPreferences(DemoPairChildStoreImpl.PREFS_NAME, Context.MODE_PRIVATE)
+        RealLockCommandSender(
+            rootKeyProvider = rootKeyProvider,
+            childIdProvider = { DemoPairChildStoreImpl.childId(demoPairPrefs) },
+        )
+    }
+
+    /**
      * The parent pairing flow (ADR-043), held in a [PairingViewModel] so the controller — and any
      * in-flight attempt — **survives Activity config changes** (#119). Teardown is the ViewModel's
      * `onCleared()` (real finish) or an explicit Back/Cancel, never a mere rotation.
@@ -163,6 +178,7 @@ class MainActivity : ComponentActivity() {
                     pairingVm = pairingVm,
                     rootKeyProvider = rootKeyProvider,
                     demoPairSender = demoPairSender,
+                    lockSender = lockSender,
                 )
             }
         }
@@ -174,6 +190,7 @@ class MainActivity : ComponentActivity() {
         allowlistRepo.close()
         policyTransport.close()
         demoPairSender.close()
+        lockSender.close()
     }
 }
 
@@ -185,6 +202,7 @@ private fun AppRoot(
     pairingVm: PairingViewModel,
     rootKeyProvider: StoredRootKeyProvider,
     demoPairSender: DemoPairSender,
+    lockSender: LockCommandSender,
 ) {
     // rememberSaveable so the visible screen survives a config change (#119) — otherwise a rotation
     // would drop back to the dashboard even though the pairing attempt is retained in the ViewModel.
@@ -242,6 +260,7 @@ private fun AppRoot(
                 onOpenAllowlist = { showAllowlist = true },
                 onOpenPairing = { showPairing = true },
                 demoPairSender = demoPairSender,
+                lockSender = lockSender,
             )
         }
     }
