@@ -127,28 +127,31 @@ class ApiResponsesTest {
     // ---- /apps endpoint DTO tests ----
 
     @Test
-    fun `AppEntry serializes with camelCase packageName and label wire keys`() {
-        val out = json.encodeToString(AppEntry(packageName = "com.example.game", label = "My Game"))
+    fun `AppEntry serializes with camelCase packageName, label, and category wire keys`() {
+        val out = json.encodeToString(AppEntry(packageName = "com.example.game", label = "My Game", category = "GAMING"))
         assertTrue(out.contains("\"packageName\":\"com.example.game\""), out)
         assertTrue(out.contains("\"label\":\"My Game\""), out)
+        assertTrue(out.contains("\"category\":\"GAMING\""), out)
     }
 
     @Test
-    fun `AppsResponse serializes the apps envelope with a list of entries`() {
+    fun `AppsResponse serializes the apps envelope with a list of entries including category`() {
         val out =
             json.encodeToString(
                 AppsResponse(
                     apps =
                         listOf(
-                            AppEntry(packageName = "com.a", label = "App A"),
-                            AppEntry(packageName = "com.b", label = "App B"),
+                            AppEntry(packageName = "com.a", label = "App A", category = "SOCIAL"),
+                            AppEntry(packageName = "com.b", label = "App B", category = "UNKNOWN"),
                         ),
                 ),
             )
         assertTrue(out.contains("\"apps\":["), out)
         assertTrue(out.contains("\"packageName\":\"com.a\""), out)
         assertTrue(out.contains("\"label\":\"App A\""), out)
+        assertTrue(out.contains("\"category\":\"SOCIAL\""), out)
         assertTrue(out.contains("\"packageName\":\"com.b\""), out)
+        assertTrue(out.contains("\"category\":\"UNKNOWN\""), out)
     }
 
     @Test
@@ -163,8 +166,8 @@ class ApiResponsesTest {
             AppsResponse(
                 apps =
                     listOf(
-                        AppEntry("com.example.one", "One"),
-                        AppEntry("com.example.two", "Two"),
+                        AppEntry("com.example.one", "One", "PRODUCTIVITY"),
+                        AppEntry("com.example.two", "Two", "ENTERTAINMENT"),
                     ),
             )
         val decoded = json.decodeFromString<AppsResponse>(json.encodeToString(original))
@@ -172,13 +175,13 @@ class ApiResponsesTest {
     }
 
     @Test
-    fun `InstalledAppsHelper mapToEntries filters system and self packages`() {
+    fun `InstalledAppsHelper mapToEntries filters self and includes all launchable (category-aware)`() {
+        // New signature: Triple(packageName, labelOrNull, androidCategory)
         val raw =
             listOf(
-                Triple("com.example.user", 0, "User App"), // user — include
-                Triple("android", android.content.pm.ApplicationInfo.FLAG_SYSTEM, "Android"), // system — exclude
-                Triple("com.openwarden.child", 0, "Self"), // self — exclude
-                Triple("com.example.another", 0, null), // user, no label — fallback to pkg
+                Triple("com.example.user", "User App", android.content.pm.ApplicationInfo.CATEGORY_SOCIAL),
+                Triple("com.openwarden.child", "Self", android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED),
+                Triple("com.example.another", null, android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED),
             )
         val entries = InstalledAppsHelper.mapToEntries(raw, selfPackage = "com.openwarden.child")
         assertEquals(2, entries.size)
@@ -188,26 +191,29 @@ class ApiResponsesTest {
         // No-label case must fall back to packageName, not null or empty.
         val noLabel = entries.first { it.packageName == "com.example.another" }
         assertEquals("com.example.another", noLabel.label)
+        // Category must be mapped correctly.
+        val social = entries.first { it.packageName == "com.example.user" }
+        assertEquals("SOCIAL", social.category)
+        assertEquals("UNKNOWN", noLabel.category)
     }
 
     @Test
     fun `InstalledAppsHelper mapToEntries returns sorted by label`() {
         val raw =
             listOf(
-                Triple("com.z", 0, "Zebra"),
-                Triple("com.a", 0, "Apple"),
-                Triple("com.m", 0, "Mango"),
+                Triple("com.z", "Zebra", android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED),
+                Triple("com.a", "Apple", android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED),
+                Triple("com.m", "Mango", android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED),
             )
         val entries = InstalledAppsHelper.mapToEntries(raw, selfPackage = "com.self")
         assertEquals(listOf("Apple", "Mango", "Zebra"), entries.map { it.label })
     }
 
     @Test
-    fun `InstalledAppsHelper mapToEntries returns empty list when all are system or self`() {
+    fun `InstalledAppsHelper mapToEntries returns empty list when only self remains`() {
         val raw =
             listOf(
-                Triple("android", android.content.pm.ApplicationInfo.FLAG_SYSTEM, "Android"),
-                Triple("com.self", 0, "Self"),
+                Triple("com.self", "Self", android.content.pm.ApplicationInfo.CATEGORY_UNDEFINED),
             )
         val entries = InstalledAppsHelper.mapToEntries(raw, selfPackage = "com.self")
         assertTrue(entries.isEmpty(), "expected empty list, got $entries")
