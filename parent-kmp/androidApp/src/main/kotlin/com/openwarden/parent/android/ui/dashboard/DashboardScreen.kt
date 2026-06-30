@@ -40,6 +40,7 @@ import com.openwarden.parent.android.BuildConfig
 import com.openwarden.parent.android.command.DemoLockCommandSender
 import com.openwarden.parent.android.demo.DemoPairResult
 import com.openwarden.parent.android.demo.DemoPairSender
+import com.openwarden.parent.command.LockCommandSender
 import com.openwarden.parent.command.LockPresenter
 import com.openwarden.parent.dashboard.AppUsageSummary
 import com.openwarden.parent.dashboard.BlockedAttempt
@@ -83,20 +84,22 @@ fun DashboardScreen(
     onOpenAllowlist: () -> Unit = {},
     onOpenPairing: () -> Unit = {},
     demoPairSender: DemoPairSender? = null,
+    lockSender: LockCommandSender? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
     // Kick off the first load on composition.
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    // sender and presenter are remembered for the lifetime of this composition.
-    // DisposableEffect closes the HttpClient when the composable leaves composition,
-    // preventing an OkHttp connection-pool / thread leak.
-    val sender = remember { DemoLockCommandSender() }
+    // Prefer the caller-provided (MainActivity-owned) signed sender; otherwise build + OWN a demo stub
+    // for previews/standalone use. We only close what we created — the injected sender's lifecycle is
+    // the caller's (ADR-046 D3: production passes the RealLockCommandSender).
+    val ownedSender = remember { if (lockSender == null) DemoLockCommandSender() else null }
+    val sender: LockCommandSender = lockSender ?: ownedSender!!
     val appState = remember { AppState() }
     val presenter = remember(sender, appState) { LockPresenter(appState, sender) }
-    DisposableEffect(sender) {
-        onDispose { sender.close() }
+    DisposableEffect(ownedSender) {
+        onDispose { ownedSender?.close() }
     }
 
     Scaffold(modifier = modifier) { innerPadding ->
