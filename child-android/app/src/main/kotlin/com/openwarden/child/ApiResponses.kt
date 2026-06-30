@@ -78,3 +78,26 @@ data class AppEntry(
 data class AppsResponse(
     val apps: List<AppEntry>,
 )
+
+/**
+ * `POST /pair` request (ADR-046 D1): the parent's Ed25519 public key, base64-encoded (32 bytes).
+ *
+ * This is the **v0.x demo-grade** LAN pairing — an app-layer, unauthenticated endpoint that pins the
+ * parent key so the existing signed `/policy` + `/lock` paths become reachable. See ADR-046 for the
+ * security delta vs the full ADR-043 attested flow (no attestation / SAS / TLS) and why it is interim.
+ */
+@Serializable
+data class PairRequest(
+    @SerialName("parent_pubkey") val parentPubkey: String,
+)
+
+/**
+ * `POST /pair` success response. [childId] is the **real** stable child device id
+ * ([ReplayFloorStore.childDeviceId]) — the audience every `SignedBundle` (`child_device_id`) and
+ * `SignedCommand` binds to — so the parent persists the exact value its signed messages must address.
+ */
+@Serializable
+data class PairResponse(
+    val status: String,
+    @SerialName("child_id") val childId: String,
+)

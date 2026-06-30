@@ -165,6 +165,7 @@ class ApiServer(
                             call.respond(HttpStatusCode.BadRequest, mapOf("error" to "REJECTED"))
                         }
                     }
+                    post("/pair") { handlePair(call) }
                     post("/lock") { handleCommand(call, SignedCommand.TYPE_LOCK) }
                     post("/unlock") { handleCommand(call, SignedCommand.TYPE_UNLOCK) }
                     get("/apps") {
@@ -254,8 +255,65 @@ class ApiServer(
     }
 
     /**
+     * v0.x demo-grade pairing (ADR-046 D1): pin the parent Ed25519 public key so the existing signed
+     * `/policy` + `/lock` paths become reachable. App-layer, **unauthenticated** LAN endpoint — see
+     * ADR-046 for the security delta (no attestation / SAS / TLS) and why it is v0.x-interim-only.
+     *
+     * Fail-closed: already-paired → 409 (first-pairing-only, never overwrite); malformed key → 400;
+     * a pin-write failure → 500 with **no** "paired" claim. On accept it responds with the **real**
+     * `child_device_id` ([ReplayFloorStore.childDeviceId]) — the audience for signed bundles/commands.
+     */
+    private suspend fun handlePair(call: ApplicationCall) {
+        val ctx = context
+        // DoS guard (fail-closed, mirrors /policy): bound the body BEFORE buffering it. /pair carries
+        // only a ~44-char base64 key, so a tiny cap is ample and a LAN host cannot OOM the child.
+        val declaredLen = call.request.contentLength()
+        if (declaredLen == null || declaredLen > MAX_PAIR_BODY_BYTES) {
+            call.respond(
+                HttpStatusCode.PayloadTooLarge,
+                mapOf("error" to "MALFORMED", "reason" to "missing or oversize Content-Length"),
+            )
+            return
+        }
+        val store = PolicyStore(ctx)
+        val body = runCatching { call.receive<PairRequest>() }.getOrNull()
+        when (val outcome = PairingAdmission.decide(body?.parentPubkey, alreadyPaired = store.parentPubkey() != null)) {
+            is PairingAdmission.Outcome.AlreadyPaired -> {
+                call.respond(
+                    HttpStatusCode.Conflict,
+                    mapOf("error" to "ALREADY_PAIRED", "reason" to "a parent key is already pinned; re-pairing is recovery-gated"),
+                )
+            }
+
+            is PairingAdmission.Outcome.Malformed -> {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("error" to "MALFORMED", "reason" to outcome.reason),
+                )
+            }
+
+            is PairingAdmission.Outcome.Accept -> {
+                // Fail-closed: if the pin write fails, never claim "paired" (the parent must not
+                // believe its key is trusted when it was not persisted).
+                val pinned = runCatching { store.pinParentPubkey(outcome.rawPubkey) }.isSuccess
+                if (!pinned) {
+                    call.respond(
+                        HttpStatusCode.InternalServerError,
+                        mapOf("error" to "PIN_FAILED", "reason" to "could not persist the parent key"),
+                    )
+                    return
+                }
+                call.respond(
+                    HttpStatusCode.OK,
+                    PairResponse(status = "paired", childId = ReplayFloorStore(ctx).childDeviceId()),
+                )
+            }
+        }
+    }
+
+    /**
      * Admit a [SignedCommand] for [expectedType] (ADR-030). [CommandGate] verifies the parent Ed25519
-     * signature against the pinned key + audience + endpoint↔type binding + monotonic replay floor +
+     * signature against the pinned key + audience + endpoint/type binding + monotonic replay floor +
      * freshness window, and on accept atomically advances the floor and sets the durable lock flag.
      * A lock additionally fires the best-effort DPM keyguard (`lockNow`); the authenticated state is
      * already durable via the gate regardless.
@@ -298,5 +356,12 @@ class ApiServer(
          * a LAN host cannot OOM the child with an unbounded body (fail-closed DoS guard).
          */
         const val MAX_POLICY_BODY_BYTES = 131072L
+
+        /**
+         * Max accepted `/pair` request body (bytes). The body is a single ~44-char base64 Ed25519 key
+         * in a tiny JSON envelope; 4 KiB is generous headroom while capping the pre-parse buffer so a
+         * LAN host cannot OOM the child with an unbounded body (fail-closed DoS guard, mirrors `/policy`).
+         */
+        const val MAX_PAIR_BODY_BYTES = 4096L
     }
 }
