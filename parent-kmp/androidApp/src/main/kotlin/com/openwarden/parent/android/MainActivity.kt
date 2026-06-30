@@ -84,7 +84,8 @@ class MainActivity : ComponentActivity() {
     /**
      * PolicySender instance injected into [AllowlistEditorScreen].
      *
-     * Constructed eagerly so the send path is available the moment the editor opens.
+     * Constructed lazily (on first access from the editor) so the auth-gated StrongBox/
+     * EncryptedSharedPreferences init stays off the Activity constructor.
      * The sender checks [rootKeyProvider] and [pairedChildStore] on every [PolicySender.send]
      * call — it will return [com.openwarden.parent.policy.SendResult.NotProvisioned] /
      * [com.openwarden.parent.policy.SendResult.NotPaired] until setup is complete.

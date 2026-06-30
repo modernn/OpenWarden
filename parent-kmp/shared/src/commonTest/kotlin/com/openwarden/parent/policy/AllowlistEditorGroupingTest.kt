@@ -264,6 +264,25 @@ class AllowlistEditorApplyTest {
         }
 
     @Test
+    fun apply_senderThrows_mapsToTerminalErrorNotStuckSending() =
+        runTest {
+            // Regression (cavecrew review #149): an exception out of sendPolicy (e.g. a durable
+            // seq-store write failure) MUST land on a terminal error state — never leave the button
+            // stuck in Sending, never imply success.
+            val vm =
+                AllowlistEditorViewModel(
+                    repo = FakeRepo(),
+                    sendPolicy = { throw IllegalStateException("seq store write failed") },
+                )
+            vm.apply()
+            val applyState = assertIs<ApplyState.TransportFailed>(vm.state.value.applyState)
+            assertTrue(
+                applyState.message.contains("seq store write failed"),
+                "terminal error must carry the failure detail, got: ${applyState.message}",
+            )
+        }
+
+    @Test
     fun clearApplyState_resetsToNull() =
         runTest {
             val vm = vmWith(SendResult.NotPaired)

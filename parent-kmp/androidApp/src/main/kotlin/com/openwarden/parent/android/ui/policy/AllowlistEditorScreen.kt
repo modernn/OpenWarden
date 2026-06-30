@@ -77,8 +77,11 @@ fun AllowlistEditorScreen(
     sender: PolicySender? = null,
     onBack: () -> Unit = {},
 ) {
+    // Keyed on repo + sender so a genuinely different instance rebuilds the VM (and its captured
+    // send lambda) instead of retaining a stale closure (cavecrew review #149). Both are
+    // Activity-scoped/stable today, so in practice this builds exactly once per screen entry.
     val viewModel =
-        remember {
+        remember(repo, sender) {
             val sendFn: (suspend (Policy) -> SendResult)? =
                 if (sender != null) {
                     { policy: Policy -> sender.send(policy) }

@@ -2,6 +2,7 @@ package com.openwarden.parent.policy
 
 import com.openwarden.parent.dashboard.AppCategory
 import com.openwarden.proto.Policy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -196,15 +197,26 @@ class AllowlistEditorViewModel(
             return
         }
         _state.update { it.copy(applyState = ApplyState.Sending) }
-        val policy = Policy(allowlist = _state.value.allowlist.sorted())
-        val result = sendPolicy.invoke(policy)
+        // Project through the single seam (crypto review #149 3b.1) — never inline the Policy shape.
+        val policy = policyFromApprovedAllowlist(_state.value.allowlist)
         val nextApplyState =
-            when (result) {
-                is SendResult.Sent -> ApplyState.Applied(result.policySeq)
-                is SendResult.Rejected -> ApplyState.Rejected(result.reason)
-                is SendResult.TransportFailed -> ApplyState.TransportFailed(result.message)
-                SendResult.NotProvisioned -> ApplyState.NotProvisioned
-                SendResult.NotPaired -> ApplyState.NotPaired
+            try {
+                when (val result = sendPolicy.invoke(policy)) {
+                    is SendResult.Sent -> ApplyState.Applied(result.policySeq)
+                    is SendResult.Rejected -> ApplyState.Rejected(result.reason)
+                    is SendResult.TransportFailed -> ApplyState.TransportFailed(result.message)
+                    SendResult.NotProvisioned -> ApplyState.NotProvisioned
+                    SendResult.NotPaired -> ApplyState.NotPaired
+                }
+            } catch (e: CancellationException) {
+                // Never swallow structured-concurrency cancellation — let it propagate.
+                throw e
+            } catch (e: Throwable) {
+                // Fail-closed (cavecrew review #149): any unexpected throw — a durable seq-store
+                // write failure, secure-store error, or transport exception — MUST land on a
+                // terminal error banner. Never leave the button stuck in Sending, and never imply
+                // success. Restriction is preserved (no policy was confirmed applied).
+                ApplyState.TransportFailed("Couldn't apply: ${e.message ?: e::class.simpleName}")
             }
         _state.update { it.copy(applyState = nextApplyState) }
     }
