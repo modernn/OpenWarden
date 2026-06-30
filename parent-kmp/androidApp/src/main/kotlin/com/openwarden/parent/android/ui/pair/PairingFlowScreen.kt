@@ -116,10 +116,11 @@ fun PairingFlowScreen(
 
                 is PairingPhase.NotProvisioned -> {
                     TerminalMessage(
-                        title = "Set up the parent key first",
+                        title = "Can't pair yet",
                         body =
-                            "This phone has no recovery key yet, so it can't pair. " +
-                                "Create the parent recovery phrase, then try again.",
+                            "This phone can't pair right now. Make sure you've created the parent " +
+                                "recovery phrase AND set a device screen lock (PIN, pattern, or password) — " +
+                                "the recovery key is protected by your screen lock — then try again.",
                         isError = true,
                         primaryLabel = "Back",
                         onPrimary = leave,
