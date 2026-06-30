@@ -53,6 +53,21 @@ class StoredRootKeyProviderTest {
     }
 
     @Test
+    fun corruptBlobIsFailClosedNotCrash() {
+        // #144 Finding 2 (crypto review): a present-but-malformed blob makes RootKeys.deserialize()
+        // throw require(size == 128). That MUST degrade to "not provisioned", never escape an accessor
+        // and crash the pairing flow (PairingSessionManager.start -> rootPublicKey()). Regression guard.
+        val storage = FakeSecureKeyStorage()
+        storage.write(ByteArray(7) { 1 }) // wrong size: not 128 bytes
+        val provider = StoredRootKeyProvider(storage)
+
+        assertFalse(provider.isProvisioned())
+        assertNull(provider.rootPublicKey())
+        assertNull(provider.encryptionPublicKey())
+        assertNull(provider.sign(byteArrayOf(1, 2, 3)))
+    }
+
+    @Test
     fun clearedStorageIsFailClosedAgain() {
         val storage = FakeSecureKeyStorage()
         StoredRootKeyProvider.provision(storage, keys())
