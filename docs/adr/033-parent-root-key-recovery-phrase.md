@@ -4,6 +4,8 @@ Status: Accepted
 Date: 2026-06-22
 Relates: **CRYPTO.md §1–§2** (the key inventory + the BIP39→root-key derivation this implements), **RECOVERY.md §2/§11** (phrase generation, confirm-back, entry security), **ADR-015/019** (the one signing rule the derived identity key feeds), **ADR-031** (the child-side `IdentityKeyProvider` seam this mirrors on the parent), **PARENT_KMP_STRUCTURE.md §3/§13** (the locked KMP crypto stack + library matrix this amends); docs/ATTACKS.md (H6 shoulder-surf, K2/K3), docs/DEFENSES.md (#15 phrase + time-lock)
 
+> **Amendment 2026-06-29 (issue #144):** the `setUserAuthenticationRequired(true)` MasterKey **throws** on a device with no secure lock screen — and the unguarded read path crashed the parent app the instant the pairing screen ran. The `SecureKeyStorage` open/read path is now **fail-closed to `null`** (never throws), so the no-key/no-lock case degrades to the graceful `PairingPhase.NotProvisioned` instead of an uncaught crash; `write` still refuses loudly. See the **Amendment (2026-06-29)** section at the end.
+
 ## Context
 
 Issue #24 (`area:parent-kmp`, `priority:critical`, `crypto`, `agent-blocked`): the parent app must generate its Ed25519 **root authority** key from a BIP39 24-word recovery phrase, display the phrase exactly once, force a confirm-back step, and store the derived key material in the platform keystore. The root key is the top of the parent trust chain — it signs policy bundles (#27) and anchors pairing (#23) and recovery (RECOVERY.md R1/R2). "Recovery phrase = root authority, BIP39 24-word" is a CLAUDE.md architecture invariant.
@@ -89,3 +91,16 @@ No SLIP-10/BIP-32 hierarchy. Same mnemonic ⇒ same two keys, deterministically 
 - **Follow-ups tracked:** Compose onboarding screen (with `FLAG_SECURE`); on-device BC-sign → libsodium-verify cross-check (host-side RFC KATs cover the provable half); iOS derivation; printable sheet + randomized entry + biometric entry-lock.
 - **Maintainer sign-off (recorded):** (a) **StrongBox→TEE fallback for the parent KEK MUST be disclosed to the parent**, mirroring the child's disclosed-downgrade posture (ADR-029 D4) — maintainer ruling at merge; tracked as a follow-up (surface the attestation/TEE-fallback signal in the parent app). (b) #27's background bundle signing MUST NOT relax `setUserAuthenticationRequired` — a derived session key is the safe answer, not weakening the root KEK's at-rest gate.
 - Accepted on maintainer approval (PR #86).
+
+## Amendment (2026-06-29) — `SecureKeyStorage` open/read is fail-closed-to-`null`, never a crash (issue #144)
+
+**Finding (found live).** Opening `Pair a child device` on a device with **no secure lock screen** hard-crashed the parent app with an uncaught `IllegalStateException: Secure lock screen must be enabled to create keys requiring user authentication`. Chain: `PairingFlowScreen` → `PairingController.ensureStarted()` → `PairingSessionManager.start()` → `StoredRootKeyProvider.rootPublicKey()` → `AndroidSecureKeyStorage` builds the `setUserAuthenticationRequired(true)` `MasterKey` → throws (no lock screen) → nothing caught it → app died. This **violated the `RootKeyProvider`/`SecureKeyStorage` nullable contract** (D6 says accessors return `null` fail-closed) and was a fail-**not**-closed defect (an uncaught crash, not graceful refusal).
+
+**Decision.** The Android `SecureKeyStorage` open/read path is **fail-closed to `null` and never throws**:
+- `read()` / `clear()` swallow *any* store-open failure (no secure lock screen, keystore error) and degrade to "no usable key" / no-op. `StoredRootKeyProvider` (and through it pairing + bundle signing) already treats `null` as not-provisioned and refuses gracefully — so the pairing flow now reaches `PairingPhase.NotProvisioned` instead of crashing.
+- `write()` remains **loud**: it throws the typed `SecureStorageUnavailableException` (not the raw keystore exception) so a provisioning flow never believes a key was persisted when it was not, and can show "set a screen lock first."
+- The encrypted prefs are built lazily and **re-attempted after a failure** (cached only on success), so the store **recovers** once the user sets a screen lock — no app restart needed.
+
+**Unchanged (NOT a crypto relaxation).** The MasterKey is still `setUserAuthenticationRequired(true)` + StrongBox-requested; the at-rest gate (D6) and the recovery-grade auth requirement are untouched. This amendment only stops an *uncaught crash* and makes the impl honor the existing fail-closed nullable contract. The parent-facing `NotProvisioned` copy is widened to name the screen-lock precondition. A distinct "device not secure" pairing phase (vs. reusing `NotProvisioned`) is a possible UX follow-up, not required for the fix.
+
+**Tests.** Host tests (`AndroidSecureKeyStorageTest`, injected throwing `prefsFactory`): `read()` → `null` (no crash); `clear()` → no-throw; `write()` → `SecureStorageUnavailableException`. The success round-trip stays on-device (androidInstrumentedTest).

@@ -90,5 +90,8 @@ android {
     testOptions {
         // The Argon2id root-key vector (ADR-033, m=256 MiB) runs in host-side unit tests.
         unitTests.all { it.maxHeapSize = "1g" }
+        // Let unmocked android.* stubs (e.g. android.util.Log) return defaults instead of throwing,
+        // so host androidUnitTests can exercise androidMain code that logs (#144 fail-closed paths).
+        unitTests.isReturnDefaultValues = true
     }
 }
