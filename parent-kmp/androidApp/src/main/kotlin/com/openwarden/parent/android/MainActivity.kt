@@ -1,5 +1,6 @@
 package com.openwarden.parent.android
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,19 +9,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.openwarden.parent.android.demo.ApiChildStateRepository
 import com.openwarden.parent.android.demo.ChildApiClient
+import com.openwarden.parent.android.demo.DemoPairChildStoreImpl
+import com.openwarden.parent.android.demo.DemoPairSender
 import com.openwarden.parent.android.policy.DemoAllowlistRepository
 import com.openwarden.parent.android.policy.KtorPolicyTransport
 import com.openwarden.parent.android.ui.dashboard.DashboardAndroidViewModel
 import com.openwarden.parent.android.ui.dashboard.DashboardScreen
+import com.openwarden.parent.android.ui.onboarding.RecoveryOnboardingScreen
 import com.openwarden.parent.android.ui.pair.PairingFlowScreen
 import com.openwarden.parent.android.ui.pair.PairingViewModel
 import com.openwarden.parent.android.ui.policy.AllowlistEditorScreen
 import com.openwarden.parent.crypto.AndroidSecureKeyStorage
+import com.openwarden.parent.crypto.RecoveryOnboarding
 import com.openwarden.parent.crypto.StoredRootKeyProvider
+import com.openwarden.parent.onboarding.RecoveryOnboardingViewModel
 import com.openwarden.parent.policy.AndroidPairedChildStore
 import com.openwarden.parent.policy.AndroidPolicySeqStore
 import com.openwarden.parent.policy.PolicySender
@@ -46,6 +53,25 @@ import com.openwarden.parent.policy.SecureRandomNonceGenerator
  * The sender will return [com.openwarden.parent.policy.SendResult.NotProvisioned] until the
  * parent completes recovery-key setup, and [com.openwarden.parent.policy.SendResult.NotPaired]
  * until a child is paired — both are surfaced as explicit UI states (fail-closed).
+ *
+ * Recovery-key onboarding wiring (ADR-046 D2):
+ *   When [rootKeyProvider.isProvisioned] is false, the AppRoot shows [RecoveryOnboardingScreen]
+ *   before any other screen. The screen calls [RecoveryOnboarding.start] once (inside the
+ *   [remember] block in AppRoot), wraps the session in a [RecoveryOnboardingViewModel], and
+ *   on [OnboardingUiState.Provisioned] navigates to the dashboard.
+ *
+ * Demo-pair wiring (ADR-046 D4):
+ *   [DemoPairSender] is constructed once with [rootKeyProvider] (for the public key) and a
+ *   [DemoPairChildStoreImpl] (SharedPreferences-backed child-id store). The "Pair with child
+ *   (demo)" button is rendered on the dashboard.
+ *
+ * CRYPTO REVIEWER NOTE: lines that touch root-key provisioning or the demo-pair POST:
+ *   - L-rootKeyProvider: `private val rootKeyProvider by lazy { StoredRootKeyProvider(AndroidSecureKeyStorage(this)) }`
+ *   - L-onboarding-start: `RecoveryOnboarding(AndroidSecureKeyStorage(context)).start()` inside AppRoot remember{}
+ *   - L-demopair-build: `DemoPairSender(rootKeyProvider = { rootKeyProvider.rootPublicKey() }, …)`
+ *   - L-pair-call: `demoPairSender.pair()` triggered from DashboardScreen "Pair with child (demo)" button
+ *   All signing, derivation, and key persistence live in [RecoveryOnboarding.Session.confirm],
+ *   [StoredRootKeyProvider], and [RootKeyDerivation] — NOT in this file.
  *
  * Lines that wire PolicySender (for crypto reviewer gate):
  *   L60-L68 — construction of seqStore, pairedChildStore, rootKeyProvider, transport
@@ -75,6 +101,8 @@ class MainActivity : ComponentActivity() {
     // ---------------------------------------------------------------------------
     private val seqStore by lazy { AndroidPolicySeqStore(this) }
     private val pairedChildStore by lazy { AndroidPairedChildStore(this) }
+
+    // CRYPTO REVIEWER LINE L-rootKeyProvider
     private val rootKeyProvider by lazy {
         StoredRootKeyProvider(AndroidSecureKeyStorage(this))
     }
@@ -102,6 +130,22 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Demo-pair sender (ADR-046 D4).
+     *
+     * CRYPTO REVIEWER LINE L-demopair-build:
+     *   rootKeyProvider lambda calls [StoredRootKeyProvider.rootPublicKey] — reads the public key only.
+     *   pairedChildStore writes only the child_id string returned by the child on HTTP 200.
+     */
+    private val demoPairSender by lazy {
+        val demoPairPrefs =
+            getSharedPreferences(DemoPairChildStoreImpl.PREFS_NAME, Context.MODE_PRIVATE)
+        DemoPairSender(
+            rootKeyProvider = { rootKeyProvider.rootPublicKey() },
+            pairedChildStore = DemoPairChildStoreImpl(demoPairPrefs),
+        )
+    }
+
+    /**
      * The parent pairing flow (ADR-043), held in a [PairingViewModel] so the controller — and any
      * in-flight attempt — **survives Activity config changes** (#119). Teardown is the ViewModel's
      * `onCleared()` (real finish) or an explicit Back/Cancel, never a mere rotation.
@@ -117,6 +161,8 @@ class MainActivity : ComponentActivity() {
                     allowlistRepo = allowlistRepo,
                     policySender = policySender,
                     pairingVm = pairingVm,
+                    rootKeyProvider = rootKeyProvider,
+                    demoPairSender = demoPairSender,
                 )
             }
         }
@@ -127,6 +173,7 @@ class MainActivity : ComponentActivity() {
         childRepo.close()
         allowlistRepo.close()
         policyTransport.close()
+        demoPairSender.close()
     }
 }
 
@@ -136,13 +183,42 @@ private fun AppRoot(
     allowlistRepo: DemoAllowlistRepository,
     policySender: PolicySender,
     pairingVm: PairingViewModel,
+    rootKeyProvider: StoredRootKeyProvider,
+    demoPairSender: DemoPairSender,
 ) {
     // rememberSaveable so the visible screen survives a config change (#119) — otherwise a rotation
     // would drop back to the dashboard even though the pairing attempt is retained in the ViewModel.
     var showAllowlist by rememberSaveable { mutableStateOf(false) }
     var showPairing by rememberSaveable { mutableStateOf(false) }
+    // Onboarding: cleared after provisioning so we never navigate back to it.
+    var showOnboarding by rememberSaveable { mutableStateOf(!rootKeyProvider.isProvisioned()) }
 
     when {
+        showOnboarding -> {
+            // CRYPTO REVIEWER LINE L-onboarding-start:
+            // RecoveryOnboarding(AndroidSecureKeyStorage) is created inside remember{}
+            // so it is built at most once per composition lifetime. session.confirm(answers)
+            // is what actually derives + persists the root key (inside RecoveryOnboardingViewModel.confirm).
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val viewModel =
+                remember {
+                    val session =
+                        RecoveryOnboarding(
+                            com.openwarden.parent.crypto
+                                .AndroidSecureKeyStorage(context),
+                        ).start()
+                    RecoveryOnboardingViewModel(
+                        mnemonic = session.mnemonic,
+                        challengePositions = session.challengePositions,
+                        confirmSession = { answers -> session.confirm(answers) },
+                    )
+                }
+            RecoveryOnboardingScreen(
+                viewModel = viewModel,
+                onProvisioned = { showOnboarding = false },
+            )
+        }
+
         showAllowlist -> {
             AllowlistEditorScreen(
                 repo = allowlistRepo,
@@ -165,6 +241,7 @@ private fun AppRoot(
                 viewModel = dashboardVm,
                 onOpenAllowlist = { showAllowlist = true },
                 onOpenPairing = { showPairing = true },
+                demoPairSender = demoPairSender,
             )
         }
     }

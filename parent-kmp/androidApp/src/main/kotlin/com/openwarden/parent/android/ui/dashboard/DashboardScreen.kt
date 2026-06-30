@@ -25,8 +25,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,7 +36,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.openwarden.parent.android.BuildConfig
 import com.openwarden.parent.android.command.DemoLockCommandSender
+import com.openwarden.parent.android.demo.DemoPairResult
+import com.openwarden.parent.android.demo.DemoPairSender
 import com.openwarden.parent.command.LockPresenter
 import com.openwarden.parent.dashboard.AppUsageSummary
 import com.openwarden.parent.dashboard.BlockedAttempt
@@ -44,7 +49,9 @@ import com.openwarden.parent.dashboard.DashboardUiState
 import com.openwarden.parent.dashboard.TodayUsage
 import com.openwarden.parent.state.AppState
 import com.openwarden.parent.state.LockState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
 
 // ---------------------------------------------------------------------------
@@ -64,6 +71,10 @@ import kotlinx.datetime.Instant
  *  - Honest offline (H3): when the child is OFFLINE_OR_UNKNOWN, usage and blocks
  *    display as "unavailable" (—) rather than "0m" / "No blocked attempts today."
  *    A genuine online-with-zero reads as "0m" / "No blocked attempts today."
+ *
+ * @param demoPairSender  Optional sender for the "Pair with child (demo)" action (ADR-046 D4).
+ *   When null, the button is still shown but the action is a no-op. Pass the real sender from
+ *   [com.openwarden.parent.android.MainActivity].
  */
 @Composable
 fun DashboardScreen(
@@ -71,6 +82,7 @@ fun DashboardScreen(
     modifier: Modifier = Modifier,
     onOpenAllowlist: () -> Unit = {},
     onOpenPairing: () -> Unit = {},
+    demoPairSender: DemoPairSender? = null,
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -100,9 +112,23 @@ fun DashboardScreen(
                     onRefresh = { viewModel.refresh() },
                 )
                 when (val s = uiState) {
-                    is DashboardUiState.Loading -> LoadingState()
-                    is DashboardUiState.Error -> ErrorState(s.message)
-                    is DashboardUiState.Success -> SuccessContent(s, presenter, onOpenAllowlist, onOpenPairing)
+                    is DashboardUiState.Loading -> {
+                        LoadingState()
+                    }
+
+                    is DashboardUiState.Error -> {
+                        ErrorState(s.message)
+                    }
+
+                    is DashboardUiState.Success -> {
+                        SuccessContent(
+                            s,
+                            presenter,
+                            onOpenAllowlist,
+                            onOpenPairing,
+                            demoPairSender,
+                        )
+                    }
                 }
             }
         }
@@ -203,7 +229,15 @@ private fun SuccessContent(
     presenter: LockPresenter,
     onOpenAllowlist: () -> Unit = {},
     onOpenPairing: () -> Unit = {},
+    demoPairSender: DemoPairSender? = null,
 ) {
+    val scope = rememberCoroutineScope()
+
+    // Transient result banner for the demo-pair action.
+    var demoPairMessage by remember { mutableStateOf<String?>(null) }
+    // Whether the demo-pair POST is in flight.
+    var demoPairBusy by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier =
             Modifier
@@ -240,6 +274,50 @@ private fun SuccessContent(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Pair a child device")
+            }
+        }
+
+        // ---- Demo-pair action (ADR-046 D4) ----
+        item {
+            DemoPairButton(
+                busy = demoPairBusy,
+                resultMessage = demoPairMessage,
+                onDismiss = { demoPairMessage = null },
+                onPair = {
+                    if (demoPairSender != null) {
+                        scope.launch {
+                            demoPairBusy = true
+                            demoPairMessage = null
+                            val result = demoPairSender.pair()
+                            demoPairBusy = false
+                            demoPairMessage =
+                                when (result) {
+                                    is DemoPairResult.Paired -> {
+                                        "Paired — child id: ${result.childId}"
+                                    }
+
+                                    DemoPairResult.AlreadyPaired -> {
+                                        "Child is already paired to a parent key."
+                                    }
+
+                                    DemoPairResult.NotProvisioned -> {
+                                        "Set up your recovery key first before pairing."
+                                    }
+
+                                    is DemoPairResult.Failure -> {
+                                        "Pair failed: ${result.message}"
+                                    }
+                                }
+                        }
+                    }
+                },
+            )
+        }
+
+        // ---- DEBUG-only quick seed (BuildConfig.DEBUG guard, ADR-046 D2) ----
+        if (BuildConfig.DEBUG) {
+            item {
+                DebugSeedButton()
             }
         }
 
@@ -295,6 +373,176 @@ private fun SuccessContent(
         }
 
         item { Spacer(modifier = Modifier.height(24.dp)) }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Demo-pair button (ADR-046 D4)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun DemoPairButton(
+    busy: Boolean,
+    resultMessage: String?,
+    onDismiss: () -> Unit,
+    onPair: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Button(
+            onClick = onPair,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.semantics { contentDescription = "Pairing with child" },
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            } else {
+                Text("Pair with child (demo)")
+            }
+        }
+        resultMessage?.let { msg ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            if (msg.startsWith("Paired")) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.errorContainer
+                            },
+                    ),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = msg,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = onDismiss) { Text("OK") }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Debug-only quick-seed (BuildConfig.DEBUG ONLY — never ships in release, ADR-046 D2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Seeds the recovery key from the canonical BIP39 test phrase (23 x "abandon" + "art") for fast
+ * emulator testing. Runs Argon2id derivation on [Dispatchers.Default] (~2 s at 256 MiB). Guarded
+ * by [BuildConfig.DEBUG] at the call-site in [SuccessContent]; this composable is never reachable
+ * in a release build.
+ *
+ * CRYPTO REVIEWER NOTE (ADR-046 D2 debug-seed gate):
+ *   The ONLY crypto call here is [com.openwarden.parent.crypto.RootKeyDerivation.deriveRootKeys]
+ *   followed by [com.openwarden.parent.crypto.StoredRootKeyProvider.provision] + [RootKeys.wipe].
+ *   The test phrase is the all-zero-entropy BIP39 phrase — it produces a deterministic key for
+ *   emulator demos and has no security value. This path is compile-time gated by [BuildConfig.DEBUG].
+ */
+@Composable
+private fun DebugSeedButton() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Button(
+            onClick = {
+                scope.launch {
+                    busy = true
+                    message = null
+                    try {
+                        // Run off the main thread — Argon2id at 256 MiB takes ~2 s.
+                        withContext(Dispatchers.Default) {
+                            @Suppress("DEPRECATION") // test phrase intentionally fixed
+                            val testMnemonic =
+                                listOf(
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "abandon",
+                                    "art",
+                                )
+                            val storage =
+                                com.openwarden.parent.crypto
+                                    .AndroidSecureKeyStorage(context)
+                            val keys =
+                                com.openwarden.parent.crypto.RootKeyDerivation.deriveRootKeys(
+                                    testMnemonic,
+                                )
+                            com.openwarden.parent.crypto.StoredRootKeyProvider.provision(
+                                storage,
+                                keys,
+                            )
+                            keys.wipe()
+                        }
+                        message = "DEBUG: recovery key seeded from test phrase."
+                    } catch (e: com.openwarden.parent.crypto.SecureStorageUnavailableException) {
+                        message = "Set a device screen lock (PIN/pattern/password) first, then retry."
+                    } catch (e: Exception) {
+                        message = "Seed failed: ${e.message}"
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                ),
+        ) {
+            Text("DEBUG: seed recovery key")
+        }
+        message?.let { msg ->
+            Text(
+                text = msg,
+                style = MaterialTheme.typography.bodySmall,
+                color =
+                    if (msg.startsWith("DEBUG:")) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+            )
+        }
     }
 }
 
