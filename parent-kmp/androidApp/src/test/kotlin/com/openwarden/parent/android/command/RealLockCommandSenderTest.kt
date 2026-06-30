@@ -98,7 +98,10 @@ class RealLockCommandSenderTest {
             assertEquals("lock", cmd.type)
             assertEquals("child-abcd", cmd.childDeviceId)
             assertEquals(12345L, cmd.issuedAt)
-            assertEquals("64-byte signature -> 128 lowercase hex chars", 128, cmd.sig.length)
+            // FakeRootKeys signs with 64 × 0xAB → exact lowercase-hex "ab" × 64. Asserting the literal
+            // content (not just length == 128) proves toHexLower emits lowercase, zero-padded hex — the
+            // form the child's case-insensitive decoder needs and the byte the signature covers.
+            assertEquals("ab".repeat(64), cmd.sig)
         }
 
     @Test

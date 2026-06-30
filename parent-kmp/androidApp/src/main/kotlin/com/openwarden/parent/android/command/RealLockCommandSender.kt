@@ -88,5 +88,8 @@ internal class RealLockCommandSender(
         http.close()
     }
 
+    // Deliberate small mirror of shared/commonMain's `ByteArray.toHexLower` (PolicySendSeams.kt): that
+    // one is `internal` to the shared module, so it isn't visible from androidApp. Both are byte-identical
+    // and each is test-covered; extracting a public cross-module util for one line isn't worth the churn.
     private fun ByteArray.toHexLower(): String = joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
 }

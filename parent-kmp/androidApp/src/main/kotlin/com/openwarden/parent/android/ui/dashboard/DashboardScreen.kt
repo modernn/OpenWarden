@@ -94,7 +94,10 @@ fun DashboardScreen(
     // Prefer the caller-provided (MainActivity-owned) signed sender; otherwise build + OWN a demo stub
     // for previews/standalone use. We only close what we created — the injected sender's lifecycle is
     // the caller's (ADR-046 D3: production passes the RealLockCommandSender).
-    val ownedSender = remember { if (lockSender == null) DemoLockCommandSender() else null }
+    // Key the owned-stub on the injected sender's nullness: if `lockSender` ever flips null↔non-null
+    // across recompositions, the stub is rebuilt (or dropped) in lockstep so `ownedSender!!` below can
+    // never deref a stale null. DisposableEffect(ownedSender) closes any stub we replace.
+    val ownedSender = remember(lockSender == null) { if (lockSender == null) DemoLockCommandSender() else null }
     val sender: LockCommandSender = lockSender ?: ownedSender!!
     val appState = remember { AppState() }
     val presenter = remember(sender, appState) { LockPresenter(appState, sender) }
