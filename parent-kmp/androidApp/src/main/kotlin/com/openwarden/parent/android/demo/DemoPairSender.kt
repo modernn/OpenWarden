@@ -78,7 +78,8 @@ fun interface DemoPairChildStore {
  *
  * CRYPTO REVIEWER LINES (ADR-046 gate):
  *   - L-rootPublicKey: `val pub = rootKeyProvider.rootPublicKey() ?: return DemoPairResult.NotProvisioned`
- *   - L-b64: `val pubB64 = Base64.encodeToString(pub, Base64.NO_WRAP)`
+ *   - L-b64: `val pubB64 = java.util.Base64.getEncoder().encodeToString(pub)` (STANDARD padded alphabet,
+ *     matching the child's `java.util.Base64.getDecoder()` in PairingAdmission — NOT android.util.Base64)
  *   - L-post: `http.post("$baseUrl/pair") { … setBody(PairRequest(pubB64)) }`
  *   - L-pin: `pairedChildStore.storeChildId(response.childId)` (only on 200 with non-blank child_id)
  */

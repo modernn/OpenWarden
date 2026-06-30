@@ -145,8 +145,27 @@ class RecoveryOnboardingViewModelTest {
             )
         model.proceedToChallenge()
         model.confirm(fakePositions.associateWith { "any" })
-        // Fail-closed: any throw → StorageError (not a crash).
+        // Fail-closed: any Exception → StorageError (not a crash). JVM Errors propagate (#151 review).
         assertIs<OnboardingUiState.StorageError>(model.state.value)
+    }
+
+    @Test
+    fun confirm_isSingleFlight_ignoredAfterTerminalState() {
+        // #151 review: a second confirm() after a terminal state must NOT re-run the (slow Argon2id)
+        // derivation — guards a double-click from deriving/provisioning twice.
+        var calls = 0
+        val model =
+            vm {
+                calls++
+                true
+            }
+        model.proceedToChallenge()
+        model.confirm(fakePositions.associateWith { "any" })
+        assertIs<OnboardingUiState.Provisioned>(model.state.value)
+        assertEquals(1, calls)
+
+        model.confirm(fakePositions.associateWith { "any" }) // ignored — already Provisioned
+        assertEquals(1, calls, "confirm must be single-flight: ignored once a terminal state is reached")
     }
 
     // ---- retry after wrong answers ----

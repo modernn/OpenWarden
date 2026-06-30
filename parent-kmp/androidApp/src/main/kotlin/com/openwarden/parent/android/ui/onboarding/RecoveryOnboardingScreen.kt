@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -105,6 +106,18 @@ fun RecoveryOnboardingScreen(
                     onConfirm = { viewModel.confirm(s.answers) },
                     modifier = Modifier.padding(innerPadding),
                 )
+            }
+
+            is OnboardingUiState.Submitting -> {
+                // The slow Argon2id derivation is running (confirm is single-flight, #151 review).
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    CircularProgressIndicator()
+                    Text("Deriving your recovery key…", style = MaterialTheme.typography.bodyMedium)
+                }
             }
 
             is OnboardingUiState.StorageError -> {

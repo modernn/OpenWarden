@@ -36,6 +36,12 @@ sealed interface OnboardingUiState {
         val answers: Map<Int, String>,
     ) : OnboardingUiState
 
+    /**
+     * A confirm is in flight (the slow Argon2id derivation runs inside [confirm]). Disables the
+     * Confirm action so a double-click can't start a second derivation (#151 review).
+     */
+    data object Submitting : OnboardingUiState
+
     /** Secure store unavailable — tell parent to set a screen lock. */
     data object StorageError : OnboardingUiState
 }
@@ -120,20 +126,26 @@ class RecoveryOnboardingViewModel(
      * Calls [confirmSession] which in production is [Session.confirm] — key derivation +
      * storage happen inside that call, never here.
      *
-     * Catches [com.openwarden.parent.crypto.SecureStorageUnavailableException] as a
-     * [Throwable] subtype so this class stays in commonMain without an Android import.
-     * The actual catch is broad (`Throwable`) to avoid leaking an Android-only exception
-     * type into the common source set; the screen layer surfaces [OnboardingUiState.StorageError]
-     * with a "set a screen lock first" message.
+     * Catches [com.openwarden.parent.crypto.SecureStorageUnavailableException] (an
+     * `IllegalStateException`, hence an [Exception]) so this class stays in commonMain without an
+     * Android import; the screen surfaces [OnboardingUiState.StorageError] with a "set a screen lock
+     * first" message. We catch [Exception], NOT [Throwable], so JVM [Error]s (OOM, StackOverflow) are
+     * not masked as a storage problem and propagate (#151 review).
+     *
+     * Double-submit safe: an atomic [kotlinx.coroutines.flow.MutableStateFlow.compareAndSet] claims the
+     * `Challenge`/`WrongAnswers` → [OnboardingUiState.Submitting] transition, so a concurrent
+     * double-click loses the CAS and returns — the slow Argon2id derivation runs at most once.
      */
     fun confirm(answers: Map<Int, String>) {
+        val current = _state.value
+        // Only a pending challenge can start a confirm — a terminal/Submitting state is ignored.
+        if (current !is OnboardingUiState.Challenge && current !is OnboardingUiState.WrongAnswers) return
+        // Atomically claim the submit; a concurrent re-entry loses this CAS and returns.
+        if (!_state.compareAndSet(current, OnboardingUiState.Submitting)) return
         val result =
             try {
                 confirmSession(answers)
-            } catch (t: Throwable) {
-                // SecureStorageUnavailableException extends IllegalStateException; catching
-                // Throwable here keeps commonMain free of Android imports. The real StorageError
-                // path is exercised by injecting a throwing lambda in the test.
+            } catch (e: Exception) {
                 _state.update { OnboardingUiState.StorageError }
                 return
             }
