@@ -211,6 +211,36 @@ class PolicyAdmissionTest {
         assertEquals(listOf("stage:1", "apply:1", "ack:1"), applier.calls)
     }
 
+    @Test
+    fun pairSeededGenesisStateAdmitsFirstBundle() {
+        // ADR-046 D1 / #150 crypto review Finding 1: after a demo /pair,
+        // ReplayFloorStore.seedGenesisProvisioning() leaves the child PROVISIONED with the floor seeded
+        // to GENESIS_FLOOR (0) and the parent key already pinned — this is NOT the genesis-TOFU path
+        // (the key is pinned). The first signed bundle (seq >= 1) MUST admit via the NORMAL path
+        // (seq > floor = 0). Without the seed, the post-/pair state is "provisioned + null floor", which
+        // PolicyAdmission rejects as a missing-floor anomaly — so this guards that /pair actually closes
+        // the end-to-end loop instead of rejecting every bundle to strict baseline.
+        val kp = newKeypair()
+        val state = FakeFloorState(provisioned = true, atRest = ReplayFloor.GENESIS_FLOOR) // post-/pair
+        val applier = RecordingApplier()
+
+        val b = sign(bundle(policySeq = 1L, childId = state.childDeviceId()), kp)
+        val result =
+            admit(
+                bundle = b,
+                store = state,
+                applier = applier,
+                pinParentKey = {},
+                pinnedParentPubkey = kp.publicKeyRaw, // key already pinned at /pair — NOT genesis
+            )
+
+        assertTrue(result is PolicyAdmission.Result.Applied, "first bundle after /pair must be Applied (seq 1 > floor 0)")
+        assertEquals(1L, (result as PolicyAdmission.Result.Applied).policySeq)
+        assertFalse(result.genesis, "must NOT be the genesis path — the key was already pinned at /pair")
+        assertEquals(1L, state.atRestFloor(), "floor advances to the applied seq")
+        assertEquals(listOf("stage:1", "apply:1", "ack:1"), applier.calls)
+    }
+
     // =========================================================================
     // concurrent-admission ordering (R5) — serialize the whole transaction
     // =========================================================================

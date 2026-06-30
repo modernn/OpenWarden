@@ -168,6 +168,33 @@ class ReplayFloorStore(
     }
 
     /**
+     * Couple genesis for the v0.x demo-pair path (ADR-046 D1, PROTOCOL §5 item 6, #150 crypto review
+     * Finding 1): seed the at-rest floor to [ReplayFloor.GENESIS_FLOOR] AND write the provisioning
+     * marker, so a subsequent signed bundle with `policy_seq >= 1` admits via the **normal** path
+     * (`seq > floor = 0`) instead of tripping [PolicyAdmission]'s "provisioned-but-no-floor → anomaly"
+     * reject. Without this, `/pair` would pin the key in isolation — exactly the split PROTOCOL §5
+     * item 6 forbids — and every signed `/policy` after pairing would be rejected to strict baseline.
+     *
+     * Idempotent + **fail-closed**: no-op once provisioned; throws on a failed durable write (same
+     * commit+readback contract as [advanceFloor]/[markProvisioned]). Ordering matters — the floor is
+     * seeded BEFORE the marker, and only when no floor exists yet (never lowers an established floor),
+     * so a crash between the two leaves the child still un-provisioned (marker absent) and `/pair` can
+     * safely re-run rather than wedging.
+     */
+    fun seedGenesisProvisioning() {
+        if (isProvisioned()) return
+        if (atRestFloor() == null) {
+            check(prefs.edit().putLong(KEY_FLOOR, ReplayFloor.GENESIS_FLOOR).commit()) {
+                "genesis floor seed commit() failed (fail-closed)"
+            }
+            check(prefs.getLong(KEY_FLOOR, -1L) == ReplayFloor.GENESIS_FLOOR) {
+                "genesis floor seed readback != GENESIS_FLOOR (fail-closed)"
+            }
+        }
+        markProvisioned()
+    }
+
+    /**
      * The child's own stable device id used for audience binding (ADR-017 §6).
      * Generated once on first read and persisted. In v1 this is a random stable
      * id; ADR-017 allows "the child's pinned Ed25519 pubkey, or a stable id
