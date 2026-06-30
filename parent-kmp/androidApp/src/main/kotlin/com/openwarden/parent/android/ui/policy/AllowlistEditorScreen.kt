@@ -31,11 +31,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.openwarden.parent.policy.AllowlistEditorState
 import com.openwarden.parent.policy.AllowlistEditorViewModel
 import com.openwarden.parent.policy.AllowlistRepository
+import com.openwarden.parent.policy.AppCategoryGroup
 import com.openwarden.parent.policy.AppInfo
+import com.openwarden.parent.policy.ApplyState
+import com.openwarden.parent.policy.PolicySender
+import com.openwarden.parent.policy.SendResult
+import com.openwarden.proto.Policy
 import kotlinx.coroutines.launch
 
 /**
@@ -45,6 +51,13 @@ import kotlinx.coroutines.launch
  * Fail-closed: if the child cannot be reached, an error banner is shown and the
  * previous allowlist is preserved. The toggle controls are disabled while loading.
  *
+ * Apps are grouped under [AppCategory] section headers (enum order; OTHER / UNKNOWN
+ * last) and sorted alphabetically by label within each group.
+ *
+ * The "Apply to child" button sends the current allowlist as a signed policy bundle
+ * via [AllowlistEditorViewModel.apply]. Every [ApplyState] variant is surfaced as
+ * explicit UI — only [ApplyState.Applied] is treated as success (fail-closed).
+ *
  * [AllowlistEditorViewModel] lives in :shared (commonMain) so it is not an
  * AndroidX ViewModel; it is created with [remember] and its lifecycle is tied
  * to this screen's composition. A full DI/ViewModel layer is deferred (#27).
@@ -52,14 +65,28 @@ import kotlinx.coroutines.launch
  * @param repo [AllowlistRepository] satisfying the transport seam. Pass a real
  *   implementation (e.g. [com.openwarden.parent.android.policy.DemoAllowlistRepository])
  *   from the calling Activity or nav-graph.
+ * @param sender Optional [PolicySender] for the "Apply to child" push path. When
+ *   null the button is still rendered but immediately maps to [ApplyState.NotProvisioned]
+ *   (recovery-key setup not complete). The demo wiring passes a real sender; tests inject
+ *   a fake.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AllowlistEditorScreen(
     repo: AllowlistRepository,
+    sender: PolicySender? = null,
     onBack: () -> Unit = {},
 ) {
-    val viewModel = remember { AllowlistEditorViewModel(repo) }
+    val viewModel =
+        remember {
+            val sendFn: (suspend (Policy) -> SendResult)? =
+                if (sender != null) {
+                    { policy: Policy -> sender.send(policy) }
+                } else {
+                    null
+                }
+            AllowlistEditorViewModel(repo, sendFn)
+        }
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -89,8 +116,11 @@ fun AllowlistEditorScreen(
         ) {
             AllowlistEditorContent(
                 state = state,
+                groupedApps = viewModel.groupedApps(),
                 onToggle = { pkg -> viewModel.toggle(pkg) },
                 onRetry = { scope.launch { viewModel.load() } },
+                onApply = { scope.launch { viewModel.apply() } },
+                onDismissApplyState = { viewModel.clearApplyState() },
             )
         }
     }
@@ -99,16 +129,196 @@ fun AllowlistEditorScreen(
 @Composable
 internal fun AllowlistEditorContent(
     state: AllowlistEditorState,
+    groupedApps: List<AppCategoryGroup>,
     onToggle: (String) -> Unit,
     onRetry: () -> Unit,
+    onApply: () -> Unit,
+    onDismissApplyState: () -> Unit,
 ) {
     when {
-        state.loading -> LoadingIndicator()
-        state.errorMessage != null -> ErrorWithRetry(checkNotNull(state.errorMessage), onRetry)
-        state.apps.isEmpty() -> EmptyApps(onRetry)
-        else -> AppList(state.apps, state.allowlist, onToggle)
+        state.loading -> {
+            LoadingIndicator()
+        }
+
+        state.errorMessage != null -> {
+            ErrorWithRetry(checkNotNull(state.errorMessage), onRetry)
+        }
+
+        state.apps.isEmpty() -> {
+            EmptyApps(onRetry)
+        }
+
+        else -> {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Apply banner lives above the list so it's always visible.
+                state.applyState?.let { applyState ->
+                    ApplyStateBanner(
+                        applyState = applyState,
+                        onDismiss = onDismissApplyState,
+                    )
+                }
+                GroupedAppList(
+                    groups = groupedApps,
+                    allowlist = state.allowlist,
+                    onToggle = onToggle,
+                    modifier = Modifier.weight(1f),
+                )
+                // "Apply to child" button pinned at the bottom of the list.
+                ApplyButton(
+                    sending = state.applyState is ApplyState.Sending,
+                    onApply = onApply,
+                )
+            }
+        }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Apply state banner
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ApplyStateBanner(
+    applyState: ApplyState,
+    onDismiss: () -> Unit,
+) {
+    val (containerColor, label) =
+        when (applyState) {
+            is ApplyState.Sending -> {
+                MaterialTheme.colorScheme.surfaceVariant to "Sending policy to child…"
+            }
+
+            is ApplyState.Applied -> {
+                MaterialTheme.colorScheme.primaryContainer to
+                    "Policy applied (seq ${applyState.policySeq})"
+            }
+
+            is ApplyState.Rejected -> {
+                MaterialTheme.colorScheme.errorContainer to
+                    "Child rejected policy: ${applyState.reason}"
+            }
+
+            is ApplyState.TransportFailed -> {
+                MaterialTheme.colorScheme.errorContainer to
+                    "Send failed: ${applyState.message}"
+            }
+
+            ApplyState.NotProvisioned -> {
+                MaterialTheme.colorScheme.errorContainer to
+                    "Set up your recovery key first before sending policy."
+            }
+
+            ApplyState.NotPaired -> {
+                MaterialTheme.colorScheme.errorContainer to
+                    "No child paired yet. Pair a device before sending policy."
+            }
+        }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            if (applyState !is ApplyState.Sending) {
+                Button(
+                    onClick = onDismiss,
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
+                    Text("OK")
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Apply button
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ApplyButton(
+    sending: Boolean,
+    onApply: () -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Button(
+            onClick = onApply,
+            enabled = !sending,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Apply allowlist to child device" },
+        ) {
+            Text(if (sending) "Sending…" else "Apply to child")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Grouped app list
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun GroupedAppList(
+    groups: List<AppCategoryGroup>,
+    allowlist: Set<String>,
+    onToggle: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(vertical = 8.dp),
+    ) {
+        groups.forEach { group ->
+            // Category section header.
+            item(key = "header-${group.category.name}") {
+                CategoryHeader(group.category.displayName)
+            }
+            // Apps within this group.
+            items(group.apps, key = { it.packageName }) { app ->
+                AppRow(
+                    app = app,
+                    allowed = app.packageName in allowlist,
+                    onToggle = { onToggle(app.packageName) },
+                )
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryHeader(displayName: String) {
+    Text(
+        text = displayName,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Loading / error / empty states (unchanged behaviour)
+// ---------------------------------------------------------------------------
 
 @Composable
 private fun LoadingIndicator() {
@@ -188,27 +398,6 @@ private fun EmptyApps(onRetry: () -> Unit) {
             }
         }
         Button(onClick = onRetry) { Text("Retry") }
-    }
-}
-
-@Composable
-private fun AppList(
-    apps: List<AppInfo>,
-    allowlist: Set<String>,
-    onToggle: (String) -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp),
-    ) {
-        items(apps, key = { it.packageName }) { app ->
-            AppRow(
-                app = app,
-                allowed = app.packageName in allowlist,
-                onToggle = { onToggle(app.packageName) },
-            )
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-        }
     }
 }
 

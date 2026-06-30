@@ -61,16 +61,22 @@ data class UsageResponse(
 )
 
 /**
- * Child /apps response entry: {"packageName","label"}.
+ * Child /apps response entry: {"packageName","label","category"}.
  *
- * The child endpoint does not yet exist in the demo server — [ChildApiClient.getApps]
- * handles the 404/connection-refused case fail-closed and returns an [ApiResult.Failure].
- * When the child-side /apps endpoint ships (#30), this type will match its wire shape.
+ * The /apps endpoint shipped in child-android PR #142. The [category] field carries one
+ * of the [com.openwarden.parent.dashboard.AppCategory] enum names (SOCIAL, ENTERTAINMENT,
+ * GAMING, COMMUNICATION, PRODUCTIVITY, EDUCATION, SHOPPING, NEWS, UTILITIES, OTHER, UNKNOWN).
+ * Missing or unrecognised values are mapped to UNKNOWN / OTHER by the parse chokepoint
+ * [com.openwarden.parent.dashboard.AppCategory.fromRaw] in the repository layer.
+ *
+ * The [ChildApiClient] Json config sets [ignoreUnknownKeys] = true, so this DTO is
+ * forwards-compatible: new fields added by the child do not break the parent parser.
  */
 @Serializable
 data class InstalledAppEntry(
     val packageName: String = "",
     val label: String = "",
+    val category: String? = null,
 )
 
 /** Child /apps envelope: {"apps":[…]}. */
@@ -190,15 +196,16 @@ internal class ChildApiClient : java.io.Closeable {
         )
 
     /**
-     * Fetch the installed-app list from the child's /apps endpoint.
+     * Fetch the installed-app list from the child's /apps endpoint (shipped in child-android PR #142).
+     *
+     * The child returns `{"apps":[{"packageName","label","category"},…]}`. Each entry's `category`
+     * string is one of the [com.openwarden.parent.dashboard.AppCategory] enum names and must be
+     * mapped through [com.openwarden.parent.dashboard.AppCategory.fromRaw] in the repository layer
+     * before it reaches the domain model.
      *
      * Fail-closed: any network error, non-200, or parse failure returns
      * [ApiResult.Failure]. The caller MUST NOT treat failure as "empty allowlist";
      * it must surface the error and keep the last-known allowlist frozen.
-     *
-     * NOTE: the child /apps endpoint is a stub (not yet implemented in child-android).
-     * Until it ships, this will return a Failure, which the UI surfaces as an explicit
-     * error (not a silent empty list). See child-android issue #30.
      */
     suspend fun getApps(): ApiResult<List<InstalledAppEntry>> =
         runCatching {

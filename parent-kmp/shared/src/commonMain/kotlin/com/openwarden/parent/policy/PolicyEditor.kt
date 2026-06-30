@@ -1,5 +1,6 @@
 package com.openwarden.parent.policy
 
+import com.openwarden.parent.dashboard.AppCategory
 import com.openwarden.proto.Policy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -9,6 +10,8 @@ import kotlinx.coroutines.flow.update
 data class AppInfo(
     val packageName: String,
     val label: String,
+    /** High-level category supplied by the child /apps endpoint. Defaults to [AppCategory.UNKNOWN]. */
+    val category: AppCategory = AppCategory.UNKNOWN,
 )
 
 data class PolicyModel(
