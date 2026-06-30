@@ -189,12 +189,13 @@ class AllowlistEnforcementE2ETest {
         // Phase 2: add the target to the allowlist; verify it becomes launchable again.
         enforcer.applyAllowlist(setOf(pkg))
         val unblockedMs = measureUntil(BUDGET_MS) { !isLaunchBlocked(pkg) }
+        // measureUntil polled `!isLaunchBlocked` for diagnostics (unblockedMs in the message); the
+        // assertion itself reads the FINAL real DPM state — assertFalse passes iff the app actually
+        // un-suspended. If it never flipped within the budget, isLaunchBlocked is still true here and
+        // this fails. (Final-state assert, not a timing assert.)
         assertFalse(
             "approve path: $pkg should be launch-UNblocked within ${BUDGET_MS}ms " +
                 "after applyAllowlist(setOf(pkg)), took ${unblockedMs}ms",
-            // The assertion mirrors ExitCriteriaE2ETest: if !isLaunchBlocked never flips within
-            // the budget, measureUntil returns BUDGET_MS, so unblockedMs >= BUDGET_MS fails the
-            // `< BUDGET_MS` check we encode here as assertFalse(isLaunchBlocked).
             isLaunchBlocked(pkg),
         )
     }
