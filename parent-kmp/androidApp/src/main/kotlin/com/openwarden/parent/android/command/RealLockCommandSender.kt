@@ -49,7 +49,18 @@ internal class RealLockCommandSender(
     java.io.Closeable {
     private val http =
         HttpClient(engine) {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            // encodeDefaults=true is LOAD-BEARING (#157): the child's SignedCommand.v has no default,
+            // and the signature (CommandSigner) covers "v":1 (a default value). Without encodeDefaults
+            // the wire drops "v" — the child then 400-MALFORMEDs (can't parse) and, even if it parsed,
+            // would re-canonicalize a different body than was signed. Send EXACTLY what was signed.
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        encodeDefaults = true
+                    },
+                )
+            }
         }
 
     override suspend fun sendLock(): LockCommandResult = send(SignedCommand.TYPE_LOCK, "/lock")

@@ -93,6 +93,11 @@ class RealLockCommandSenderTest {
             val result = sender(engine).sendLock()
             assertTrue("expected Success, got $result", result is LockCommandResult.Success)
             assertTrue("posts to /lock: $url", url.endsWith("/lock"))
+            // #157 regression: assert the RAW wire carries "v":1. Decoding into SignedCommand would
+            // silently re-default a missing `v` back to 1 (the parent-side default), hiding the bug —
+            // the child's SignedCommand.v has NO default and 400-MALFORMEDs a v-less body. The signature
+            // covers "v":1, so the wire MUST include it. This is exactly what #152's decode-only test missed.
+            assertTrue("wire body must include \"v\":1 (encodeDefaults), got: $body", body.contains("\"v\":1"))
             val cmd = json.decodeFromString(SignedCommand.serializer(), body)
             assertEquals(1, cmd.v)
             assertEquals("lock", cmd.type)
