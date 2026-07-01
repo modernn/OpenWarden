@@ -1,9 +1,12 @@
 package com.openwarden.parent.onboarding
 
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 
 /**
  * UI state for the recovery-phrase onboarding screen (ADR-046 D2).
@@ -82,6 +85,9 @@ class RecoveryOnboardingViewModel(
     val mnemonic: List<String>,
     val challengePositions: List<Int>,
     private val confirmSession: (Map<Int, String>) -> Boolean,
+    // #155: the ~256 MiB / ~2 s Argon2id derivation inside [confirmSession] runs on this dispatcher,
+    // NEVER the caller's (main) thread. Injectable so tests can pass a deterministic test dispatcher.
+    private val derivationDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val _state: MutableStateFlow<OnboardingUiState> =
         MutableStateFlow(OnboardingUiState.ShowPhrase(mnemonic))
@@ -134,17 +140,25 @@ class RecoveryOnboardingViewModel(
      *
      * Double-submit safe: an atomic [kotlinx.coroutines.flow.MutableStateFlow.compareAndSet] claims the
      * `Challenge`/`WrongAnswers` → [OnboardingUiState.Submitting] transition, so a concurrent
-     * double-click loses the CAS and returns — the slow Argon2id derivation runs at most once.
+     * double-click loses the CAS and returns — the slow Argon2id derivation runs at most once. The CAS
+     * runs on the caller thread BEFORE dispatching, so single-flight holds even under a rapid double tap.
+     *
+     * Threading (#155): the derivation ([confirmSession]) runs via [withContext] on [derivationDispatcher]
+     * (default [Dispatchers.Default]), NEVER the caller's (main) thread — a ~256 MiB / ~2 s Argon2id on
+     * main would ANR (and its OOM would land as a main-thread crash). `suspend` so the caller drives it
+     * from a coroutine scope; the `Submitting` spinner is visible for the whole derivation.
      */
-    fun confirm(answers: Map<Int, String>) {
+    suspend fun confirm(answers: Map<Int, String>) {
         val current = _state.value
         // Only a pending challenge can start a confirm — a terminal/Submitting state is ignored.
         if (current !is OnboardingUiState.Challenge && current !is OnboardingUiState.WrongAnswers) return
-        // Atomically claim the submit; a concurrent re-entry loses this CAS and returns.
+        // Atomically claim the submit on the caller thread; a concurrent re-entry loses this CAS and
+        // returns, so the slow derivation is dispatched at most once.
         if (!_state.compareAndSet(current, OnboardingUiState.Submitting)) return
         val result =
             try {
-                confirmSession(answers)
+                // The ratified 256 MiB Argon2id (RootKeyDerivation) runs OFF the main thread.
+                withContext(derivationDispatcher) { confirmSession(answers) }
             } catch (e: Exception) {
                 _state.update { OnboardingUiState.StorageError }
                 return

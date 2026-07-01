@@ -29,6 +29,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.openwarden.parent.onboarding.OnboardingUiState
 import com.openwarden.parent.onboarding.RecoveryOnboardingViewModel
+import kotlinx.coroutines.launch
 
 /**
  * Recovery-phrase onboarding screen (ADR-046 D2).
@@ -62,6 +64,9 @@ fun RecoveryOnboardingScreen(
     onProvisioned: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    // #155: confirm() is suspend (the Argon2id derivation runs off-main), so launch it from a
+    // composition-scoped coroutine. The scope is cancelled when the screen leaves composition.
+    val scope = rememberCoroutineScope()
 
     // Apply FLAG_SECURE so the phrase can never appear in screen captures or the recent-apps thumbnail.
     val activity = LocalContext.current as? Activity
@@ -92,7 +97,7 @@ fun RecoveryOnboardingScreen(
                     answers = s.answers,
                     errorMessage = null,
                     onAnswer = { pos, word -> viewModel.updateAnswer(pos, word) },
-                    onConfirm = { viewModel.confirm(s.answers) },
+                    onConfirm = { scope.launch { viewModel.confirm(s.answers) } },
                     modifier = Modifier.padding(innerPadding),
                 )
             }
@@ -103,7 +108,7 @@ fun RecoveryOnboardingScreen(
                     answers = s.answers,
                     errorMessage = "Those words didn't match — check your phrase and try again.",
                     onAnswer = { pos, word -> viewModel.updateAnswer(pos, word) },
-                    onConfirm = { viewModel.confirm(s.answers) },
+                    onConfirm = { scope.launch { viewModel.confirm(s.answers) } },
                     modifier = Modifier.padding(innerPadding),
                 )
             }
