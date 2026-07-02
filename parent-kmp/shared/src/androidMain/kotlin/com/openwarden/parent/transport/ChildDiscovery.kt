@@ -97,7 +97,11 @@ class ChildDiscovery(
             override fun onServiceResolved(info: NsdServiceInfo) {
                 runCatching {
                     @Suppress("DEPRECATION") // getHost() is the minSdk-28-compatible accessor
-                    val host = info.host?.hostAddress ?: return
+                    val host =
+                        info.host?.hostAddress ?: run {
+                            Log.w(TAG, "resolved service ${info.serviceName} has no host address; ignoring")
+                            return
+                        }
                     val childId = info.attributes[TXT_CHILD_ID]?.let { String(it, Charsets.UTF_8) }
                     onFound(Discovered(host = host, port = info.port, childId = childId))
                 }.onFailure { Log.w(TAG, "onServiceResolved handling threw", it) }

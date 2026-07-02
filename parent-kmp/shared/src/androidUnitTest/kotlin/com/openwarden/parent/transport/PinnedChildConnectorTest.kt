@@ -12,6 +12,8 @@ import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import org.junit.Test
 import java.security.SecureRandom
+import java.security.cert.CertificateException
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -146,5 +148,35 @@ class PinnedChildConnectorTest {
         // Fail-closed: with no trust anchor the connector must reject outright (never TOFU-accept).
         val outcome = runBlocking { PinnedChildConnector().connect("127.0.0.1", 1, pinnedIdentityPubkey = null) }
         assertTrue(outcome is PinnedChildConnector.Outcome.Rejected, "expected Rejected, got $outcome")
+    }
+
+    @Test
+    fun `the verified client pins the exact leaf - any other cert fails closed`() {
+        // Proves the returned Verified.client uses a PINNING trust manager (not the trust-all capturing
+        // one): the exact verified leaf is accepted, any other leaf or a null chain throws (handshake
+        // fails), so a mid-session cert swap cannot slip through.
+        val verified = leafCert().certificate
+        val other = leafCert().certificate
+        val tm = PinningTrustManager(verified.publicKey.encoded)
+        tm.checkServerTrusted(arrayOf(verified), "ECDHE_ECDSA") // exact leaf ⇒ no throw
+        assertFailsWith<CertificateException> { tm.checkServerTrusted(arrayOf(other), "ECDHE_ECDSA") }
+        assertFailsWith<CertificateException> { tm.checkServerTrusted(null, "ECDHE_ECDSA") }
+    }
+
+    @Test
+    fun `connect to a non-TLS server fails closed (handshake failure isolated)`() {
+        // A plaintext responder (a TLS handshake failure) must be Rejected, never used — proves the
+        // handshake-exception catch path (not just the malformed-body path).
+        val server =
+            MockWebServer().apply {
+                enqueue(MockResponse().setBody("plaintext"))
+                start()
+            }
+        try {
+            val outcome = runBlocking { PinnedChildConnector().connect(server.hostName, server.port, newId().pub) }
+            assertTrue(outcome is PinnedChildConnector.Outcome.Rejected, "expected Rejected, got $outcome")
+        } finally {
+            server.shutdown()
+        }
     }
 }

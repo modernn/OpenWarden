@@ -84,7 +84,8 @@ class PinnedChildConnector(
             // Handshake / connect / read failure — fail-closed, no fallback.
             return Outcome.Rejected("connect or handshake failed: ${e.message}")
         } finally {
-            probe.close()
+            // Never let a close() failure mask the real outcome/exception (fail-closed diagnostics).
+            runCatching { probe.close() }
         }
 
         // The verifier binds the assertion to the SPKI of the leaf actually negotiated (D2 c3) and to the
