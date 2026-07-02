@@ -60,9 +60,11 @@ enforced Day-One baseline is intact — `docs/E2E_EXIT_CRITERIA.md`) could becom
 consumer has now landed:
 
 - **`ExitCriteriaE2ETest.exitCriterion2_enforcedBaselineIntactMinusAdbKiller`** constructs
-  `PolicyEnforcer(context, restrictionFilter = { it != UserManager.DISALLOW_DEBUGGING_FEATURES })`,
-  calls `applyDayOneRestrictions()` on the real Device Owner, and asserts the filtered baseline reads
-  back set. `DISALLOW_DEBUGGING_FEATURES` is filtered out, so adb stays alive to observe the result.
+  `PolicyEnforcer(context, restrictionFilter = { it != UserManager.DISALLOW_DEBUGGING_FEATURES })` and
+  calls `applyDayOneRestrictions()` on the real Device Owner — which applies **and verifies** the
+  filtered baseline against the DO-authoritative `getUserRestrictions(admin)`, throwing on any gap.
+  `DISALLOW_DEBUGGING_FEATURES` is filtered out, so adb stays alive; the test flanks the apply with an
+  independent recompute of the expected set and an assertion that the adb-killer is not enforced.
 
 **What this proves — and does NOT (no over-claim):**
 - It automates criterion 2 for the **whole baseline except the one adb-killing restriction** — that
@@ -76,9 +78,11 @@ consumer has now landed:
   effective view is deliberately NOT the oracle: it can report a restriction set by another source and
   so **fail-OPEN** (see the `defaultRestrictionReader` note in `PolicyEnforcer`). The test reduces the
   "enforcer is both actor and oracle" coupling by (a) recomputing the expected set independently from
-  the pure `requiredRestrictionsForSdk` and (b) doing its own readback instead of trusting
-  `PolicyEnforcer.missingRestrictions()`. It does **not** claim to fully break that circle — no
-  more-independent *and* fail-closed-correct on-device oracle exists.
+  the pure `requiredRestrictionsForSdk` and (b) asserting the adb-killer is not enforced (outside
+  apply's own verify scope). A post-apply re-read of the filtered set is deliberately **omitted** — it
+  would be redundant with apply's internal verify (same oracle), so the test does not dress it up as
+  independent corroboration. It does **not** claim to fully break the circle — no more-independent
+  *and* fail-closed-correct on-device oracle exists.
 - **Release/production is untouched.** This change adds only `androidTest` source plus docs; the
   default identity filter and the shipped restriction set are byte-for-byte unchanged.
 

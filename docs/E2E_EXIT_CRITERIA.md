@@ -43,12 +43,15 @@ that `DISALLOW_DEBUGGING_FEATURES` is live.
 - **`exitCriterion1_deviceOwnerProvisioned`** — hard-asserts `isDeviceOwnerApp` + active admin. The
   one non-skippable test, so a non-provisioned device fails here rather than going vacuously green.
 - **`exitCriterion2_enforcedBaselineIntactMinusAdbKiller`** — applies the Day-One baseline **minus**
-  `DISALLOW_DEBUGGING_FEATURES` (via the ADR-045 `restrictionFilter` seam) on the real Device Owner,
-  then reads it back through the DO-authoritative `getUserRestrictions(admin)` and asserts every
-  filtered restriction is set. Its added assurance over the host test is that it hits the **real
-  `DevicePolicyManager`** — proving the set actually sticks on the platform. The omitted restriction
-  stays out-of-band (you cannot keep ADB alive and observe the restriction that severs it); its
-  release-set membership is pinned by the host `PolicyEnforcerTest`. Reverts in `finally`.
+  `DISALLOW_DEBUGGING_FEATURES` (via the ADR-045 `restrictionFilter` seam) on the real Device Owner.
+  `applyDayOneRestrictions()` verifies the filtered set against the DO-authoritative
+  `getUserRestrictions(admin)` and throws on any gap, so its clean return is the load-bearing check;
+  the test flanks it with an independent recompute of the expected set and an assertion that the
+  ADB-killer is **not** enforced. Its added assurance over the host test is that it hits the **real
+  `DevicePolicyManager`** — proving the set actually sticks on the platform (the host test injects a
+  fake readback). The omitted restriction stays out-of-band (you cannot keep ADB alive and observe the
+  restriction that severs it); its release-set membership is pinned by the host `PolicyEnforcerTest`.
+  Reverts in `finally`.
 - **`exitCriterion3a_enforcementWriteReadbackLatencyUnder5s`** — times a Device-Owner enforcement
   write → authoritative readback (a reversible, non-baseline, **non-debugging** probe restriction)
   as a victim-free proxy for the block/unblock path. Always runs on a provisioned device.

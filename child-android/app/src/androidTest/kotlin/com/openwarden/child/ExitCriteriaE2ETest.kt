@@ -90,11 +90,15 @@ class ExitCriteriaE2ETest {
      *    DO-authoritative view, the same fail-closed-correct authority the enforcer verifies against.
      *    [UserManager.hasUserRestriction] is deliberately NOT used: its effective view can report a
      *    restriction set by another source and so fail-OPEN (see `defaultRestrictionReader`).
-     *  - To reduce the "enforcer is both actor and oracle" coupling the runbook warns about, the
-     *    expected set is recomputed independently from the pure [PolicyEnforcer.requiredRestrictionsForSdk]
-     *    (not read off the enforcer's own field), and the readback assertion is the test's own, not
-     *    [PolicyEnforcer.missingRestrictions]. This does not fully break the circle — no more-independent
-     *    *and* fail-closed-correct on-device oracle exists.
+     *  - The load-bearing check is that [PolicyEnforcer.applyDayOneRestrictions] RETURNS against the
+     *    real DevicePolicyManager (it throws on any gap in the filtered set), so the platform actually
+     *    accepted + verified the baseline — which the host test (fake readback) cannot show. Two
+     *    independent guards flank it: `expected` is recomputed from the pure
+     *    [PolicyEnforcer.requiredRestrictionsForSdk] (not the enforcer's own field), and the ADB-killer
+     *    is asserted NOT enforced on the device (outside apply's own verify scope). A post-apply re-read
+     *    of the filtered set would be redundant with apply's internal verify (same oracle), so it is
+     *    deliberately omitted — this does not claim a fully independent oracle, because none that is
+     *    both more-independent *and* fail-closed-correct exists on-device.
      *
      * [assumeTrue]-skips when not Device Owner (criterion 1 is the loud failure). Runs in the
      * provisioned-but-watchdog-halted window (like the latency tests); reverts every restriction it
@@ -120,20 +124,24 @@ class ExitCriteriaE2ETest {
         )
 
         try {
-            // Real apply + real self-verify against the live DevicePolicyManager. Throws (and locks)
-            // if any filtered restriction does not stick — a loud failure, never a silent pass. ADB
-            // survives because the ADB-killer was filtered out of the applied set.
+            // THE load-bearing criterion-2 assertion. applyDayOneRestrictions() applies the filtered
+            // baseline against the REAL DevicePolicyManager and reads every entry back via the
+            // DO-authoritative getUserRestrictions(admin), THROWING (and locking) on any gap — so if it
+            // returns, the real platform actually accepted AND verified the whole filtered baseline.
+            // That is exactly what the host PolicyEnforcerTest cannot show (it injects a fake readback).
+            // ADB survives because the ADB-killer was filtered out of the applied set.
+            //
+            // A post-apply re-read of `expected` would be redundant with this internal verify (same
+            // oracle) — so it is deliberately omitted rather than dressed up as independent
+            // corroboration (crypto/cavecrew review, PR #169).
             enforcer.applyDayOneRestrictions()
 
-            // Test-owned DO-authoritative readback (NOT enforcer.missingRestrictions()).
-            val set = dpm.getUserRestrictions(admin)
-            val notSet = expected.filterNot { set.getBoolean(it, false) }
-            assertTrue("enforced baseline missing from DO-authoritative readback: $notSet", notSet.isEmpty())
-            // The ADB-killer must NOT have been applied by this filtered run — that is what kept ADB
-            // alive to reach this assertion. Its release-set membership is a separate host test.
+            // Non-redundant real-DPM check — OUTSIDE apply's own verify scope, which only covers the
+            // FILTERED set: the ADB-killer must NOT be enforced on the device (that is what kept ADB
+            // alive to reach here). Its presence in the *release* set is pinned by the host test.
             assertTrue(
-                "filtered run must not have applied the ADB-killer $adbKiller",
-                !set.getBoolean(adbKiller, false),
+                "filtered run must not enforce the ADB-killer $adbKiller (it would sever ADB)",
+                !dpm.getUserRestrictions(admin).getBoolean(adbKiller, false),
             )
         } finally {
             // Revert to the pre-test state so a watchdog-halted device is left unrestricted. A live
