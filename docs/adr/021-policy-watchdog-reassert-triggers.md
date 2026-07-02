@@ -75,3 +75,50 @@ Bad / accepted limits:
   the watchdog revert it) belong in the `connectedAndroidTest` suite (tracked with the CI/e2e
   work, #30/#31). This change covers the watchdog's fail-closed-but-alive logic deterministically
   with unit tests; the device-level revert rides on the enforcer's own readback (ADR-020).
+
+## Amendment — 2026-07-01: boot/provision → service-start wiring is now regression-tested (#75)
+
+A red-team pass (#75) reported "PolicyService not observed running after a reboot", with
+`private_dns_mode=null` and no Day-One restrictions. Investigation found this to be a
+**test-methodology false negative**, not a production regression:
+
+- The child was observed on a **non-Device-Owner** device. The DPM enforcement APIs
+  (`addUserRestriction`, the DNS floor's `setGlobalPrivateDnsMode`, the allowlist) all require
+  Device Owner; on a non-DO device they are no-ops/throw, so empty restrictions + null DNS is the
+  *expected* platform behavior. The live watchdog was in fact ticking every `INTERVAL_MS` and
+  failing closed correctly (`"Not Device Owner — cannot enforce restrictions … retry next tick"`).
+- An `adb install -r` leaves the app in Android's **"stopped" state**, which suppresses
+  `BOOT_COMPLETED` delivery until the first manual launch. In real provisioning the app is launched
+  during OOBE (admin-enable starts the FGS), so subsequent reboots deliver the broadcast normally.
+
+The `reassert()` semantics (order + fail-closed-but-alive) were already covered by
+`PolicyWatchdogTest`, and the Day-One baseline completeness by `PolicyEnforcerTest`. The one
+**untested link** was the D2-trigger-1 *chain wiring itself* — that a boot/provision broadcast
+actually (re)starts the foreground service. That is now pinned deterministically on the JVM:
+
+- `BootReceiverTest` — `BOOT_COMPLETED` and `LOCKED_BOOT_COMPLETED` each issue a `PolicyService`
+  start intent (Robolectric shadow of the started service).
+- `AdminReceiverTest` — `onEnabled` starts the service; `onProfileProvisioningComplete` starts it
+  **even when the Day-One apply throws** (no DO), proving the `finally` keeps enforcement alive to
+  retry rather than leaving it dead (fail-closed-but-alive, per ADR-020).
+
+**Scope — what "comes up on boot" means here (do not over-attribute).** The DISALLOW_* Day-One
+baseline is a *persistent Device Owner config*: the OS re-enforces it at boot before any app code
+runs, independent of whether `BootReceiver` fires — that is the A7 boot-race defense (DEFENSES.md),
+unchanged and **not** what these tests exercise. What the boot/provision → FGS restart
+re-establishes is the *app-code control plane*: the watchdog that heals drift and re-asserts the
+**non-persistent** surfaces (allowlist suspension state, the DNS floor once #19 lands,
+profile-escape detection). So these tests pin that the control-plane service restarts on the
+boot/provision broadcasts; they must **not** be cited as proof the persistent baseline "comes up" —
+it never went down. Separately, the `LOCKED_BOOT_COMPLETED` case is *receiver wiring only*: with no
+`directBootAware` component (none today), the locked / pre-unlock delivery does not occur on
+hardware, so nothing in the app runs before first unlock. Whether the control plane should be
+`directBootAware` is a separate, unratified security-posture decision (follow-up).
+
+**Why this is a JVM contract and not an adb-driven CI gate:** a Device Owner enforcing
+`DISALLOW_DEBUGGING_FEATURES` severs adb, so the device-level assertion "after a real boot the
+restrictions are physically live" cannot be observed over adb in CI (the #30 criterion-2 /
+`connectedAndroidTest` constraint, #124). The chain-wiring test is the deterministic home of the
+"enforcement comes up on boot/provision" contract; the physical restriction readback rides
+ADR-020's `lockNow()`-on-verify-gap and the out-of-band instrumented suite. Test-only change; no
+enforcement behavior was modified.
