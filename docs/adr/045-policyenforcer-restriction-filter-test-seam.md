@@ -52,6 +52,42 @@ Adopt **Option A**.
 - **Filtered apply verifies the filtered set:** with the filter and a readback reporting the filtered set as present, `applyDayOneRestrictions()` returns cleanly (no throw) and `missingRestrictions()` is empty — i.e. omitting the adb-killer lets the rest verify.
 - **Filter cannot resurrect a dropped release entry:** the default (production) path is unaffected by any test filter instance.
 
+## Amendment — 2026-07-02: instrumented consumer landed (issue #131)
+
+The seam above shipped in PR #137 with host (Robolectric) tests only; this ADR explicitly deferred
+"the instrumented consumer that injects the filter" to a follow-on so exit **criterion 2** (the
+enforced Day-One baseline is intact — `docs/E2E_EXIT_CRITERIA.md`) could become ADB-automatable. That
+consumer has now landed:
+
+- **`ExitCriteriaE2ETest.exitCriterion2_enforcedBaselineIntactMinusAdbKiller`** constructs
+  `PolicyEnforcer(context, restrictionFilter = { it != UserManager.DISALLOW_DEBUGGING_FEATURES })`,
+  calls `applyDayOneRestrictions()` on the real Device Owner, and asserts the filtered baseline reads
+  back set. `DISALLOW_DEBUGGING_FEATURES` is filtered out, so adb stays alive to observe the result.
+
+**What this proves — and does NOT (no over-claim):**
+- It automates criterion 2 for the **whole baseline except the one adb-killing restriction** — that
+  one stays out-of-band (inherent; see "Bad / accepted limits" above). Its presence in the *release*
+  set is pinned by the host regression test, not by this instrumented run.
+- Its added assurance over the host test is one specific thing: it runs against the **real
+  `DevicePolicyManager`** (the host test injects a fake readback), so it proves the restrictions
+  actually **stick on the platform**, not merely that the enforcer's logic is internally consistent.
+- The readback oracle is `DevicePolicyManager.getUserRestrictions(admin)` — the **DO-authoritative**
+  view, the same fail-closed-correct authority the enforcer verifies against. `UserManager`'s
+  effective view is deliberately NOT the oracle: it can report a restriction set by another source and
+  so **fail-OPEN** (see the `defaultRestrictionReader` note in `PolicyEnforcer`). The test reduces the
+  "enforcer is both actor and oracle" coupling by (a) recomputing the expected set independently from
+  the pure `requiredRestrictionsForSdk` and (b) doing its own readback instead of trusting
+  `PolicyEnforcer.missingRestrictions()`. It does **not** claim to fully break that circle — no
+  more-independent *and* fail-closed-correct on-device oracle exists.
+- **Release/production is untouched.** This change adds only `androidTest` source plus docs; the
+  default identity filter and the shipped restriction set are byte-for-byte unchanged.
+
+Run precondition: provisioned Device Owner with the watchdog **halted** (baseline absent at start); the
+test reverts every restriction it set in `finally`. On a live watchdog the full baseline (incl. the
+adb-killer) is re-asserted on the next tick — the documented enforcement behaviour, hence the halted
+precondition. Status stays **Accepted**; the structural/lint guard of D2 remains a separate follow-up
+(issue #139).
+
 ## Cross-refs
 - [ADR-020](020-failclosed-dayone-restrictions.md) — the fail-closed baseline; D1 "no relaxed variant in v1" (release-scoped, preserved here)
 - [ADR-022](022-allowlist-deny-by-default-profile-escape.md) — the profile-escape block, also in the required set

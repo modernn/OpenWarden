@@ -19,18 +19,21 @@ the device). So an ADB-driven instrumentation test can observe the baseline only
 **absent** — never while **enforced**. That is by design: it is the same restriction that stops a
 kid from sideloading over ADB.
 
-Consequence: criteria **1** (Device Owner) and **3** (latency) are ADB-automatable; criterion **2**
-(restrictions intact) is **not** — it is a manual / out-of-band check. The device going ADB-offline
-after boot is itself positive evidence that `DISALLOW_DEBUGGING_FEATURES` is live.
+Consequence: criteria **1** (Device Owner) and **3** (latency) are ADB-automatable. Criterion **2**
+(restrictions intact) is now **automated for the whole baseline except the one ADB-killing
+restriction** — the ADR-045 `restrictionFilter` seam lets an instrumented test omit
+`DISALLOW_DEBUGGING_FEATURES` and read back the rest while ADB stays alive (issue #131). That single
+restriction remains out-of-band: the device going ADB-offline after boot is itself positive evidence
+that `DISALLOW_DEBUGGING_FEATURES` is live.
 
 | Criterion | Arm | Where |
 |---|---|---|
 | 1 — provision < 30 min | **automated** | `scripts/e2e-exit-criteria.sh` times provisioning; `exitCriterion1_deviceOwnerProvisioned` asserts the outcome (Device Owner active) |
-| 2 — reboot → restrictions intact | **manual / out-of-band** | independent on-device spot checks + the ADB-offline-after-boot signal substantiate it; the app's own self-verify corroborates (below). Not ADB-automatable |
+| 2 — reboot → restrictions intact | **automated** (baseline **minus** `DISALLOW_DEBUGGING_FEATURES`, via the ADR-045 seam) + **out-of-band** (that one restriction) | `exitCriterion2_enforcedBaselineIntactMinusAdbKiller` applies + reads back the filtered baseline on the real Device Owner (ADB stays alive); the ADB-offline-after-boot signal + independent on-device spot checks substantiate the omitted restriction (below) |
 | 3 — block/unblock < 5 s | **automated** (device-side **floor**) + **manual** (true end-to-end) | `exitCriterion3a/3b` measure the on-device DPM leg with the watchdog halted — a *floor*, excludes scheduling; the parent→child stopwatch below measures the real end-to-end number, which can only be larger |
 | 4 — 7-day uptime | **manual** | soak procedure below |
 
-## Automated arm (criteria 1 + 3)
+## Automated arm (criteria 1 + 2 + 3)
 
 ### What it asserts
 
@@ -39,14 +42,23 @@ after boot is itself positive evidence that `DISALLOW_DEBUGGING_FEATURES` is liv
 
 - **`exitCriterion1_deviceOwnerProvisioned`** — hard-asserts `isDeviceOwnerApp` + active admin. The
   one non-skippable test, so a non-provisioned device fails here rather than going vacuously green.
+- **`exitCriterion2_enforcedBaselineIntactMinusAdbKiller`** — applies the Day-One baseline **minus**
+  `DISALLOW_DEBUGGING_FEATURES` (via the ADR-045 `restrictionFilter` seam) on the real Device Owner,
+  then reads it back through the DO-authoritative `getUserRestrictions(admin)` and asserts every
+  filtered restriction is set. Its added assurance over the host test is that it hits the **real
+  `DevicePolicyManager`** — proving the set actually sticks on the platform. The omitted restriction
+  stays out-of-band (you cannot keep ADB alive and observe the restriction that severs it); its
+  release-set membership is pinned by the host `PolicyEnforcerTest`. Reverts in `finally`.
 - **`exitCriterion3a_enforcementWriteReadbackLatencyUnder5s`** — times a Device-Owner enforcement
   write → authoritative readback (a reversible, non-baseline, **non-debugging** probe restriction)
   as a victim-free proxy for the block/unblock path. Always runs on a provisioned device.
 - **`exitCriterion3b_appSuspendLatencyUnder5s`** — times the real `setPackagesSuspended` block +
   unblock on a benign user app. Skips (logged) only when the device has no safe victim app.
 
-Both latency tests revert their state in `finally`. None of these tests touch
-`DISALLOW_DEBUGGING_FEATURES`, so they keep ADB alive.
+The latency tests revert their probe state in `finally`; the criterion-2 test reverts every
+restriction it applied in `finally` (leaving a watchdog-halted device unrestricted — a live watchdog
+re-asserts the full baseline on its next tick). **No test applies `DISALLOW_DEBUGGING_FEATURES`**, so
+all of them keep ADB alive.
 
 ### Run it
 
@@ -85,11 +97,14 @@ adb shell am instrument -w -e class com.openwarden.child.ExitCriteriaE2ETest \
 
 ## Manual arm
 
-### Criterion 2 — restart → self-unlock → restrictions intact (out-of-band)
+### Criterion 2 — the out-of-band residual: `DISALLOW_DEBUGGING_FEATURES`
 
-Cannot be read over ADB on an enforced device (see "The constraint"). Substantiate it with checks
-that are **independent of the enforcer** — these are what actually prove criterion 2, because they
-do not route through the same component that applies the restrictions:
+The bulk of criterion 2 is now automated (`exitCriterion2_enforcedBaselineIntactMinusAdbKiller`,
+above). What remains out-of-band is the **one** restriction the automated test must omit to keep ADB
+alive — `DISALLOW_DEBUGGING_FEATURES` — plus the full-enforcement reboot path. Cannot be read over
+ADB on a fully-enforced device (see "The constraint"). Substantiate it with checks that are
+**independent of the enforcer** — these do not route through the same component that applies the
+restrictions:
 
 1. **On-device spot checks (independent).** Confirm representative restrictions by hand: Settings →
    factory reset blocked, USB file transfer blocked, unknown-sources install blocked, add-user
@@ -104,7 +119,8 @@ do not route through the same component that applies the restrictions:
    # then poll: the device should become `offline` in `adb devices` once the watchdog applies Day-One
    ```
 3. **The app's own fail-closed self-verify (corroborating only).** `PolicyEnforcer.applyDayOneRestrictions`
-   applies the full baseline, reads every restriction back via `UserManager`, and **locks the device
+   applies the full baseline, reads every restriction back via the DO-authoritative
+   `DevicePolicyManager.getUserRestrictions(admin)`, and **locks the device
    and throws** if any required restriction is not set (ADR-020) — so a device that boots, enforces,
    and stays **usable (not locked)** has internally verified `requiredRestrictionsForSdk`. Treat this
    as **corroboration, not proof**: it is partially circular (the enforcer is both the actor and the
@@ -142,10 +158,12 @@ Not automatable in one run. On a bench device left powered for ≥ 7 days:
 
 ## Known gaps (surfaced, not silently worked around)
 
-- **Criterion 2 is not ADB-automatable** — `DISALLOW_DEBUGGING_FEATURES` disables ADB on the
-  enforced device, so its full readback is out-of-band (above). Closing this would need either a
-  debug build variant that omits that one restriction (enforcement change → ADR) or a non-ADB
-  readout channel.
+- **Criterion 2 is automated except for `DISALLOW_DEBUGGING_FEATURES` itself** — the ADR-045 seam
+  (issue #131) closed the gap for the rest of the baseline via `exitCriterion2_…MinusAdbKiller`
+  (test-wiring, not a debug build variant — release is untouched). The one ADB-killing restriction
+  stays inherently out-of-band: keeping ADB alive to read the set is mutually exclusive with
+  observing the restriction that severs ADB. It is substantiated by the ADB-offline-after-boot signal
+  and on-device spot checks (above), not by an automated readback.
 - **No non-ADB health/readout channel** — `docs/PROVISIONING_V2.md` references a `/health` content
   provider, but `ApiServer` does **not** implement it; `scripts/test-emulator.sh` still asserts that
   nonexistent endpoint and invokes a stale `:childAndroid:` module (the real module is `:app` under

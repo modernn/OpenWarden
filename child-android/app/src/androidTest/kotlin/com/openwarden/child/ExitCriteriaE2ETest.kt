@@ -6,10 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.SystemClock
 import android.os.UserManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -19,24 +21,26 @@ import org.junit.runner.RunWith
 /**
  * Exit-criteria E2E ("Oliver's phone works", docs/ROADMAP.md → docs/E2E_EXIT_CRITERIA.md).
  *
- * Issue #30. Asserts the exit criteria that are verifiable over ADB on a provisioned device:
+ * Issue #30 (criteria 1, 3) + issue #131 (criterion 2, via the ADR-045 seam). Asserts the exit
+ * criteria on a provisioned device:
  *  1. The app is Device Owner (the outcome of "provision from factory").
+ *  2. The enforced Day-One restriction baseline is intact — everything **except** the one
+ *     restriction that severs ADB ([UserManager.DISALLOW_DEBUGGING_FEATURES]), which the ADR-045
+ *     `restrictionFilter` seam omits so the rest can be applied and read back while ADB stays alive.
+ *     That one restriction stays out-of-band (inherent; the ADB-offline-after-boot signal
+ *     substantiates it — see docs/E2E_EXIT_CRITERIA.md).
  *  3. Block/unblock enforcement latency is under the 5-second budget (the device-side leg).
  *
- * Criterion 2 (the Day-One restriction baseline is intact) is **deliberately not asserted here.**
- * The baseline includes `DISALLOW_DEBUGGING_FEATURES`, which disables ADB the instant the watchdog
- * enforces it — so an ADB-driven instrumentation test can only ever run while the baseline is
- * *absent*, never observe it *present*. (Verified live: the device drops to `offline` the moment
- * `PolicyService` applies Day-One after boot.) Criterion 2 is therefore checked manually on-device —
- * the Kid-Transparency screen or a one-shot pre-enforcement readback; see docs/E2E_EXIT_CRITERIA.md.
- * Criteria 1 and 3 here are ADB-safe: they read DO state and toggle reversible, non-baseline DPM
- * state, none of which touches debugging.
+ * Before ADR-045, criterion 2 could not be ADB-automated at all: `DISALLOW_DEBUGGING_FEATURES` drops
+ * the device to ADB `offline` the instant the watchdog enforces it. The seam relieves that for the
+ * whole baseline *except* that single restriction.
  *
- * Run manually (device provisioned as Device Owner, watchdog not yet enforcing):
+ * Run manually (device provisioned as Device Owner, watchdog NOT yet enforcing — so the baseline is
+ * absent at start and the tests can apply / observe / revert it):
  *   adb shell am instrument -w -e class com.openwarden.child.ExitCriteriaE2ETest \
  *     com.openwarden.child.debug.test/androidx.test.runner.AndroidJUnitRunner
  *
- * Criterion 3 [assumeTrue]-skips when the app is NOT Device Owner so the class fails LOUDLY in
+ * Every test [assumeTrue]-skips when the app is NOT Device Owner, so the class fails LOUDLY in
  * exactly one place — [exitCriterion1_deviceOwnerProvisioned] — never a vacuous green.
  */
 @RunWith(AndroidJUnit4::class)
@@ -67,6 +71,76 @@ class ExitCriteriaE2ETest {
             isDeviceOwner(),
         )
         assertTrue("AdminReceiver must be an active admin", dpm.isAdminActive(admin))
+    }
+
+    /**
+     * Criterion 2 — the enforced Day-One baseline is intact on a real provisioned device
+     * (docs/E2E_EXIT_CRITERIA.md). Uses the ADR-045 [PolicyEnforcer] `restrictionFilter` seam to omit
+     * the ONE restriction that kills ADB ([UserManager.DISALLOW_DEBUGGING_FEATURES]) so the rest of
+     * the baseline can be applied and read back over a live ADB link. The omitted restriction's
+     * presence in the *release* set is pinned separately by the host `PolicyEnforcerTest` regression
+     * and stays out-of-band here — inherent: you cannot both keep ADB alive and observe the
+     * restriction that severs it.
+     *
+     * Assurance boundary (stated to avoid over-claiming):
+     *  - The added value over the host test is that this runs against the **real DevicePolicyManager**
+     *    (the host test injects a fake readback), so it proves the filtered baseline actually STICKS
+     *    on the platform — not merely that the enforcer's logic is internally consistent.
+     *  - The readback oracle is [DevicePolicyManager.getUserRestrictions] for this admin — the
+     *    DO-authoritative view, the same fail-closed-correct authority the enforcer verifies against.
+     *    [UserManager.hasUserRestriction] is deliberately NOT used: its effective view can report a
+     *    restriction set by another source and so fail-OPEN (see `defaultRestrictionReader`).
+     *  - To reduce the "enforcer is both actor and oracle" coupling the runbook warns about, the
+     *    expected set is recomputed independently from the pure [PolicyEnforcer.requiredRestrictionsForSdk]
+     *    (not read off the enforcer's own field), and the readback assertion is the test's own, not
+     *    [PolicyEnforcer.missingRestrictions]. This does not fully break the circle — no more-independent
+     *    *and* fail-closed-correct on-device oracle exists.
+     *
+     * [assumeTrue]-skips when not Device Owner (criterion 1 is the loud failure). Runs in the
+     * provisioned-but-watchdog-halted window (like the latency tests); reverts every restriction it
+     * set in `finally`. Factory-Reset-Protection is a separate call and is untouched.
+     */
+    @Test
+    fun exitCriterion2_enforcedBaselineIntactMinusAdbKiller() {
+        assumeTrue("requires Device Owner (provision first)", isDeviceOwner())
+        val adbKiller = UserManager.DISALLOW_DEBUGGING_FEATURES
+
+        // Independent expectation: the full baseline for THIS OS level minus only the ADB-killer,
+        // computed straight from the pure function so it does not trust the enforcer's own list.
+        val expected = PolicyEnforcer.requiredRestrictionsForSdk(Build.VERSION.SDK_INT) - adbKiller
+        assertTrue("baseline must be non-trivial", expected.size >= 2)
+        assertTrue("expected set must exclude the ADB-killer", adbKiller !in expected)
+
+        val enforcer = PolicyEnforcer(context, restrictionFilter = { it != adbKiller })
+        // List-level guard: the seam must have produced exactly the independently-computed set.
+        assertEquals(
+            "seam-filtered requiredRestrictions must equal the independent expectation",
+            expected.toSet(),
+            enforcer.requiredRestrictions.toSet(),
+        )
+
+        try {
+            // Real apply + real self-verify against the live DevicePolicyManager. Throws (and locks)
+            // if any filtered restriction does not stick — a loud failure, never a silent pass. ADB
+            // survives because the ADB-killer was filtered out of the applied set.
+            enforcer.applyDayOneRestrictions()
+
+            // Test-owned DO-authoritative readback (NOT enforcer.missingRestrictions()).
+            val set = dpm.getUserRestrictions(admin)
+            val notSet = expected.filterNot { set.getBoolean(it, false) }
+            assertTrue("enforced baseline missing from DO-authoritative readback: $notSet", notSet.isEmpty())
+            // The ADB-killer must NOT have been applied by this filtered run — that is what kept ADB
+            // alive to reach this assertion. Its release-set membership is a separate host test.
+            assertTrue(
+                "filtered run must not have applied the ADB-killer $adbKiller",
+                !set.getBoolean(adbKiller, false),
+            )
+        } finally {
+            // Revert to the pre-test state so a watchdog-halted device is left unrestricted. A live
+            // watchdog re-asserts the FULL baseline (and severs ADB) on its next tick — the documented
+            // enforcement behaviour, hence the halted-watchdog run precondition.
+            expected.forEach { runCatching { dpm.clearUserRestriction(admin, it) } }
+        }
     }
 
     /**
