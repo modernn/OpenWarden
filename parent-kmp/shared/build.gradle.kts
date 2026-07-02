@@ -52,6 +52,13 @@ kotlin {
         androidUnitTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.junit)
+            implementation(libs.kotlinx.coroutines.test)
+            // Host-side HTTPS server for the PinnedChildConnector tests (ADR-031 D9): MockWebServer +
+            // okhttp-tls HeldCertificate stand up a real TLS leaf so the connector's capture -> verify ->
+            // fail-closed path is proven over an actual handshake, not a mock. OkHttp 4.12 matches the
+            // Ktor 2.3 OkHttp client engine already on the androidMain classpath.
+            implementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+            implementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
         }
         // Bouncy Castle backs the parent root-key derivation (ADR-033: Argon2id/HKDF/
         // Ed25519/X25519). It is a pure-JVM lib, so the JVM + Android source sets share it
