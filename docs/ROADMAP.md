@@ -84,16 +84,21 @@ A parent can pair, see state, and push a policy — from a phone.
   SAS done *(#97, PR #105, ADR-038)*; (e) pin on Match done *(#98, PR #107, ADR-039)*;
   (f) orchestration controller + transport lifecycle + Compose QR/SAS UI wired *(ADR-043)* —
   the parent half now runs end-to-end from the app (show QR → receive POST → attestation →
-  six-emoji compare → pin), discharging the ADR-039 D5a residual. The **child side** (QR scan +
-  §7.2 POST + child-side SAS compute + child pin of the parent keys, §7.5) and parent-side
-  **mDNS advertising** remain before full end-to-end pairing works.
+  six-emoji compare → pin), discharging the ADR-039 D5a residual. Parent-side **mDNS discovery**
+  now ships *(#21, #165, ADR-031 D9)*. The **child side** (QR scan + §7.2 POST + child-side SAS
+  compute + child pin of the parent keys, §7.5) remains before full end-to-end pairing works.
 - [x] Dashboard: child online status, today's usage, recent blocks *(#25, PR #67)*
 - [x] App allowlist editor: pull installed apps from child, toggle allowed *(#26, PR #77)*
 - [x] "Lock now" / "Unlock now" *(#28, PR #76)*
 - [x] Generate Ed25519 root key, show 24-word recovery phrase, force confirm *(#24, PR #86, ADR-033)*
 - [x] Send signed policy bundles *(#27, PR #89, ADR-034)*
-- [ ] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
-  WireGuard modes deferred.
+- [x] **Transport: LAN-only default** (mDNS discovery, no services). Tailscale /
+  WireGuard modes deferred. — child advertises `_openwarden._tcp` + terminates TLS with an
+  identity-signed SPKI assertion *(#164, ADR-031 D8)*; parent discovers via `NsdManager` and
+  connects through a **SPKI-pinning, no-TOFU, fail-closed** client that rejects a spoofed/MITM
+  child on the LAN *(#21, #165, ADR-031 D9)* — closing red-team TR1. Spoof-reject proven
+  deterministically host-side over real TLS handshakes on **both** halves. Live two-emulator
+  demo cutover (retire hardcoded `http://10.0.2.2:7180`) tracked in *#166*.
 
 ### v0.4 — provisioning + CI hardening
 
