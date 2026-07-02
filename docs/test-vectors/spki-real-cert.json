@@ -1,0 +1,7 @@
+{
+  "description": "Real EC P-256 self-signed TLS leaf certificate and its golden RFC 7469 SPKI pin (ADR-031 D2/D8/D9). Proves the child SpkiBinding.spkiSha256 and the parent SpkiBindingVerifier.spkiSha256 both compute base64url-no-pad(SHA-256(DER SubjectPublicKeyInfo)) identically over a REAL X.509 leaf (not opaque bytes) — the cert-substitution defense (D2 check 3) binds the assertion against exactly this value, extracted from the negotiated handshake leaf.",
+  "curve": "prime256v1 (secp256r1 / NIST P-256)",
+  "spki_der_len_bytes": 91,
+  "spki_sha256": "XqmLYxj82cRm_KhN4g08ojqhiKbJeuMBM9YH4vI5lDk",
+  "cert_pem": "-----BEGIN CERTIFICATE-----\nMIIBlzCCAT2gAwIBAgIUXsB6TfyK1cCcku0DIWTdqoSpriUwCgYIKoZIzj0EAwIw\nITEfMB0GA1UEAwwWb3BlbndhcmRlbi1zcGtpLXZlY3RvcjAeFw0yNjA3MDIwNzA0\nMDZaFw0zNjA2MjkwNzA0MDZaMCExHzAdBgNVBAMMFm9wZW53YXJkZW4tc3BraS12\nZWN0b3IwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAARJWFmYHbLT6onP6oAdW1V/\naK2VMiCW6n8bAa1nvAtg4z1yKsRqPAUMFfDG3TbvWldvaNL8Gc1CvWJ66MSwaJkD\no1MwUTAdBgNVHQ4EFgQUJAh8tY1wW1jF8Khwv+Kwid9jAEQwHwYDVR0jBBgwFoAU\nJAh8tY1wW1jF8Khwv+Kwid9jAEQwDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQD\nAgNIADBFAiEA0+lyq2T+AYzwMNAbbOLSOvBdHxPu6PBQeSP5ypYjFlUCIBOr/PkH\n5NcxwKwoYiOc6KdaczLL24WPGM0Cx0nx/+N4\n-----END CERTIFICATE-----\n"
+}
