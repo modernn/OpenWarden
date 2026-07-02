@@ -1,0 +1,39 @@
+{
+  "id": "cmd-canonical-kat",
+  "spec": "PROTOCOL §3.1 (sign-and-transmit-exact-bytes) / ADR-030 / ADR-046 D3 / ADR-047",
+  "description": "Known-answer test for the canonical signing bytes of a SignedCommand (lock / unlock). The Ed25519 signature covers the RFC 8785 (JCS) canonical bytes of the command with its `sig` field removed. Both independent implementations MUST produce these exact bytes: the parent `CommandSigner.signingBytes` (parent-kmp, Bouncy Castle side) and the child `CommandVerifier.canonicalBody` (child-android, libsodium side). JCS rules pinned here: keys sorted by UTF-16 code unit (child_device_id < issued_at < type < v), no whitespace, integer `issued_at`/`v`, `sig` excluded, and `v:1` PRESENT (a defaulted value is part of the signed bytes — encodeDefaults=true, ADR-047 D1). If either port drifts (key order, whitespace, `sig` inclusion, number formatting, or a dropped `v`) it produces different bytes and rejects every command with SIG_FAIL / MALFORMED.",
+  "vectors": [
+    {
+      "type": "lock",
+      "input": {
+        "v": 1,
+        "type": "lock",
+        "child_device_id": "child-abcd",
+        "issued_at": 10000000,
+        "sig": "(excluded from signing bytes)"
+      },
+      "canonical_bytes_utf8": "{\"child_device_id\":\"child-abcd\",\"issued_at\":10000000,\"type\":\"lock\",\"v\":1}",
+      "canonical_bytes_len": 73,
+      "canonical_bytes_hex": "7b226368696c645f6465766963655f6964223a226368696c642d61626364222c226973737565645f6174223a31303030303030302c2274797065223a226c6f636b222c2276223a317d"
+    },
+    {
+      "type": "unlock",
+      "input": {
+        "v": 1,
+        "type": "unlock",
+        "child_device_id": "child-9",
+        "issued_at": 1,
+        "sig": "(excluded from signing bytes)"
+      },
+      "canonical_bytes_utf8": "{\"child_device_id\":\"child-9\",\"issued_at\":1,\"type\":\"unlock\",\"v\":1}",
+      "canonical_bytes_len": 65,
+      "canonical_bytes_hex": "7b226368696c645f6465766963655f6964223a226368696c642d39222c226973737565645f6174223a312c2274797065223a22756e6c6f636b222c2276223a317d"
+    }
+  ],
+  "notes": {
+    "v_is_present": "v:1 is a defaulted field on the parent SignedCommand but is signed and MUST appear on the wire (ADR-047 D1). The child SignedCommand.v has NO default: a v-less body is rejected MALFORMED (fail-closed, ADR-047 D3), never re-defaulted.",
+    "cross_impl": "Consumed by parent-kmp shared/commonTest SignedCommandCanonicalVectorTest (CommandSigner.signingBytes) and child-android CommandCanonicalVectorTest (CommandVerifier.canonicalBody). Both MUST equal canonical_bytes_utf8.",
+    "reproduce_hex": "python -c \"print('{\\\"child_device_id\\\":\\\"child-abcd\\\",\\\"issued_at\\\":10000000,\\\"type\\\":\\\"lock\\\",\\\"v\\\":1}'.encode().hex())\""
+  },
+  "expect": "BOTH ports emit canonical_bytes_utf8 verbatim; any drift → SIG_FAIL / MALFORMED (fail-closed)"
+}

@@ -58,6 +58,22 @@ class PolicySenderTest {
         }
 
     @Test
+    fun wireCarriesSignedDefaults_guardsEncodeDefaults() =
+        runTest {
+            val transport = FakePolicyTransport(PolicyPostResult.Applied(1))
+            sender(transport = transport).send(Policy())
+            val wire = assertNotNull(transport.lastJson)
+            // #157/#160/ADR-047 D4: the RAW wire PolicySender.json produced MUST carry the defaulted
+            // fields the signature covers. Removing encodeDefaults would drop them (killing policy push
+            // like #157 killed lock); a decode-based assertion would re-default them and hide the bug.
+            assertTrue(wire.contains("\"v\":1"), "wire must include v:1 (encodeDefaults): $wire")
+            assertTrue(wire.contains("\"allowlist\":[]"), "wire must include empty allowlist: $wire")
+            assertTrue(wire.contains("\"blocklist\":[]"), "wire must include empty blocklist: $wire")
+            assertTrue(wire.contains("\"windows\":[]"), "wire must include empty windows: $wire")
+            assertTrue(wire.contains("\"restrictions\":[]"), "wire must include empty restrictions: $wire")
+        }
+
+    @Test
     fun rejectedPassesChildReason() =
         runTest {
             val result = sender(transport = FakePolicyTransport(PolicyPostResult.Rejected("REGRESSION"))).send(Policy())

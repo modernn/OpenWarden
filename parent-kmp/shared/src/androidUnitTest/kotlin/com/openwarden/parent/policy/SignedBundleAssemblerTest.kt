@@ -7,6 +7,10 @@ import com.openwarden.parent.crypto.RootKeyDerivation
 import com.openwarden.parent.crypto.StoredRootKeyProvider
 import com.openwarden.parent.crypto.bip39.Bip39
 import com.openwarden.proto.Policy
+import com.openwarden.proto.PolicyBundle
+import com.openwarden.proto.SigningInput
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 import kotlin.test.Test
@@ -55,6 +59,46 @@ class SignedBundleAssemblerTest {
         val pub = assertNotNull(provider.rootPublicKey())
         // signingBytes strips `sig`, so it equals the bytes that were signed.
         assertTrue(verifiesUnder(pub, signed.sig!!, PolicySigner.signingBytes(signed)))
+    }
+
+    // Production-shaped wire config (must match PolicySender.json). encodeDefaults=true is load-bearing.
+    private val wireJson =
+        Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
+
+    // The #157 defect shape for the bundle: encodeDefaults DROPPED (explicitNulls held false to isolate it).
+    private val noDefaultsJson = Json { explicitNulls = false }
+
+    @Test
+    fun signedBundleVerifiesOverTheTransmittedWireBytes() {
+        // #160 / ADR-047 D4: verify the REAL Ed25519 signature over the bytes actually transmitted
+        // (serialize → parse → canonicalize as the child does per ADR-040), not a re-derivation from the
+        // typed model. Proves the wire the parent sends is the wire the child accepts.
+        val provider = provisionedProvider()
+        val signed = assertNotNull(SignedBundleAssembler.assemble(unsigned(), provider))
+        val pub = assertNotNull(provider.rootPublicKey())
+
+        val wire = wireJson.encodeToString(PolicyBundle.serializer(), signed)
+        assertTrue(wire.contains("\"v\":1"), "transmitted wire must carry v:1")
+        val wireBytes = SigningInput.forDocument(Json.parseToJsonElement(wire).jsonObject)
+        assertTrue(verifiesUnder(pub, signed.sig!!, wireBytes), "real signature must verify over the transmitted wire bytes")
+    }
+
+    @Test
+    fun droppingDefaultsOnTheWireBreaksTheRealSignature() {
+        // The negative twin: a wire serialized WITHOUT encodeDefaults drops `v` + the empty policy lists,
+        // so the child canonicalizes different bytes and the real signature FAILS — exactly #157, but for
+        // the bundle. This is what the invariant (ADR-047 D1) prevents.
+        val provider = provisionedProvider()
+        val signed = assertNotNull(SignedBundleAssembler.assemble(unsigned(), provider))
+        val pub = assertNotNull(provider.rootPublicKey())
+
+        val bad = noDefaultsJson.encodeToString(PolicyBundle.serializer(), signed)
+        assertFalse(bad.contains("\"v\":"), "no-encodeDefaults wire must drop v")
+        val badBytes = SigningInput.forDocument(Json.parseToJsonElement(bad).jsonObject)
+        assertFalse(verifiesUnder(pub, signed.sig!!, badBytes), "signature must NOT verify over a defaults-dropped wire")
     }
 
     @Test

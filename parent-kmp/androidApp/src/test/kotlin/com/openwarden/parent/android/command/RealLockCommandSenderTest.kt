@@ -113,13 +113,19 @@ class RealLockCommandSenderTest {
     fun unlock_postsToUnlock() =
         runTest {
             var url = ""
+            var body = ""
             val engine =
                 MockEngine { req ->
                     url = req.url.toString()
+                    body = req.body.toByteArray().decodeToString()
                     respond("", HttpStatusCode.OK)
                 }
             sender(engine).sendUnlock()
             assertTrue("posts to /unlock: $url", url.endsWith("/unlock"))
+            // #157/#160 regression: the unlock wire (not just lock) must carry "v":1 — the signature
+            // covers it and the child's SignedCommand.v has no default (v-less body → 400 MALFORMED).
+            assertTrue("unlock wire must include \"v\":1 (encodeDefaults), got: $body", body.contains("\"v\":1"))
+            assertTrue("unlock wire type must be unlock, got: $body", body.contains("\"type\":\"unlock\""))
         }
 
     @Test
