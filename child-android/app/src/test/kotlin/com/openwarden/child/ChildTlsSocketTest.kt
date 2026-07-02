@@ -183,4 +183,26 @@ class ChildTlsSocketTest {
             engine.stop(100, 500)
         }
     }
+
+    @Test
+    fun `fail-closed - a throwing signer serves 204, never a 500 (review finding)`() {
+        // A provider with a (non-null) identity key whose sign() throws — models a keystore/crypto fault.
+        // The route MUST fold the throw into the no-assertion path (204), not crash the handler.
+        val throwing =
+            object : IdentityKeyProvider {
+                override fun identityPublicKey(): ByteArray = ByteArray(32) { 1 }
+
+                override fun sign(message: ByteArray): ByteArray = throw RuntimeException("keystore fault")
+            }
+        val leaf = TlsLeaf.generate()
+        val port = freePort()
+        val engine = serverWith(port, leaf, throwing)
+        try {
+            val (code, body, _) = fetch(port, "/spki-assertion")
+            assertEquals(204, code)
+            assertTrue(body.isEmpty())
+        } finally {
+            engine.stop(100, 500)
+        }
+    }
 }

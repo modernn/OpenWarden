@@ -24,7 +24,11 @@ fun Route.spkiAssertionRoute(
     identityKeyProvider: IdentityKeyProvider,
 ) {
     get("/spki-assertion") {
-        val assertion = leafSpkiDer()?.let { SpkiBindingSigner.assertFor(it, identityKeyProvider) }
+        // Fail-closed on ANY error: if the signer throws (SHA-256 unavailable, serialization, a keystore
+        // fault), fold it into the same null path as "no key" and serve 204 — never a 500 (which would
+        // leak a stack trace and is not the documented no-assertion contract). The parent rejects either
+        // way, but 204 is the honest, side-effect-free fail-closed response.
+        val assertion = runCatching { leafSpkiDer()?.let { SpkiBindingSigner.assertFor(it, identityKeyProvider) } }.getOrNull()
         if (assertion == null) {
             call.respond(HttpStatusCode.NoContent)
         } else {
