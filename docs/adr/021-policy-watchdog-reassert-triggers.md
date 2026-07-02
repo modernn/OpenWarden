@@ -102,6 +102,19 @@ actually (re)starts the foreground service. That is now pinned deterministically
   **even when the Day-One apply throws** (no DO), proving the `finally` keeps enforcement alive to
   retry rather than leaving it dead (fail-closed-but-alive, per ADR-020).
 
+**Scope — what "comes up on boot" means here (do not over-attribute).** The DISALLOW_* Day-One
+baseline is a *persistent Device Owner config*: the OS re-enforces it at boot before any app code
+runs, independent of whether `BootReceiver` fires — that is the A7 boot-race defense (DEFENSES.md),
+unchanged and **not** what these tests exercise. What the boot/provision → FGS restart
+re-establishes is the *app-code control plane*: the watchdog that heals drift and re-asserts the
+**non-persistent** surfaces (allowlist suspension state, the DNS floor once #19 lands,
+profile-escape detection). So these tests pin that the control-plane service restarts on the
+boot/provision broadcasts; they must **not** be cited as proof the persistent baseline "comes up" —
+it never went down. Separately, the `LOCKED_BOOT_COMPLETED` case is *receiver wiring only*: with no
+`directBootAware` component (none today), the locked / pre-unlock delivery does not occur on
+hardware, so nothing in the app runs before first unlock. Whether the control plane should be
+`directBootAware` is a separate, unratified security-posture decision (follow-up).
+
 **Why this is a JVM contract and not an adb-driven CI gate:** a Device Owner enforcing
 `DISALLOW_DEBUGGING_FEATURES` severs adb, so the device-level assertion "after a real boot the
 restrictions are physically live" cannot be observed over adb in CI (the #30 criterion-2 /

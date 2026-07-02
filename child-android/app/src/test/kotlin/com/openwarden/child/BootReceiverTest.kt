@@ -27,9 +27,17 @@ import kotlin.test.assertNotNull
  * `connectedAndroidTest` suite — it cannot be a JVM/CI assertion because a Device Owner enforcing
  * `DISALLOW_DEBUGGING_FEATURES` severs adb (#30 criterion 2 / #124).
  *
- * Both declared boot actions must bring enforcement back up: `BOOT_COMPLETED` (normal boot) and
- * `LOCKED_BOOT_COMPLETED` (direct-boot, before the user unlocks). [BootReceiver] is intentionally
- * unconditional — any delivered boot broadcast restarts the FGS.
+ * [BootReceiver] is declared for two boot actions and is intentionally unconditional — any
+ * delivered boot broadcast restarts the FGS. This test pins that *receiver wiring* for both
+ * declared actions.
+ *
+ * Caveat — do NOT read the `LOCKED_BOOT_COMPLETED` case as a working direct-boot guarantee. That
+ * action is only actually delivered in the locked / pre-unlock (direct-boot) window to components
+ * marked `android:directBootAware="true"`, and **no component here is direct-boot-aware today**.
+ * So on real hardware the app does not run in that window; Robolectric does not model direct-boot
+ * gating, so this test proves only that the receiver *would* start PolicyService when the broadcast
+ * is delivered — NOT that enforcement comes up before first unlock. Whether the control plane
+ * should be `directBootAware` is a separate, unratified security-posture decision (follow-up).
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -59,7 +67,10 @@ class BootReceiverTest {
     }
 
     @Test
-    fun `LOCKED_BOOT_COMPLETED starts the enforcement service (direct-boot)`() {
+    fun `LOCKED_BOOT_COMPLETED is wired to start the enforcement service`() {
+        // Wiring only: effective locked-window delivery needs android:directBootAware (not set
+        // today) — see the class kdoc. This asserts the receiver would start PolicyService when the
+        // broadcast is delivered, NOT that enforcement runs before first unlock.
         assertStartsPolicyService(Intent.ACTION_LOCKED_BOOT_COMPLETED)
     }
 }
