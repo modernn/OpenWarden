@@ -27,6 +27,12 @@ import kotlin.test.assertTrue
  * defaulted fields, so the wire no longer contains `"v"` and no longer canonicalizes to the signed
  * bytes — the exact #157 failure, reproduced deterministically. `explicitNulls=false` is held constant
  * across positive and negative so `encodeDefaults` is the ONLY variable (the real #157 root cause).
+ *
+ * SCOPE: these use production-SHAPED wire configs to prove the PROPERTY (encodeDefaults ⇒ wire == signed
+ * bytes) and, in [SignedBundleAssemblerTest], that a real Ed25519 signature verifies over it. The
+ * PRODUCTION-CONFIG regression guards — the tests that go red if `encodeDefaults` is removed from the
+ * REAL senders — are `PolicySenderTest.wireCarriesSignedDefaults_guardsEncodeDefaults` (asserts the raw
+ * body `PolicySender.json` emits) and `RealLockCommandSenderTest` (asserts the raw MockEngine body).
  */
 class SignedWireByteEqualityTest {
     // Production-shaped wire configs (must match PolicySender.json / RealLockCommandSender's HttpClient).
@@ -63,6 +69,7 @@ class SignedWireByteEqualityTest {
 
         // Raw wire carries the defaulted fields the signature covers (decode would re-default and hide it).
         assertTrue(wire.contains("\"v\":1"), "wire must carry v:1: $wire")
+        assertTrue(wire.contains("\"allowlist\":[]"), "wire must carry empty allowlist: $wire")
         assertTrue(wire.contains("\"blocklist\":[]"), "wire must carry empty blocklist: $wire")
         assertTrue(wire.contains("\"windows\":[]"), "wire must carry empty windows: $wire")
         assertTrue(wire.contains("\"restrictions\":[]"), "wire must carry empty restrictions: $wire")

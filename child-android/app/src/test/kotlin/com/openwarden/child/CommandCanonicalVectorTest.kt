@@ -1,7 +1,10 @@
 package com.openwarden.child
 
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 /**
  * Child half of the shared canonical `SignedCommand` known-answer test (#154, ADR-047 D4).
@@ -40,6 +43,24 @@ class CommandCanonicalVectorTest {
         val bytes = CommandVerifier.canonicalBody(cmd)
         assertEquals(unlockCanonical, bytes.decodeToString())
         assertEquals(unlockHex, bytes.toHexLower())
+    }
+
+    @Test
+    fun vLessCommandBody_failsToDecode_pinsAdr047D3FailClosedFuse() {
+        // ADR-047 D3 FUSE: the child SignedCommand.v has NO default, so a v-less wire body cannot decode
+        // (→ ApiServer's runCatching { call.receive<SignedCommand>() }.getOrNull() == null → 400 MALFORMED).
+        // This is the fail-closed fuse that made #157 fatal but is kept deliberately. If a future change
+        // adds `v: Int = 1` to the child model for parent/child symmetry — the exact change D3 rejects —
+        // the decode SUCCEEDS and THIS test goes red, catching the fail-closed regression at the model level.
+        // (ignoreUnknownKeys only affects EXTRA keys; a missing required field still throws.)
+        val decoder = Json { ignoreUnknownKeys = true }
+        val vLessLock = """{"type":"lock","child_device_id":"child-abcd","issued_at":10000000}"""
+        assertFailsWith<SerializationException> { decoder.decodeFromString(SignedCommand.serializer(), vLessLock) }
+
+        // Control: the SAME body WITH v decodes cleanly — proving it is v specifically that is required,
+        // not a broken decoder.
+        val withV = """{"v":1,"type":"lock","child_device_id":"child-abcd","issued_at":10000000}"""
+        assertEquals(1, decoder.decodeFromString(SignedCommand.serializer(), withV).v)
     }
 
     private fun ByteArray.toHexLower(): String = joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
