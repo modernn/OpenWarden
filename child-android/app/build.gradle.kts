@@ -50,15 +50,24 @@ dependencies {
     // otherwise. Best-effort at-rest integrity only — NOT a hardware monotonic counter.
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
-    // Embedded HTTP server, control plane
+    // Embedded HTTPS server, control plane. Netty engine (ADR-031 D8): the CIO server engine cannot
+    // terminate TLS, so the LAN control channel runs on Netty + sslConnector. Confidentiality-only —
+    // authentication stays app-layer (ADR-030/-031 D1).
     implementation("io.ktor:ktor-server-core:2.3.12")
-    implementation("io.ktor:ktor-server-cio:2.3.12")
+    implementation("io.ktor:ktor-server-netty:2.3.12")
     implementation("io.ktor:ktor-server-content-negotiation:2.3.12")
     implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
 
     // JSON + crypto
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("net.i2p.crypto:eddsa:0.3.0") // Ed25519
+
+    // Self-signed TLS leaf minting for the LAN HTTPS control channel (ADR-031 D8). BouncyCastle is
+    // JVM-portable (the same lib the parent-kmp D7 verifier trusts), so the socket + handshake are
+    // host/Robolectric-testable rather than device-only. Software leaf key — TLS is confidentiality-
+    // only, the channel's trust is the identity-bound SpkiAssertion, so the leaf never authenticates.
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     // BIP39 mnemonic lib added when #15 (recovery phrase) is built — pick a Maven Central lib then
 
     // QR
